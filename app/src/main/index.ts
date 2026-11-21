@@ -3,6 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
@@ -101,7 +102,17 @@ app.whenReady().then(() => {
   const agent = new Agent(bus, sendUi, haptics, llm, names[0], {
     mic: winMic.available ? winMic : null,
     roles,
-    allowRoleSwitch: !app.isPackaged
+    allowRoleSwitch: !app.isPackaged,
+    // Simulated helpdesk: tickets land as JSON in the app's data folder (outside the repo). No real IT system.
+    tickets: {
+      send: async (t) => {
+        const dir = join(app.getPath('userData'), 'it-tickets')
+        await mkdir(dir, { recursive: true })
+        const file = join(dir, `${t.id}.json`)
+        await writeFile(file, JSON.stringify(t, null, 2))
+        return { ok: true, where: file }
+      }
+    }
   })
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
   // B's recorder writes the call audio of the same session there too (audio/recorder.ts).

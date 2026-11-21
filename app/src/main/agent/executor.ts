@@ -7,6 +7,7 @@ import type { TapEvent, UiCommand, Waveform } from '../../shared/events.ts'
 import { now } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
+import type { Diagnostics } from './monitor.ts'
 import { ACTION_TIER, denyReason, permission, RoleState, type UserRole } from './permissions.ts'
 import { decide, initialState, type RulesState } from './rules.ts'
 import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent } from './schemas.ts'
@@ -23,6 +24,26 @@ export interface HapticsPort {
  */
 export interface MicPort {
   fix(fix: 'unmute' | 'switch' | 'volume', mic: 'laptop' | 'headset'): Promise<{ ok: boolean; text: string }>
+}
+
+/** An IT ticket: device facts only. No transcript, no names (not even the mic's device name, which can hold one). */
+export interface ItTicket {
+  id: string
+  createdAt: string
+  priority: 'normal' | 'priority'
+  requesterRole: string
+  diagnostics: Diagnostics | null
+  mic: { kind: 'laptop' | 'headset'; muted: boolean; volume: number; otherKind?: 'laptop' | 'headset' } | null
+}
+
+/** Where tickets go: a simulated helpdesk (index.ts writes JSON files). Returns where it was stored. */
+export interface TicketPort {
+  send(ticket: ItTicket): Promise<{ ok: boolean; where: string }>
+}
+
+export interface ExecutorPorts {
+  tickets?: TicketPort
+  diagnostics?: () => Diagnostics
 }
 
 type SummaryResult = PayloadOf<'summary'>
@@ -82,6 +103,8 @@ export class Executor {
   private hapticsDisabled = false
   private mic: MicPort | null
   private roles: RoleState
+  private ports: ExecutorPorts
+  private ticketSeq = 0
 
   constructor(
     events: EventBus,
@@ -90,10 +113,12 @@ export class Executor {
     haptics: HapticsPort,
     report: Reporter,
     mic: MicPort | null = null,
-    roles: RoleState = new RoleState()
+    roles: RoleState = new RoleState(),
+    ports: ExecutorPorts = {}
   ) {
     this.mic = mic
     this.roles = roles
+    this.ports = ports
     this.bus = bus
     this.ui = ui
     this.haptics = haptics
@@ -233,7 +258,8 @@ export class Executor {
           problem: a.problem,
           fix_label: a.fixLabel,
           action_id: a.fixAction,
-          ...(a.altLabel && a.altAction ? { alt_label: a.altLabel, alt_action_id: a.altAction } : {})
+          ...(a.altLabel && a.altAction ? { alt_label: a.altLabel, alt_action_id: a.altAction } : {}),
+          ...(a.itTicket ? { it_ticket: true } : {})
         })
         this.report.log('action', `${capitalise(a.why)} → fix card shown ("${a.fixLabel}"; nothing changes until you click)`)
         return true
@@ -256,10 +282,11 @@ export class Executor {
       case 'dismiss_card':
         this.ui({ type: 'DISMISS', id: a.cardId })
         return true
+      case 'open_it_ticket':
+        return this.sendTicket()
       case 'show_minutes':
       case 'share_recap':
       case 'send_action_items':
-      case 'open_it_ticket':
         this.report.log('decision', `${a.action} is not wired yet`) // filled in by the next steps
         return false
       case 'send_haptic': {
@@ -274,6 +301,31 @@ export class Executor {
         return ok
       }
     }
+  }
+
+  /** The user's click: their own device facts (no speech, no names) to IT, with priority by role (VIP support). */
+  private async sendTicket(): Promise<boolean> {
+    const flags = this.roles.flags
+    const m = this.state.mic
+    const ticket: ItTicket = {
+      id: `T-${String(++this.ticketSeq).padStart(4, '0')}`,
+      createdAt: new Date(now() * 1000).toISOString(),
+      priority: flags.ticketPriority,
+      requesterRole: flags.label,
+      diagnostics: this.ports.diagnostics?.() ?? null,
+      mic: m ? { kind: m.kind, muted: m.muted, volume: m.volume, ...(m.otherKind ? { otherKind: m.otherKind } : {}) } : null
+    }
+    const sent = this.ports.tickets
+      ? await this.ports.tickets.send(ticket).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
+      : { ok: true, where: 'log only' }
+    if (!sent.ok) {
+      this.report.log('error', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} could not be saved (${sent.where})`)
+      return false
+    }
+    const queue = ticket.priority === 'priority' ? 'priority: executive support' : 'normal queue'
+    this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk)` })
+    this.report.log('action', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent (${queue}; device facts only, no speech; ${sent.where})`)
+    return true
   }
 
   /**

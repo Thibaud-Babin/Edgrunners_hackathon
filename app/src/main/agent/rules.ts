@@ -160,6 +160,7 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
           problem: `Someone said: "${quote(hit.text)}"`,
           fixLabel: 'Switch to laptop mic',
           fixAction: 'switch_input_device',
+          itTicket: true,
           why: 'others cannot hear you'
         })
       d.actions.push({ action: 'send_haptic', waveform: HAPTIC.problem, why: 'others cannot hear you' })
@@ -233,6 +234,7 @@ function checkMicFix(d: Decision, t: number): void {
       problem: `Your mic has been ${what} for over ${MIC_BAD_FOR_S} s`,
       fixLabel: 'Switch to laptop mic',
       fixAction: 'switch_input_device',
+      itTicket: true,
       why: `mic ${what} for over ${MIC_BAD_FOR_S} s`
     })
   } else if (s.micFixStage === 2) {
@@ -242,6 +244,7 @@ function checkMicFix(d: Decision, t: number): void {
       problem: `Mic still ${what} after switching. Check it is not muted, move closer, or plug in a headset.`,
       fixLabel: 'OK',
       fixAction: 'dismiss_card',
+      itTicket: true,
       why: `mic still ${what} ${MIC_BAD_FOR_S} s after switching`
     })
   }
@@ -271,6 +274,9 @@ function onUser(d: Decision, u: UserInput, t: number): void {
       d.state.micFixStage = 2
       d.state.micBad = { ...d.state.micBad, since: t } // give the fix 10 s before judging it
     }
+  } else if (actionId === 'open_it_ticket' || actionId === 'share_recap' || actionId === 'send_action_items') {
+    // Role-gated actions (permissions.ts): the rules only pass the click on; the executor's gate decides by role.
+    d.actions.push({ action: actionId, cardId: u.cardId ?? '', why: `you clicked "${CLICK_LABEL[actionId]}"` })
   } else if (actionId === 'snooze_mic_alerts') {
     d.state.micSnoozeUntil = t + MIC_SNOOZE_S
     d.state.micPlan = null
@@ -289,6 +295,8 @@ function onUser(d: Decision, u: UserInput, t: number): void {
 }
 
 // ---------- mic doctor ----------
+
+const CLICK_LABEL = { open_it_ticket: 'Send diagnostics to IT', share_recap: 'Share with team', send_action_items: 'Send to attendees' } as const
 
 const FIX_LABEL: Record<MicFix, (mic: MicKind) => string> = {
   unmute: (mic) => `Unmute ${mic} mic`,
@@ -375,6 +383,7 @@ function micCard(d: Decision, t: number, reported: boolean, context: string, qua
     problem: problem.slice(0, 280),
     fixLabel: plan ? FIX_LABEL[plan.fix](plan.mic) : 'Got it',
     fixAction: plan ? 'fix_mic' : 'dismiss_card',
+    itTicket: true, // a device problem: the user may also send the diagnostics to IT
     // Muted while talking, found by Tap itself: you may be muted on purpose.
     ...(plan?.fix === 'unmute' && !reported ? { altLabel: "I'm muted on purpose", altAction: 'snooze_mic_alerts' as const } : {}),
     why: reported ? 'others cannot hear you' : quality ? 'mic quality bad' : mic.muted ? 'you are talking while muted' : 'you are talking but your mic sends nothing'

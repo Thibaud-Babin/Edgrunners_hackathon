@@ -11,7 +11,7 @@ import type { LogEntry, TapEvent, UiCommand } from '../../shared/events.ts'
 import { AgentBus, type EventBus } from '../bus.ts'
 import type { Haptics } from '../haptics.ts'
 import { AudioAgent } from './audio-agent.ts'
-import { Executor, type MicPort } from './executor.ts'
+import { Executor, type MicPort, type TicketPort } from './executor.ts'
 import type { Llm } from './llm.ts'
 import { Monitor } from './monitor.ts'
 import { RoleState, ROLES, type UserRole } from './permissions.ts'
@@ -35,6 +35,8 @@ export interface AgentOptions {
   roles?: RoleState
   /** Accept USER_SET_ROLE from the UI. Only true in dev builds: a production UI must never change the role. */
   allowRoleSwitch?: boolean
+  /** Where IT tickets go (simulated helpdesk). Without it, tickets are only logged. */
+  tickets?: TicketPort
 }
 
 export class Agent {
@@ -50,7 +52,10 @@ export class Agent {
     bus.onInvalid = report.invalid
     new AudioAgent(events, bus, llm, userName, report, this.roles)
     startVisionIntake(events, bus, report)
-    const executor = new Executor(events, bus, ui, haptics, report, opts.mic ?? null, this.roles)
+    const executor = new Executor(events, bus, ui, haptics, report, opts.mic ?? null, this.roles, {
+      ...(opts.tickets ? { tickets: opts.tickets } : {}),
+      diagnostics: () => monitor.diagnostics()
+    })
     monitor.start({ llm, executor, haptics })
 
     report.log('decision', `Role: ${this.roles.flags.label} (from config) → ${roleSummary(this.roles.role)}`)

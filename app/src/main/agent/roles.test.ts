@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import type { EventType, UiCommand } from '../../shared/events.ts'
 import { AgentBus, EventBus } from '../bus.ts'
 import { AudioAgent } from './audio-agent.ts'
-import { Executor, STT_GRACE_MS } from './executor.ts'
+import { Executor, gate, type ItTicket, STT_GRACE_MS } from './executor.ts'
 import { Llm, type MessagesClient } from './llm.ts'
 import { RoleState, type UserRole } from './permissions.ts'
 import { startVisionIntake } from './vision-intake.ts'
@@ -12,6 +12,7 @@ import { startVisionIntake } from './vision-intake.ts'
 const T0 = 1_000
 
 export function roleRig(role: UserRole) {
+  const tickets: ItTicket[] = []
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 * 1000 })
   const ui: UiCommand[] = []
   const logs: string[] = []
@@ -30,7 +31,10 @@ export function roleRig(role: UserRole) {
   const report = { log: (_k: string, t: string) => logs.push(t), blocked: (t: string) => logs.push(t), invalid: (t: string) => logs.push(t) }
   new AudioAgent(events, bus, new Llm({ client }), 'Thibaud', report, roles)
   startVisionIntake(events, bus, report)
-  new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, null, roles)
+  new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, null, roles, {
+    tickets: { send: async (t) => (tickets.push(t), { ok: true, where: 'test outbox' }) },
+    diagnostics: () => ({ problems: [{ key: 'mic_muted', firstSeenS: 1, lastSeenS: 2, count: 1 }], feeds: { camera: 'ok', mic: 'ok', callAudio: 'ok' }, micQualityBad: false, aiBreakerOpen: false })
+  })
   const flush = async () => {
     for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
   }
@@ -48,7 +52,7 @@ export function roleRig(role: UserRole) {
     cam('USER_BACK')
     await wait(STT_GRACE_MS / 1000)
   }
-  return { ui, logs, roles, say, cam, wait, flush, awayRecap, ui_, aiCalls: () => aiCalls }
+  return { ui, logs, roles, tickets, events, say, cam, wait, flush, awayRecap, ui_, aiCalls: () => aiCalls }
 }
 
 test('confidential (CEO): the recap is made on the laptop, zero cloud AI calls', async (t) => {
@@ -95,4 +99,45 @@ test('CALL_ENDED from anything but the UI is dropped', async (t) => {
   r.cam('CALL_ENDED' as EventType)
   await r.flush()
   assert.ok(r.logs.some((l) => l.includes('CALL_ENDED with a bad shape or source')))
+})
+
+
+// Muted mic while the mouth moves → fix card with "Send diagnostics to IT"; the user clicks it.
+async function mutedMicTicket(r: ReturnType<typeof roleRig>) {
+  const at = () => Date.now() / 1000
+  r.say('The secret budget is 4 million.', at())
+  r.events.publish({ type: 'MIC_STATE', ts: at(), source: 'mic', data: { name: "Thibaud's AirPods", kind: 'headset', muted: true, volume: 1 } })
+  r.events.publish({ type: 'MOUTH_MOVING', ts: at(), source: 'webcam', data: { active: true } })
+  await r.wait(2)
+  r.events.publish({ type: 'MIC_LEVEL', ts: at(), source: 'mic', data: { rms: 0 } })
+  await r.flush()
+  const card = r.ui.find((c) => c.type === 'SHOW_FIX')
+  assert.ok(card && card.type === 'SHOW_FIX' && card.it_ticket === true, 'device fix cards offer the IT ticket')
+  r.ui_('USER_CLICK', { action_id: 'open_it_ticket', card_id: card.id })
+  await r.flush()
+}
+
+test('IT ticket: device facts only (no speech, no device name), priority by role', async (t) => {
+  t.after(() => mock.timers.reset())
+  for (const [role, priority, queue] of [['intern', 'normal', 'normal queue'], ['ceo', 'priority', 'priority: executive support']] as const) {
+    const r = roleRig(role)
+    await mutedMicTicket(r)
+    assert.equal(r.tickets.length, 1, role)
+    const ticket = r.tickets[0]
+    assert.equal(ticket.priority, priority)
+    assert.deepEqual(ticket.mic, { kind: 'headset', muted: true, volume: 1 })
+    assert.equal(ticket.diagnostics?.problems[0]?.key, 'mic_muted')
+    const json = JSON.stringify(ticket)
+    assert.doesNotMatch(json, /budget|AirPods|Thibaud/, 'no speech, no names in the ticket')
+    const notice = r.ui.find((c) => c.type === 'SHOW_NOTICE')
+    assert.ok(notice && notice.type === 'SHOW_NOTICE')
+    assert.equal(notice.text, `Ticket T-0001 sent to IT (${queue}, simulated helpdesk)`)
+    mock.timers.reset()
+  }
+})
+
+test('IT ticket: only the user\'s click opens it, never a detector, speech or the AI', () => {
+  const req = { action: 'open_it_ticket', cardId: 'c1', why: 'test' }
+  assert.equal(gate(req, 'user', 'intern').verdict, 'run')
+  for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
 })

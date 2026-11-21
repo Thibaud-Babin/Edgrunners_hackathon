@@ -40,6 +40,14 @@ const SttUsage = z.object({ engine: z.string().max(40), cost_usd: z.number().fin
 const MIC_QUALITY_TEXT = { too_quiet: 'too quiet', clipping: 'clipping (too loud)', noisy: 'noisy' } as const
 
 /** The safety levers the checkup agent may pull. */
+/** What an IT ticket may carry about the device: no transcript, no names, no speaker labels. */
+export interface Diagnostics {
+  problems: { key: string; firstSeenS: number; lastSeenS: number; count: number }[]
+  feeds: { camera: 'ok' | 'silent'; mic: 'ok' | 'silent'; callAudio: 'ok' | 'silent' }
+  micQualityBad: boolean
+  aiBreakerOpen: boolean
+}
+
 export interface MonitorControls {
   llm: { hasKey: boolean; forceTemplateUntil(ts: number): void }
   executor: { pause(untilTs: number): void; hapticsOff(): void }
@@ -53,6 +61,7 @@ export class Monitor {
   private lastSeen: Record<Feed, number>
   private silentFlagged: Record<Feed, boolean> = { camera: false, mic: false, callAudio: false }
   private lastProblem = new Map<string, number>()
+  private problems = new Map<string, { first: number; last: number; count: number }>()
   private mouthActive = false
   private lastMicLoud: number
   private lastMicLevelAt = -Infinity // when the last mic level arrived: none → mic not monitored → no alert
@@ -218,10 +227,27 @@ export class Monitor {
   /** Log a device problem, at most once per PROBLEM_COOLDOWN_S for the same problem. */
   private problem(key: string, text: string): void {
     const t = this.now()
+    const seen = this.problems.get(key)
+    this.problems.set(key, { first: seen?.first ?? t, last: t, count: (seen?.count ?? 0) + 1 })
     if (t - (this.lastProblem.get(key) ?? -Infinity) < PROBLEM_COOLDOWN_S) return
     this.lastProblem.set(key, t)
     this.detail.deviceProblems++
     this.log('error', text)
+  }
+
+  /** Device facts for an IT ticket: problem keys, times and counts, feed states. Never speech, never names. */
+  diagnostics(): Diagnostics {
+    const t = this.now()
+    return {
+      problems: [...this.problems].map(([key, p]) => ({ key, firstSeenS: Math.round(t - p.first), lastSeenS: Math.round(t - p.last), count: p.count })),
+      feeds: {
+        camera: this.silentFlagged.camera ? 'silent' : 'ok',
+        mic: this.silentFlagged.mic ? 'silent' : 'ok',
+        callAudio: this.silentFlagged.callAudio ? 'silent' : 'ok'
+      },
+      micQualityBad: this.micQualityBad,
+      aiBreakerOpen: this.aiBreakerUntil > 0
+    }
   }
 
   private onSummary(r: { costUsd: number; usedLlm: boolean; fallback?: string }): void {
