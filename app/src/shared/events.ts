@@ -41,7 +41,7 @@ export type EventType =
   | 'USER_CLICK'
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
   // D — UI, added Sun (C's role-based rights; additive)
-  | 'CALL_ENDED' // {} the user clicked "End call": end-of-call minutes (executive/CEO) and confidential wipe
+  | 'CALL_ENDED' // {} the user clicked "End call" (logged; hook for the end-of-call IT report)
   | 'USER_SET_ROLE' // { role: UserRole } DEV-ONLY role switch; main ignores it in packaged builds
 
 export interface TapEvent {
@@ -61,8 +61,7 @@ export interface TapEvent {
 
 /** Commands the agent sends to the UI windows (main + overlay). */
 export type UiCommand =
-  /** share: show a "Share with team" button (USER_CLICK share_recap { id }); the agent decides by role on click. */
-  | { type: 'SHOW_RECAP'; id: string; transcript: string; summary: string; question?: string; share?: boolean }
+  | { type: 'SHOW_RECAP'; id: string; transcript: string; summary: string; question?: string }
   | {
       type: 'SHOW_AWAY_SUMMARY'
       id: string
@@ -72,7 +71,6 @@ export type UiCommand =
       summary: string
       question_to_you?: string
       transcript: string
-      share?: boolean
     }
   | {
       type: 'SHOW_FIX'
@@ -93,10 +91,8 @@ export type UiCommand =
   | { type: 'CAPTION'; text: string; final: boolean; speaker?: string; highlight?: string } // live captions (overlay)
   /** The user's role and what it shows (C's permissions.ts). D hides the IT view when sees_it_view is false. */
   | { type: 'ROLE'; role: UserRole; sees_it_view: boolean; confidential: boolean }
-  /** A short confirmation toast ("Recap shared with #team (simulated)"). */
+  /** A short confirmation toast ("Ticket T-0001 sent to IT"). */
   | { type: 'SHOW_NOTICE'; id: string; text: string }
-  /** End of call (executive/CEO): decisions + action items; can_send shows "Send to attendees" (USER_CLICK send_action_items { id }). */
-  | { type: 'SHOW_MINUTES'; id: string; decisions: string[]; action_items: string[]; can_send: boolean }
   | { type: 'DISMISS'; id: string }
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }
@@ -122,11 +118,8 @@ export const ALLOWED_ACTIONS = [
   'send_haptic',
   'raise_hand_overlay',
   'dismiss_card',
-  // Sun (C): cards the agents already send, and the role-gated actions
+  // Sun (C): a card the agents already send, and the IT ticket
   'show_nudge',
-  'show_minutes',
-  'share_recap', // share a recap's summary (never the transcript) with the team — executive/CEO only
-  'send_action_items', // send end-of-call decisions + action items to attendees — executive/CEO only
   'open_it_ticket' // send device diagnostics (never speech) to IT — anyone, on their own click
 ] as const
 export type AllowedAction = (typeof ALLOWED_ACTIONS)[number]
