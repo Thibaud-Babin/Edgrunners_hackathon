@@ -66,7 +66,7 @@ test('clicks: dismiss works, unknown actions are blocked', () => {
   assert.deepEqual(r.blocked, ['action "delete_everything" is not on the allowlist'])
 })
 
-test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → soft haptic; OTHERS_CANT_HEAR → fix card + alert", () => {
+test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → no vibration (4 signals only); OTHERS_CANT_HEAR → fix card + alert", () => {
   const det = (type: string, text: string) => env('detector', { type, text }, 1, 'detector')
   const r = play([
     [det('WAITING_FOR_YOU', 'Thibaud, are you OK with Friday?'), 1],
@@ -75,7 +75,7 @@ test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → soft
   ])
   assert.deepEqual(
     r.actions.map((a) => (a as { action: string }).action),
-    ['show_nudge', 'send_haptic', 'send_haptic', 'send_haptic', 'show_fix', 'send_haptic']
+    ['show_nudge', 'send_haptic', 'send_haptic', 'show_fix', 'send_haptic']
   )
   assert.equal((r.actions[0] as { question: string }).question, 'Thibaud, are you OK with Friday?')
 })
@@ -109,8 +109,23 @@ test('F5: B\'s knock latency is logged', () => {
   assert.ok(r.log.includes('Knock 1.4 s after your name was said'))
 })
 
-test('F6: question to the group → ringing', () => {
-  assert.deepEqual(kinds(play([[det('QUESTION_TO_GROUP'), 1]])), ['send_haptic:ringing'])
+test('F6: question to the group → no vibration by default (only 4 signals), just a log line', () => {
+  const r = play([[det('QUESTION_TO_GROUP'), 1]])
+  assert.deepEqual(kinds(r), [])
+  assert.match(r.log[0]!, /no vibration \(only 4 signals/)
+})
+
+test('haptic vocabulary: only the 4 signals are ever sent by default (knock, knock knock, angry_alert, completed)', () => {
+  const r = play([
+    [det('NAME_MENTIONED', {}, 1), 1],
+    [det('WAITING_FOR_YOU', {}, 10), 10],
+    [det('QUESTION_TO_GROUP', {}, 20), 20],
+    [det('TOPIC_MENTIONED', {}, 30), 30],
+    [env('detector', { type: 'OTHERS_CANT_HEAR', text: "we can't hear you" }, 40, 'detector'), 40],
+    [env('user', { input: 'click', actionId: 'switch_input_device' }, 41, 'user'), 41]
+  ])
+  const waves = new Set(kinds(r).filter((k) => k.startsWith('send_haptic:')).map((k) => k.slice('send_haptic:'.length)))
+  assert.deepEqual([...waves].sort(), ['angry_alert', 'completed', 'knock'])
 })
 
 test('F7: only the user\'s click switches the mic', () => {
@@ -157,6 +172,7 @@ test('mic doctor: talking while muted → "Unmute laptop mic" card (+ "I\'m mute
   assert.deepEqual([card!.altLabel, card!.altAction], ["I'm muted on purpose", 'snooze_mic_alerts'])
   assert.deepEqual(r.actions.find((a) => (a as { action: string }).action === 'fix_mic'), { action: 'fix_mic', fix: 'unmute', mic: 'laptop', why: 'you clicked "Unmute laptop mic"' })
   assert.ok(r.log.includes('Mic problem fixed before anyone noticed'))
+  assert.ok(kinds(r).includes('send_haptic:angry_alert'), 'talking while muted → the "problem" vibration too')
 })
 
 test('mic doctor: "muted on purpose" silences alerts until you unmute; a coworker\'s complaint still gets a card', () => {

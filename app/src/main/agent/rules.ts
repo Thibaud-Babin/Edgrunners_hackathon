@@ -23,6 +23,8 @@ export const AWAY_MIN_S = 2 // ignore glances shorter than this
 export const RECAP_WINDOW_S = 10 // name said while paying attention: recap of the last 10 s
 export const NAME_DEDUP_S = 4 // one knock per sentence (B also fires once per sentence; this guards repeats)
 export const MIC_BAD_FOR_S = 10 // mic quality must stay bad this long before Tap suggests a fix
+/** Only 4 vibrations by default (events.ts HAPTIC). The group-question and topic ones are opt-in. */
+export const OPTIONAL_HAPTICS = process.env.TAP_OPTIONAL_HAPTICS === '1'
 const QUOTE_MAX = 120
 export const TALKING_FOR_S = 1.5 // mouth moving this long = you are trying to talk
 export const MIC_SILENT_S = 2 // talking, mic levels arriving, but nothing loud for this long = the mic sends nothing
@@ -129,6 +131,10 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
     case 'NAME_MENTIONED':
       return onName(d, hit, ts, t)
     case 'QUESTION_TO_GROUP': // F6
+      if (!OPTIONAL_HAPTICS) {
+        d.log.push({ kind: 'decision', text: 'Question to the whole group → no vibration (only 4 signals; TAP_OPTIONAL_HAPTICS=1 for ringing)' })
+        return
+      }
       d.log.push({ kind: 'decision', text: 'Question to the whole group → ringing' })
       d.actions.push({ action: 'send_haptic', waveform: HAPTIC.groupQuestion, why: 'a question to the group' })
       return
@@ -138,6 +144,10 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
       d.actions.push({ action: 'send_haptic', waveform: HAPTIC.waiting, why: 'they are waiting for your answer' })
       return
     case 'TOPIC_MENTIONED': // F8
+      if (!OPTIONAL_HAPTICS) {
+        d.log.push({ kind: 'decision', text: `Topic "${hit.text}" mentioned → no vibration (only 4 signals; TAP_OPTIONAL_HAPTICS=1 for a soft one)` })
+        return
+      }
       d.log.push({ kind: 'decision', text: `Topic "${hit.text}" mentioned → soft heads-up` })
       d.actions.push({ action: 'send_haptic', waveform: HAPTIC.topic, why: `topic "${hit.text}" mentioned` })
       return
@@ -325,6 +335,8 @@ function checkTalkingMuted(d: Decision, t: number): void {
   if (s.micCardAt !== null && t - s.micCardAt < MIC_CARD_COOLDOWN_S) return
   if (!s.mic.muted && !micSilent(s, t)) return // the mic works: you are heard
   micCard(d, t, false, 'You are talking')
+  // You are talking and nobody hears you: the "problem" signal, so you notice even without looking at the card.
+  if (d.actions.some((a) => a.action === 'show_fix')) d.actions.push({ action: 'send_haptic', waveform: HAPTIC.problem, why: 'you are talking but nobody can hear you' })
 }
 
 /**

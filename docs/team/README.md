@@ -22,7 +22,7 @@ B **detects and measures**, C **decides**, D **shows**. To make the features vis
 | Live captions | `TRANSCRIPT_*` → `CAPTION` UI command (`index.ts`) | — | caption strip at the bottom: last 3 lines, your name in `<mark>` |
 | Knock speed | `NAME_MENTIONED.latency_s` + `latency_ref` | log line "knock 1.4 s after your name was said" | — |
 | French | `TAP_STT_LANGUAGE=multi` + French trouble/address phrases | — | — |
-| Topics | `TOPIC_MENTIONED` `{topic}` (`TAP_TOPICS`) | soft haptic (`damp_state_change`) | — |
+| Topics | `TOPIC_MENTIONED` `{topic}` (`TAP_TOPICS`) | log only (vibration only with `TAP_OPTIONAL_HAPTICS=1`, Sat 22:30) | — |
 | Injection attempt | `INSTRUCTION_LIKE_SPEECH` `{text}` | log `blocked`: "instruction-like speech ignored", counts as blocked | — |
 | Mic quality | `MIC_QUALITY` `{level: ok/too_quiet/clipping/noisy, …}`, **measure only** | log only. **TODO(C):** decide (e.g. offer the laptop mic after 10 s of "noisy") | — |
 | Cost | `STT_USAGE` `{engine, seconds, cost_usd}` every 30 s | added to the cost counter (AXA frugality) | — |
