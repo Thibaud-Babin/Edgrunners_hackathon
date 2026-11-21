@@ -4,15 +4,18 @@
  *   2. Vision intake (vision-intake.ts): A's webcam events → VisionSignal / gestures.
  *   3. Executor (rules.ts → executor.ts): decides and acts, through the gate.
  *   4. Monitor (monitor.ts): self-check, heartbeats, breakers, spam guard, counters, the judges' log.
- * They talk only through the AgentBus, in validated envelopes.
+ * They talk only through the AgentBus, in validated envelopes. The user's role (permissions.ts) is config,
+ * shared through RoleState: set from TAP_USER_ROLE at start, and by the dev-only switch when allowed.
  */
-import type { LogEntry, UiCommand } from '../../shared/events.ts'
+import type { LogEntry, TapEvent, UiCommand } from '../../shared/events.ts'
 import { AgentBus, type EventBus } from '../bus.ts'
 import type { Haptics } from '../haptics.ts'
 import { AudioAgent } from './audio-agent.ts'
 import { Executor, type MicPort } from './executor.ts'
 import type { Llm } from './llm.ts'
 import { Monitor } from './monitor.ts'
+import { RoleState, ROLES, type UserRole } from './permissions.ts'
+import { RawTapEvent } from './schemas.ts'
 import { startVisionIntake } from './vision-intake.ts'
 
 export type BlockCategory = 'invalid' | 'allowlist' | 'provenance' | 'permission' | 'paused'
@@ -26,15 +29,59 @@ export interface Reporter {
   invalid(reason: string): void
 }
 
+export interface AgentOptions {
+  mic?: MicPort | null
+  /** The user's role, from config. Default: intern (least privilege). */
+  roles?: RoleState
+  /** Accept USER_SET_ROLE from the UI. Only true in dev builds: a production UI must never change the role. */
+  allowRoleSwitch?: boolean
+}
+
 export class Agent {
-  constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string, mic: MicPort | null = null) {
+  private ui: (cmd: UiCommand) => void
+  private roles: RoleState
+
+  constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string, opts: AgentOptions = {}) {
+    this.ui = ui
+    this.roles = opts.roles ?? new RoleState()
     const bus = new AgentBus()
     const monitor = new Monitor(events, bus, ui)
     const report = monitor.reporter
     bus.onInvalid = report.invalid
-    new AudioAgent(events, bus, llm, userName, report)
+    new AudioAgent(events, bus, llm, userName, report, this.roles)
     startVisionIntake(events, bus, report)
-    const executor = new Executor(events, bus, ui, haptics, report, mic)
+    const executor = new Executor(events, bus, ui, haptics, report, opts.mic ?? null, this.roles)
     monitor.start({ llm, executor, haptics })
+
+    report.log('decision', `Role: ${this.roles.flags.label} (from config) → ${roleSummary(this.roles.role)}`)
+    this.roles.onChange((role) => {
+      report.log('decision', `Role switched to ${this.roles.flags.label} (dev only) → ${roleSummary(role)}`)
+      this.announceRole()
+    })
+    events.on('USER_SET_ROLE', (e: TapEvent) => {
+      const raw = RawTapEvent.safeParse(e)
+      const role = raw.success ? raw.data.data?.role : undefined
+      if (!opts.allowRoleSwitch) return report.blocked('Role switch from the UI ignored (only allowed in dev builds)', 'permission')
+      if (!raw.success || raw.data.source !== 'ui' || typeof role !== 'string' || !(ROLES as readonly string[]).includes(role))
+        return report.invalid('USER_SET_ROLE with a bad shape, source or role')
+      this.roles.set(role as UserRole)
+    })
+  }
+
+  /** Tell the UI the role and what it shows (D hides the IT view when sees_it_view is false). */
+  announceRole(): void {
+    const f = this.roles.flags
+    this.ui({ type: 'ROLE', role: this.roles.role, sees_it_view: f.seesItView, confidential: f.confidential })
+  }
+}
+
+function roleSummary(role: UserRole): string {
+  switch (role) {
+    case 'intern':
+      return 'cards and own-device fixes; sharing meeting content blocked'
+    case 'senior':
+      return 'cards, own-device fixes, IT view; sharing meeting content blocked'
+    default:
+      return 'may share recaps and send action items on click; confidential meetings (no cloud AI, wiped at call end); priority IT support'
   }
 }

@@ -16,6 +16,7 @@ import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
 import { cleanText, MAX } from './agent/sanitize'
 import { WinMic } from './audio/win-mic'
+import { RoleState, roleFromConfig } from './agent/permissions'
 import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
@@ -94,10 +95,21 @@ app.whenReady().then(() => {
   const llm = new Llm()
   // B: Windows-level mic (state for the mic doctor, and the fixes a card names). Only a click runs a fix.
   const winMic = new WinMic()
-  new Agent(bus, sendUi, haptics, llm, names[0], winMic.available ? winMic : null)
+  // The user's role comes from config only (company SSO in real life); missing/invalid → intern.
+  // The UI may switch it only in dev builds (USER_SET_ROLE is ignored when packaged).
+  const roles = new RoleState(roleFromConfig(process.env.TAP_USER_ROLE))
+  const agent = new Agent(bus, sendUi, haptics, llm, names[0], {
+    mic: winMic.available ? winMic : null,
+    roles,
+    allowRoleSwitch: !app.isPackaged
+  })
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
   // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
-  if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
+  // Never for confidential roles (executive, CEO): their meetings are not recorded.
+  if (process.env.TAP_RECORD === '1' && !app.isPackaged) {
+    if (roles.flags.confidential) console.log('[record] not recording: confidential role')
+    else startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
+  }
   // Speech engine status → activity panel. Lines from startup are replayed once the window has loaded.
   const sttStatus: string[] = []
   onSttStatus((text) => {
@@ -157,6 +169,7 @@ app.whenReady().then(() => {
   createWindows()
   mainWin?.webContents.once('did-finish-load', () => {
     for (const text of sttStatus) sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
+    agent.announceRole() // the UI learns the role once it can listen (shows or hides the IT view)
   })
 
   // Dev test: `npm run dev -- --autostart-call` clicks "Start call audio" by itself (for B's capture test).
