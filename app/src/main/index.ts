@@ -11,11 +11,11 @@ import { EventBus } from './bus'
 import { Haptics } from './haptics'
 import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
-import { AudioPipeline, createStt } from './audio/pipeline'
+import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
 import { runMock, startRecording } from './mock'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
-const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo').split(',').map((s) => s.trim())
+const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
 
 let mainWin: BrowserWindow | null = null
 let overlayWin: BrowserWindow | null = null
@@ -63,8 +63,15 @@ function createWindows(): void {
 }
 
 function sendUi(cmd: UiCommand): void {
-  // Mock mode: echo the judge-readable log to the terminal so runs can be diffed against demo/baseline-mock.log.
-  if (cmd.type === 'LOG_ENTRY' && process.argv.includes('--mock')) console.log(`[log] ${cmd.entry.kind}: ${cmd.entry.text}`)
+  // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
+  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS') {
+    if (cmd.type === 'LOG_ENTRY') {
+      if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
+    } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
+    else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
+    else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
+    else console.log(`[ui] ${cmd.type}`)
+  }
   for (const w of [mainWin, overlayWin]) if (w && !w.isDestroyed()) w.webContents.send(IPC.ui, cmd)
 }
 
@@ -82,8 +89,17 @@ app.whenReady().then(() => {
   const llm = new Llm()
   new Agent(bus, sendUi, haptics, llm, names[0])
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
+  // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
   if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
+  // Speech engine status → activity panel. Lines from startup are replayed once the window has loaded.
+  const sttStatus: string[] = []
+  onSttStatus((text) => {
+    console.log(`[stt] ${text}`)
+    sttStatus.push(text)
+    sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
+  })
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
+  app.on('before-quit', () => audio.stop()) // closes recordings cleanly
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
     // Dev text box: typed "speech" goes through the same pipeline as real STT output.
@@ -101,11 +117,25 @@ app.whenReady().then(() => {
   })
 
   createWindows()
+  mainWin?.webContents.once('did-finish-load', () => {
+    for (const text of sttStatus) sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
+  })
 
   // Dev test: `npm run dev -- --autostart-call` clicks "Start call audio" by itself (for B's capture test).
   if (process.argv.includes('--autostart-call')) {
     mainWin?.webContents.once('did-finish-load', () => {
       void mainWin?.webContents.executeJavaScript("document.getElementById('btn-call').click()", true)
+    })
+  }
+  // Dev test of the whole loop without a webcam: `npm run dev:e2e` also clicks the "Look away" fake button.
+  if (process.argv.includes('--autostart-away')) {
+    mainWin?.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void mainWin?.webContents.executeJavaScript(
+          "[...document.querySelectorAll('#fake-buttons button')].find((b) => b.textContent === 'Look away')?.click()",
+          true
+        )
+      }, 3000)
     })
   }
 

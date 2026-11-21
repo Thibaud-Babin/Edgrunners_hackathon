@@ -63,16 +63,66 @@ export function findName(text: string, variants: string[], threshold = 0.8): Nam
       const exact = w === nv ? 1 : 0
       const phon = phoneticKey(w) === pv ? 0.9 : 0
       const fuzzy = 1 - levenshtein(w, nv) / Math.max(w.length, nv.length)
-      const score = Math.max(exact, phon, fuzzy)
+      // The transcriber sometimes glues the name to the previous word ("so Thibaud" → "suitiboo"):
+      // also compare the END of long words (slightly lower score).
+      let glued = 0
+      if (w.length >= nv.length + 2) {
+        for (let len = nv.length - 1; len <= nv.length + 1; len++) {
+          const tail = w.slice(-len)
+          if (tail.length < 4) continue
+          const tailFuzzy = 1 - levenshtein(tail, nv) / Math.max(tail.length, nv.length)
+          const tailPhon = phoneticKey(tail) === pv ? 0.9 : 0
+          glued = Math.max(glued, 0.95 * Math.max(tailFuzzy, tailPhon))
+        }
+      }
+      const score = Math.max(exact, phon, fuzzy, glued)
       if (score >= threshold && (!best || score > best.score)) best = { word: w, variant: v, score }
     }
   }
   return best
 }
 
+/**
+ * Backup for names the transcriber mangles ("hey bo, are you still here?", "philot, are you ready?").
+ * Fires when a short word is said AS A VOCATIVE (alone before a comma at the start, or after the last comma
+ * of a question), the sentence speaks to "you", and the word sounds like the name's ending (French "-o" sound).
+ * Needs punctuated transcripts (Parakeet / Deepgram). Expect some false alerts on other "-o" names (Leo, Bruno).
+ */
+/**
+ * Is this sentence spoken TO someone? (question mark, "you/your", a question word, or the name opens the sentence.)
+ * Used to drop name hits in sentences that merely sound like the name ("let's talk about the tibo by the window").
+ */
+export function addressesSomeone(rawText: string, nameWord: string): boolean {
+  const t = normalise(rawText)
+  if (rawText.includes('?')) return true
+  if (/\b(you|your|youre|you're|what|how|why|when|where|who|which|can|could|would|should|will|think)\b/.test(t)) return true
+  const first = t.replace(/^(so|and|ok|okay|hey|hi|well|then|yes|right)\s+/, '').split(' ')[0]
+  return first === nameWord || t.split(' ')[0] === nameWord
+}
+
+const COMMON_O_WORDS = new Set(['so', 'no', 'oh', 'ok', 'hello', 'also', 'two', 'too', 'to', 'do', 'go', 'who', 'yo', 'bravo', 'ago', 'though', 'although', 'photo', 'video', 'demo', 'memo', 'radio', 'audio', 'info', 'logo', 'hmm', 'ohno'])
+
+export function findAddressed(rawText: string, variants: string[]): NameHit | null {
+  const raw = rawText.toLowerCase()
+  if (!/\byou\b/.test(raw)) return null
+  const parts = raw.split(',').map((p) => normalise(p)).filter(Boolean)
+  if (parts.length < 2) return null
+  const candidates = [parts[0], raw.includes('?') ? parts[parts.length - 1] : '']
+    .map((p) => p.replace(/^(so|and|ok|okay|hey|well|then)\s+/, '$1').replace(/^(so|and|ok|okay|well|then)(?=\S)/, ''))
+    .filter((p) => p && p.split(' ').length <= 2 && p.length <= 8)
+  const endings = new Set(variants.map((v) => phoneticKey(v).slice(-1)))
+  for (const c of candidates) {
+    const w = c.replace(/ /g, '')
+    const key = phoneticKey(w)
+    if (COMMON_O_WORDS.has(w)) continue
+    if (w.length >= 3 && endings.has(key.slice(-1)) && /[aeiou]/.test(key.slice(-1))) return { word: w, variant: 'vocative', score: 0.7 }
+  }
+  return null
+}
+
 /** Spoken tech-trouble phrases said by OTHERS in the call. Extend with what you hear in tests. */
 const TROUBLE: Array<{ kind: 'cant_hear' | 'frozen'; re: RegExp }> = [
-  { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio))\b/ },
+  { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio) (is )?(not working|off|muted|broken|cutting))\b/ },
   { kind: 'frozen', re: /\b(you('re| are) frozen|your (video|camera) (is )?(frozen|stuck)|we can('| no)?t see you|you froze)\b/ }
 ]
 

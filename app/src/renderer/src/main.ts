@@ -17,7 +17,7 @@ window.tap.onUi((cmd) => {
   }
   if (cmd.type === 'SWITCH_MIC') void switchMic(cmd.prefer)
   if (cmd.type === 'COUNTERS') {
-    $('counters').textContent = `AI calls ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)} · events ${cmd.events} · blocked ${cmd.blocked} · no audio or video left this laptop`
+    $('counters').textContent = `AI calls ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)} · events ${cmd.events} · blocked ${cmd.blocked} · video stays on this laptop`
   }
 })
 

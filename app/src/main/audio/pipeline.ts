@@ -10,7 +10,11 @@
 import type { Source } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import type { EventBus } from '../bus'
-import { findName, findTrouble, isQuestion } from '../detectors/text'
+import { addressesSomeone, findAddressed, findName, findTrouble, isQuestion } from '../detectors/text'
+import { createSherpaEngine, loadSherpa } from './sherpa'
+import { Recorder } from './recorder'
+import { createDeepgramEngine, deepgramAvailable } from './deepgram'
+import { createParakeetEngine, loadParakeet, parakeetInstalled } from './parakeet'
 
 export interface SttEngine {
   /** feed 16 kHz mono Int16 PCM */
@@ -19,6 +23,45 @@ export interface SttEngine {
 }
 
 export type SttFactory = (source: Source, onText: (text: string, final: boolean) => void) => SttEngine
+
+/** Status lines for the activity panel ("Speech: Deepgram → local Parakeet (no internet)"). */
+let statusSink: (text: string) => void = (t) => console.log(`[stt] ${t}`)
+export function onSttStatus(fn: (text: string) => void): void {
+  statusSink = fn
+}
+
+function tryLoadParakeet(): boolean {
+  if (!parakeetInstalled()) return false
+  try {
+    loadParakeet()
+    return true
+  } catch (err) {
+    console.error('[stt] parakeet failed to load:', err)
+    return false
+  }
+}
+
+/**
+ * Deepgram first; if it dies mid-call (Wi-Fi off) or can't connect, switch THIS source to local Parakeet
+ * without restarting. Parakeet is pre-loaded at startup so the switch is instant.
+ */
+function deepgramWithFallback(localReady: boolean): SttFactory {
+  return (source, onText) => {
+    let current: SttEngine
+    current = createDeepgramEngine(source, onText, (reason) => {
+      if (!localReady) {
+        statusSink(`Speech: Deepgram lost (${reason}), no local model installed → transcript stopped`)
+        return
+      }
+      statusSink(`Speech: Deepgram lost (${reason}) → switched to local Parakeet`)
+      current = createParakeetEngine(source, onText)
+    })
+    return {
+      push: (pcm) => current.push(pcm),
+      stop: () => current.stop()
+    }
+  }
+}
 
 /**
  * TODO(B): implement one of these and return it from createStt():
@@ -29,12 +72,43 @@ export type SttFactory = (source: Source, onText: (text: string, final: boolean)
  */
 export function createStt(kind: string): SttFactory | null {
   if (kind === 'none') return null
+  if (kind === 'sherpa') {
+    try {
+      loadSherpa() // load now (~6 s) so the first sentence isn't delayed
+      return createSherpaEngine
+    } catch (err) {
+      console.error('[stt] sherpa-onnx failed to load — falling back to the dev text box only:', err)
+      return null
+    }
+  }
+  if (kind === 'deepgram') {
+    const localReady = tryLoadParakeet() // pre-load the fallback (~5 s at startup)
+    if (deepgramAvailable()) {
+      statusSink(`Speech: Deepgram (cloud)${localReady ? ', local Parakeet ready as fallback' : ''}`)
+      return deepgramWithFallback(localReady)
+    }
+    if (localReady) {
+      statusSink('Speech: no DEEPGRAM_API_KEY → local Parakeet')
+      return createParakeetEngine
+    }
+    statusSink('Speech: no DEEPGRAM_API_KEY and no Parakeet → old local model')
+    return createStt('sherpa')
+  }
+  if (kind === 'parakeet') {
+    if (tryLoadParakeet()) {
+      statusSink('Speech: local Parakeet')
+      return createParakeetEngine
+    }
+    return createStt('sherpa')
+  }
   console.warn(`[stt] engine "${kind}" not implemented yet — use the dev text box or --mock`)
   return null
 }
 
 export class AudioPipeline {
   private engines = new Map<Source, SttEngine>()
+  private nameFiredThisSentence = false
+  private recorder = process.env.TAP_RECORD === '1' ? new Recorder() : null
 
   constructor(
     private bus: EventBus,
@@ -59,7 +133,11 @@ export class AudioPipeline {
       this.stats.set(source, s)
     }
 
+    this.recorder?.push(source, pcm)
+
     if (!this.stt) return
+    // Only the OTHER people are transcribed (detectors ignore the mic). TAP_STT_MIC=1 to transcribe the mic too.
+    if (source !== 'call_audio' && process.env.TAP_STT_MIC !== '1') return
     let engine = this.engines.get(source)
     if (!engine) {
       engine = this.stt(source, (text, final) => this.onText(source, text, final))
@@ -71,14 +149,29 @@ export class AudioPipeline {
   /** Called by the STT engine (or the dev text box / mock) for every result. */
   onText(source: Source, text: string, final: boolean): void {
     if (!text.trim()) return
+    if (process.env.TAP_DEBUG_AUDIO !== '0' && final) console.log(`[stt ${Date.now()}] ${source} FINAL: ${text}`)
     this.bus.publish(makeEvent(final ? 'TRANSCRIPT_FINAL' : 'TRANSCRIPT_PARTIAL', source, { text }))
-    // Detectors only look at OTHER people (call audio), and only at final lines for now.
-    // TODO(B): also check partials for the name to cut latency (debounce so it fires once).
-    if (source !== 'call_audio' || !final) return
+    // Detectors only look at OTHER people (call audio).
+    if (source !== 'call_audio') return
 
-    const name = findName(text, this.names)
-    if (name) {
-      this.bus.publish(makeEvent('NAME_MENTIONED', source, { text, matched: name.word }, name.score))
+    // Name: checked on PARTIAL results too, so the knock comes while the sentence is still being said.
+    // Fires once per sentence (reset on the final result).
+    // The name only counts when the sentence speaks TO someone (question, "you", or the name opens the sentence):
+    // removes "let's talk about the [table→tibo]" false alerts. On the final result, also try the vocative
+    // rule for names the transcriber mangled ("hey bo, are you still here?").
+    let name = findName(text, this.names)
+    if (name && !addressesSomeone(text, name.word)) name = null
+    if (!name && final) name = findAddressed(text, this.names)
+    if (name && !this.nameFiredThisSentence) {
+      this.nameFiredThisSentence = true
+      if (process.env.TAP_DEBUG_AUDIO !== '0') console.log(`[stt ${Date.now()}] NAME_MENTIONED (${final ? 'final' : 'partial'}) "${name.word}" in: ${text}`)
+      this.bus.publish(makeEvent('NAME_MENTIONED', source, { text, matched: name.word, partial: !final }, name.score))
+    }
+    if (!final) return
+
+    const addressed = this.nameFiredThisSentence
+    this.nameFiredThisSentence = false
+    if (addressed) {
       if (isQuestion(text)) this.bus.publish(makeEvent('QUESTION_TO_YOU', source, { text }))
     } else if (isQuestion(text) && /\b(anyone|everyone|guys|team|all)\b/i.test(text)) {
       this.bus.publish(makeEvent('QUESTION_TO_GROUP', source, { text }))
@@ -90,6 +183,7 @@ export class AudioPipeline {
 
   stop(): void {
     for (const e of this.engines.values()) e.stop()
+    this.recorder?.close()
     this.engines.clear()
   }
 }

@@ -64,7 +64,8 @@ export function parseRecording(text: string): MockLine[] {
  */
 export function startRecording(bus: EventBus, dir: string): string {
   mkdirSync(dir, { recursive: true })
-  const file = join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`)
+  // Same naming as B's audio recorder (audio/recorder.ts), so a session's audio and events sit side by side.
+  const file = join(dir, `session-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}-events.jsonl`)
   bus.on('*', (e) => appendFileSync(file, JSON.stringify(e) + '\n'))
   console.log(`[record] writing every event to ${file}`)
   return file

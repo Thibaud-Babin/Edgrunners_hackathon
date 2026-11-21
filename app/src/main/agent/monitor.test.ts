@@ -95,11 +95,20 @@ test('mic: mouth moving with a silent mic for 2 s is reported, once per 30 s', (
   m.tick()
   assert.equal(micProblems(), 1)
   advance(10)
-  m.tick()
+  bus.publish('audio', 'detector', 'mic', { rms: 0 })
   assert.equal(micProblems(), 1, 'cooldown')
   advance(30)
-  m.tick()
+  bus.publish('audio', 'detector', 'mic', { rms: 0 })
   assert.equal(micProblems(), 2)
+})
+
+test('mic: no mic levels at all (mic not monitored) → no "mic sends nothing" alert (B\'s fix)', () => {
+  const { m, bus, logs, advance } = setup()
+  bus.publish('vision', 'vision', 'vision', { signal: 'mouth', active: true })
+  advance(5)
+  m.tick()
+  assert.ok(!logs.some((l) => l.startsWith('Mouth moving')))
+  assert.ok(logs.some((l) => l.startsWith('Mic feed silent')) === false, 'feed-silent only after 10 s')
 })
 
 test('mic: a silent mic while the mouth is still is not a problem', () => {

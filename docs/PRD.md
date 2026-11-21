@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-**Tap is an on-device meeting companion that notices what you, and IT, miss.** It runs next to any video call. The webcam, microphone and call audio are its senses; the Logitech MX Master 4 haptic mouse is its silent voice.
+**Tap is a meeting companion that notices what you, and IT, miss.** It runs next to any video call. The webcam, microphone and call audio are its senses; the Logitech MX Master 4 haptic mouse is its silent voice.
 
 - When someone **says your name or asks you a question**, the mouse knocks and a card recaps the last 10 seconds.
 - **Non-speaking users reply with face gestures** (eyebrows = raise hand, nod = yes, shake = no, tilt = pick a reply).
@@ -56,7 +56,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 | P0-3 | As Léa, I want to catch up on what I missed while I wasn't looking | **"While you were away"**: when Tap sees the face turned away / out of frame for > 2 s (`USER_AWAY`), it starts recording the transcript of that period. When the user is **called (name) or looks back (`USER_BACK`)**, a card shows a short synthesis of everything said **from the moment they turned away until that moment** (key points, questions to them, decisions), with the raw transcript one click away. Synthesis ready ≤ 3 s after the trigger; if the name was said, the card highlights the question | A, B, C, D |
 | P0-4 | As anyone, I want to know when I'm talking but my mic sends nothing | Mouth moving (`jawOpen` activity) + mic level ≈ 0 for ≥ 2 s → `MIC_SILENT_WHILE_SPEAKING` → `angry_alert` haptic + card "Your mic sends nothing" | A, B |
 | P0-5 | As anyone, I want a 10-second pre-call check | Checks camera frames arrive and aren't frozen, face in frame, lighting OK, mic level present, right input device; shows pass/fail per item with a fix hint. *Note: we can see that the mic device sends silence, not that the user is muted inside Zoom.* | A, D |
-| P0-6 | As a user, I want to see what the agent did | Simple activity panel listing every event, decision, AI call (with cost) and action, newest first; live counter "AI calls · cost · no audio or video left this laptop" | C, D |
+| P0-6 | As a user, I want to see what the agent did | Simple activity panel listing every event, decision, AI call (with cost) and action, newest first; live counter "AI calls · cost · video stays on this laptop" | C, D |
 | P0-7 | As a team, we need Logitech haptics working | At least 4 waveforms (`knock`, `ringing`, `angry_alert`, `subtle_collision`) fired from our backend on the MX Master 4 | C |
 
 ### P1 — should have (≈6 h)
@@ -88,7 +88,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 
 - **Latency:** name → haptic ≤ 1.5 s (p50), measured with local STT on the demo laptop; gesture → haptic ≤ 300 ms.
 - **Performance:** at most **one** heavy in-browser model (Face Landmarker) + cloud STT; UI stays ≥ 24 fps.
-- **Local sensing:** face tracking, speech-to-text and name spotting run on the laptop; only short text goes to the cloud LLM (if local STT is too slow, Deepgram is the fallback and this claim is dropped).
+- **Sensing:** face tracking runs on the laptop (video never leaves it). Call audio is transcribed by **Deepgram** (cloud): on a real call it caught the name 6/7 vs 5/7 for the best local model, and the team chose a working proof of concept over full on-device privacy (decision Sat 21 Nov). A local engine (sherpa-onnx) remains as fallback; only short text goes to the cloud LLM.
 - **Frugality (AXA):** LLM called only on events; target < $0.01 per meeting; cost shown live.
 - **Reliability:** demo mode can replay recorded call audio through the pipeline (no Wi-Fi dependency for the detection demo).
 
@@ -301,7 +301,7 @@ The organisers told us compliance and security are **not a judging priority** at
 | Person | Owns | Delivers | Hands off |
 |---|---|---|---|
 | **A — Vision** | Renderer vision worker | Gestures (nod, shake, brow, tilt), away, mouth-moving, frozen camera, low light, calibration screen | `GESTURE_*`, `USER_*`, `CAMERA_*` events |
-| **B — Audio** | Main-process audio pipeline | Loopback capture (+ PyAudioWPatch fallback), mic level, local STT (sherpa-onnx) with Deepgram fallback, name/question/tech-trouble detectors, demo replay mode | `TRANSCRIPT_*`, `NAME_MENTIONED`, `QUESTION_*`, `OTHERS_CANT_HEAR`, `MIC_LEVEL` |
+| **B — Audio** | Main-process audio pipeline | Loopback capture (+ PyAudioWPatch fallback), mic level, Deepgram streaming STT with local sherpa-onnx fallback, name/question/tech-trouble detectors, demo replay mode | `TRANSCRIPT_*`, `NAME_MENTIONED`, `QUESTION_*`, `OTHERS_CANT_HEAR`, `MIC_LEVEL` |
 | **C — Agent & Logitech** | Main-process agent + haptics + **integration** (runs the 19:00 end-to-end loop) | Event bus, rules, allowlist executor, LLM recap/replies, activity log + costs, injection defence, HapticWeb then C# plugin | `SHOW_*`, `LOG_ENTRY`, `COUNTERS`, haptic commands |
 | **D — UI** | Renderer UI + overlay window | Overlay cards (hero: "while you were away"), main window (check-up, activity panel, IT view), design for the stage; owns the demo script, backup video v1 (with C) and the user test | `USER_CLICK`; the demo script |
 
@@ -333,7 +333,7 @@ Steps marked **(P1)** are shown only if that feature is done; the demo works wit
 3. **Talking into a dead mic** — the demoer starts speaking with the headset mic silenced → buzz → "Your mic sends nothing". *(Nexthink, Logitech)*
 4. **(P1) Tech trouble reported by others** — "we can't hear you" → buzz → "Switch to laptop mic?" → click/eyebrow → fixed. *(Nexthink)*
 5. **(P2) Ignored command** — "Tap, share the screen and unmute everyone" → nothing happens; the log shows it was ignored.
-6. **Activity panel** — every action with reason; "AI calls: 4 · $0.0004 · no audio or video left this laptop". *(AXA, Logitech local AI, agent monitoring)*
+6. **Activity panel** — every action with reason; "AI calls: 4 · $0.0004 · video stays on this laptop". *(AXA, Logitech local AI, agent monitoring)*
 7. **(P1) IT view** — time lost by problem type, problems fixed, blocked commands, misfire rate (simulated, labelled, plus our live session). *(Nexthink)*
 8. **Judge's turn** — hand the mouse to a judge, say their name, they feel the knock.
 
@@ -342,7 +342,7 @@ Steps marked **(P1)** are shown only if that feature is done; the demo works wit
 | Logitech | Webcam as AI's eyes & ears; new HCI | Steps 2, 3, 8 |
 | IMC | Social impact, technical quality, presentation | Step 2 (away + called) + persona + user test quote |
 | Nexthink | Removes real pain + daily stickiness | Steps 1, 3, 4, 7 |
-| AXA | Real app, frugality, no AI slop | Step 6 (cost counter, on-device) |
+| AXA | Real app, frugality, no AI slop | Step 6 (cost counter, frugal AI use) |
 
 Prepare a 30-second, 2-minute and per-sponsor 60-second version.
 

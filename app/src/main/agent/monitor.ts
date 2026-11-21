@@ -22,6 +22,7 @@ export const FEED_SILENT_S: Record<Feed, number> = { camera: 10, mic: 10, callAu
 const FEED_NAME: Record<Feed, string> = { camera: 'Camera', mic: 'Mic', callAudio: 'Call audio' }
 export const MIC_SILENT_RMS = 0.01 // TODO(B): tune on real headsets
 export const MIC_SILENT_AFTER_S = 2
+const MIC_LEVEL_STALE_S = 1.5 // mic levels come every ~250 ms while the mic is monitored
 export const PROBLEM_COOLDOWN_S = 30 // the same device problem is logged at most once per 30 s
 export const AI_BREAKER_FAILS = 2
 export const AI_BREAKER_S = 60
@@ -47,6 +48,7 @@ export class Monitor {
   private lastProblem = new Map<string, number>()
   private mouthActive = false
   private lastMicLoud: number
+  private lastMicLevelAt = -Infinity // when the last mic level arrived: none → mic not monitored → no alert
   private aiFails = 0
   private aiBreakerUntil = 0
   private hapticFails = 0
@@ -91,6 +93,7 @@ export class Monitor {
     })
     bus.on('mic', (e) => {
       this.seen('mic')
+      this.lastMicLevelAt = this.now()
       if (e.payload.rms > MIC_SILENT_RMS) this.lastMicLoud = this.now()
       this.checkMicSilent()
     })
@@ -164,9 +167,15 @@ export class Monitor {
     else if (v.signal === 'low_light') this.problem('low_light', 'Room too dark for the camera → attention detection may fail')
   }
 
-  /** Mouth moving but the mic has sent nothing loud for 2 s: the user is probably talking into a muted mic. */
+  /**
+   * Mouth moving but the mic has sent nothing loud for 2 s: the user is probably talking into a muted mic.
+   * Only while mic levels are arriving (B's fix: without "Start mic", Tap knows nothing about the mic, so no alert;
+   * the "Mic feed silent" line covers that case).
+   */
   private checkMicSilent(): void {
-    if (this.mouthActive && this.now() - this.lastMicLoud >= MIC_SILENT_AFTER_S)
+    const t = this.now()
+    if (t - this.lastMicLevelAt > MIC_LEVEL_STALE_S) return
+    if (this.mouthActive && t - this.lastMicLoud >= MIC_SILENT_AFTER_S)
       this.problem('mic_silent', 'Mouth moving but the mic sends nothing → check that your mic is not muted')
   }
 
