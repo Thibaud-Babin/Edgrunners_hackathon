@@ -99,7 +99,7 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
       d.actions.push({
         action: 'show_fix',
         problem: `Someone said: "${quote(hit.text)}"`,
-        fixLabel: 'Switch to laptop mic',
+        fixLabel: 'Unmute + use laptop mic',
         fixAction: 'switch_input_device',
         why: 'others cannot hear you'
       })
@@ -166,7 +166,7 @@ function checkMicFix(d: Decision, t: number): void {
     d.actions.push({
       action: 'show_fix',
       problem: `Your mic has been ${what} for over ${MIC_BAD_FOR_S} s`,
-      fixLabel: 'Switch to laptop mic',
+      fixLabel: 'Unmute + use laptop mic',
       fixAction: 'switch_input_device',
       why: `mic ${what} for over ${MIC_BAD_FOR_S} s`
     })
@@ -191,7 +191,7 @@ function onUser(d: Decision, u: UserInput, t: number): void {
     d.actions.push({ action: 'dismiss_card', cardId: u.cardId ?? '', why: 'you dismissed the card' })
   } else if (actionId === 'switch_input_device') {
     // F7 / F9: only this click switches the mic.
-    d.actions.push({ action: 'switch_input_device', prefer: 'laptop', why: 'you clicked "Switch to laptop mic"' })
+    d.actions.push({ action: 'switch_input_device', prefer: 'laptop', why: 'you clicked "Unmute + use laptop mic"' })
     d.actions.push({ action: 'send_haptic', waveform: HAPTIC.done, why: 'mic switched' })
     if (d.state.micBad) {
       d.state.micFixStage = 2
