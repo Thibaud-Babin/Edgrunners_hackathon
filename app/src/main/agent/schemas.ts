@@ -191,7 +191,7 @@ export const SummaryResult = z
     transcript: z.string().max(LIMITS.cardTranscript),
     costUsd: z.number().finite().nonnegative(),
     usedLlm: z.boolean(),
-    fallback: z.enum(['no_key', 'empty', 'short', 'timeout', 'auth', 'error', 'invalid', 'breaker']).optional()
+    fallback: z.enum(['no_key', 'empty', 'short', 'confidential', 'timeout', 'auth', 'error', 'invalid', 'breaker']).optional()
   })
   .strict()
 
@@ -210,7 +210,9 @@ export const KINDS = {
   user: { schema: UserInput, provenance: ['user'] },
   'summary.request': { schema: SummaryRequest, provenance: ['system'] },
   summary: { schema: SummaryResult, provenance: ['llm', 'transcript'] },
-  'action.result': { schema: ActionResult, provenance: ['system'] }
+  'action.result': { schema: ActionResult, provenance: ['system'] },
+  // Executor → Audio agent: the call ended; wipe what was said if the role is confidential.
+  'call.end': { schema: z.object({ wipe: z.boolean() }).strict(), provenance: ['system'] }
 } as const satisfies Record<string, { schema: z.ZodType; provenance: readonly Provenance[] }>
 export type Kind = keyof typeof KINDS
 export type PayloadOf<K extends Kind> = z.infer<(typeof KINDS)[K]['schema']>

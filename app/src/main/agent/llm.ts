@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { LIMITS, LlmSummaryOutput, Summary } from './schemas.ts'
 import { cleanText, escapeTags, MAX } from './sanitize.ts'
 
-export type FallbackReason = 'no_key' | 'empty' | 'short' | 'timeout' | 'auth' | 'error' | 'invalid' | 'breaker'
+export type FallbackReason = 'no_key' | 'empty' | 'short' | 'confidential' | 'timeout' | 'auth' | 'error' | 'invalid' | 'breaker'
 
 export interface SummaryOutcome {
   summary: Summary
@@ -87,9 +87,11 @@ export class Llm {
     this.templateUntil = ts
   }
 
-  async summarise(transcript: string, userName: string): Promise<SummaryOutcome> {
+  /** `local: true` (confidential role): the transcript never leaves the laptop; the summary is the local template. */
+  async summarise(transcript: string, userName: string, opts: { local?: boolean } = {}): Promise<SummaryOutcome> {
     const text = transcript.trim()
     if (!text) return { summary: summaryOf('(nothing was said)', [], undefined, 'template'), costUsd: 0, usedLlm: false, fallback: 'empty' }
+    if (opts.local) return templateSummary(text, userName, 'confidential')
     if (text.length < MIN_CHARS_FOR_AI) return templateSummary(text, userName, 'short')
     const client = this.stallNext ? HANGING : this.client
     this.stallNext = false

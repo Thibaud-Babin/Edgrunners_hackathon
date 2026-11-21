@@ -229,7 +229,8 @@ export class Monitor {
       this.counters.aiCalls++
       this.counters.costUsd += r.costUsd
     }
-    if (r.fallback && r.fallback !== 'empty' && r.fallback !== 'short') this.detail.fallbacks++ // only real AI fallbacks
+    // Only real AI fallbacks (not "nothing said", "too short", or confidential = local on purpose).
+    if (r.fallback && r.fallback !== 'empty' && r.fallback !== 'short' && r.fallback !== 'confidential') this.detail.fallbacks++
     if (r.usedLlm) this.aiFails = 0
     else if (r.fallback === 'timeout' || r.fallback === 'auth' || r.fallback === 'error' || r.fallback === 'invalid') {
       this.aiFails++

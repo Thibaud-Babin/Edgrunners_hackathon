@@ -55,6 +55,19 @@ export class AudioAgent {
     for (const t of DETECTOR_EVENTS) events.on(t, (e) => this.onDetector(e, t))
     events.on('MIC_LEVEL', (e) => this.onMicLevel(e))
     bus.on('summary.request', (e) => void this.onRequest(e.payload))
+    bus.on('call.end', (e) => this.onCallEnd(e.payload.wipe))
+  }
+
+  /** Retention by role: confidential roles keep nothing that was said once the call ends. */
+  private onCallEnd(wipe: boolean): void {
+    if (!wipe) {
+      this.report.log('decision', `Call ended: what was said stays on this laptop for ${KEEP_S / 60} min (${this.roles.flags.label}, not confidential)`)
+      return
+    }
+    const n = this.lines.length
+    this.lines = []
+    this.speakers.clear()
+    this.report.log('decision', `Call ended: ${n} transcript lines deleted from this laptop (${this.roles.flags.label}, confidential)`)
   }
 
   private parse(e: TapEvent): ReturnType<typeof RawTapEvent.parse> | null {
@@ -121,7 +134,10 @@ export class AudioAgent {
 
   private async onRequest(req: PayloadOf<'summary.request'>): Promise<void> {
     const text = this.textBetween(req.fromTs, req.untilTs)
-    const out = await this.llm.summarise(text, this.userName)
+    const confidential = this.roles.flags.confidential
+    const out = await this.llm.summarise(text, this.userName, { local: confidential })
+    if (out.fallback === 'confidential')
+      this.report.log('decision', `Confidential (${this.roles.flags.label}): summary made on this laptop (no cloud AI)`)
     // Every paid call is logged with its cost, including one whose reply was invalid.
     if (out.usedLlm || out.costUsd > 0) {
       const cost = out.costUsd.toFixed(5)

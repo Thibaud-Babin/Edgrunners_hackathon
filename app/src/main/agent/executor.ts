@@ -99,6 +99,7 @@ export class Executor {
     this.haptics = haptics
     this.report = report
     events.on('USER_CLICK', (e) => this.onClick(e))
+    events.on('CALL_ENDED', (e) => void this.onCallEnded(e))
     bus.on('vision', (e) => this.handle(e))
     bus.on('detector', (e) => this.handle(e))
     bus.on('user', (e) => this.handle(e))
@@ -113,6 +114,14 @@ export class Executor {
       this.pending.delete(e.payload.requestId)
       done?.(e.payload)
     })
+  }
+
+  /** D's "End call" button. Retention by role: confidential roles keep nothing that was said. */
+  private async onCallEnded(e: TapEvent): Promise<void> {
+    const raw = RawTapEvent.safeParse(e)
+    if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('CALL_ENDED with a bad shape or source')
+    const wipe = this.roles.flags.wipeAtCallEnd
+    this.bus.publish('executor', 'system', 'call.end', { wipe })
   }
 
   /** Intake for D's clicks: the user's own deliberate input. */
