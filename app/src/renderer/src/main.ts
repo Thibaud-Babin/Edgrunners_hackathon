@@ -454,15 +454,17 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     case 'COUNTERS':
       $('c-ai').textContent = String(cmd.aiCalls)
-      $('c-cost').textContent = `$${cmd.costUsd.toFixed(4)}`
+      $('c-cost').textContent = `$${(cmd.costUsd ?? 0).toFixed(4)}`
       $('c-events').textContent = String(cmd.events)
       $('c-blocked').textContent = String(cmd.blocked)
-      $('side-counters').textContent = `AI calls ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)}`
+      $('side-counters').textContent = `AI calls ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
       $('badge-activity').textContent = `${cmd.events} events · ${cmd.blocked} blocked`
       break
     case 'SWITCH_MIC':
       void switchMic(cmd.prefer)
       break
+    default:
+      break // unknown / future command: ignore, never crash
   }
 })
 
