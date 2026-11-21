@@ -69,8 +69,29 @@ export function cameraHealth(): CameraHealth {
 
 export type VisionListener = (info: { pose?: HeadPose; blend: Record<string, number>; face: boolean }) => void
 
+/** Infrared (Windows Hello) and virtual cameras: black-and-white or not a real picture, useless for face tracking. */
+const NOT_A_COLOUR_CAMERA = /\b(ir|infrared|hello|virtual|obs|lvnext)\b/i
+
+/**
+ * Opens the webcam, avoiding infrared / Windows Hello cameras. Laptops often list the IR camera first, and the
+ * default pick then gives a black-and-white image. Labels are only known after a first permission, so: open the
+ * default, and if it is an IR/virtual camera, reopen the first colour camera instead.
+ */
+async function openColourCamera(): Promise<MediaStream> {
+  const size = { width: 640, height: 480 }
+  let stream = await navigator.mediaDevices.getUserMedia({ video: size })
+  const label = stream.getVideoTracks()[0]?.label ?? ''
+  if (!NOT_A_COLOUR_CAMERA.test(label)) return stream
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && !NOT_A_COLOUR_CAMERA.test(d.label))
+  if (!cams.length) return stream // nothing better: keep what we have
+  stream.getTracks().forEach((t) => t.stop())
+  stream = await navigator.mediaDevices.getUserMedia({ video: { ...size, deviceId: { exact: cams[0].deviceId } } })
+  console.info(`[vision] skipped "${label}", using "${cams[0].label}"`)
+  return stream
+}
+
 export async function startVision(video: HTMLVideoElement, onFrame?: VisionListener): Promise<() => void> {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+  const stream = await openColourCamera()
   video.srcObject = stream
   await video.play()
 
