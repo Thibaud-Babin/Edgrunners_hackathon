@@ -277,6 +277,9 @@ Links not shown were not confirmed by the research; look them up before relying 
 | Face tracking | `@mediapipe/tasks-vision`; `vladmandic/human` angles | Apache-2.0 / MIT | All gesture logic, calibration, events |
 | Haptics plugin | Logitech `HapticsPlugin` sample | (check) | Localhost listener, event mapping |
 | Mic meter | webrtc/samples | BSD-3 | Silence-while-speaking detector |
+| Message validation | `zod` | MIT | Envelope, Summary and VisionSignal schemas; validation at every agent boundary |
+| AI recap | `@anthropic-ai/sdk` (Claude Haiku, testing) | MIT | Prompt, JSON validation, 3 s timeout, template fallback, cost logging |
+| Agents, sanitiser, gate, checkup | — | — | Built by us: four-agent bus, text sanitiser, provenance/allowlist gate, checkup agent |
 | | | | |
 
 ## 7. Agent and security (kept minimal)
