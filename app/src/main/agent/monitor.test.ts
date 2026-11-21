@@ -38,9 +38,9 @@ test('startup self-check writes one line', async () => {
 
 test('spam guard: more than 5 actions in 10 s pauses the executor 5 s', () => {
   const { bus, calls, logs } = setup()
-  for (let i = 0; i < 5; i++) bus.publish('executor', 'system', 'action.result', { action: 'show_fix', ok: true })
+  for (let i = 0; i < 5; i++) bus.publish('executor', 'system', 'action.result', { action: 'show_away_summary', ok: true })
   assert.deepEqual(calls, [])
-  bus.publish('executor', 'system', 'action.result', { action: 'show_fix', ok: true })
+  bus.publish('executor', 'system', 'action.result', { action: 'show_away_summary', ok: true })
   assert.deepEqual(calls, ['pause until 1005'])
   assert.ok(logs.some((l) => l.startsWith('Spam guard')))
 })
@@ -67,12 +67,57 @@ test('haptics breaker: 3 failed calls in a row → haptics off', () => {
   assert.ok(logs.some((l) => l.includes('local.jmw.nz')))
 })
 
-test('heartbeat: a feed silent for more than 10 s is flagged once, then back', () => {
+test('heartbeat: camera and mic silent > 10 s are flagged once, then back; call audio waits 60 s', () => {
   const { m, bus, logs, advance } = setup()
   advance(11)
   m.tick()
   m.tick()
-  assert.equal(logs.filter((l) => l.startsWith('Vision feed silent')).length, 1)
+  assert.equal(logs.filter((l) => l.startsWith('Camera feed silent')).length, 1)
+  assert.equal(logs.filter((l) => l.startsWith('Mic feed silent')).length, 1)
+  assert.equal(logs.filter((l) => l.startsWith('Call audio feed silent')).length, 0, 'a quiet call is normal')
   bus.publish('vision', 'vision', 'vision', { signal: 'back' })
-  assert.ok(logs.includes('Vision feed back'))
+  assert.ok(logs.includes('Camera feed back'))
+  advance(50)
+  m.tick()
+  assert.equal(logs.filter((l) => l.startsWith('Call audio feed silent')).length, 1)
+})
+
+test('mic: mouth moving with a silent mic for 2 s is reported, once per 30 s', () => {
+  const { m, bus, logs, advance } = setup()
+  const micProblems = () => logs.filter((l) => l.startsWith('Mouth moving but the mic sends nothing')).length
+  bus.publish('audio', 'detector', 'mic', { rms: 0.2 })
+  bus.publish('vision', 'vision', 'vision', { signal: 'mouth', active: true })
+  assert.equal(micProblems(), 0, 'the mic was loud just now')
+  advance(1)
+  bus.publish('audio', 'detector', 'mic', { rms: 0 })
+  assert.equal(micProblems(), 0)
+  advance(1.5)
+  m.tick()
+  assert.equal(micProblems(), 1)
+  advance(10)
+  m.tick()
+  assert.equal(micProblems(), 1, 'cooldown')
+  advance(30)
+  m.tick()
+  assert.equal(micProblems(), 2)
+})
+
+test('mic: a silent mic while the mouth is still is not a problem', () => {
+  const { m, bus, logs, advance } = setup()
+  bus.publish('vision', 'vision', 'vision', { signal: 'mouth', active: false })
+  advance(5)
+  bus.publish('audio', 'detector', 'mic', { rms: 0 })
+  m.tick()
+  assert.ok(!logs.some((l) => l.startsWith('Mouth moving')))
+})
+
+test('camera problems and problems reported in the call are logged in plain words', () => {
+  const { bus, logs } = setup()
+  bus.publish('vision', 'vision', 'vision', { signal: 'camera_frozen' })
+  bus.publish('vision', 'vision', 'vision', { signal: 'camera_frozen' })
+  bus.publish('vision', 'vision', 'vision', { signal: 'low_light' })
+  bus.publish('detector', 'detector', 'detector', { type: 'OTHERS_CANT_HEAR', text: "we can't hear you" })
+  assert.equal(logs.filter((l) => l === 'Camera image is frozen → check the webcam').length, 1)
+  assert.ok(logs.includes('Room too dark for the camera → attention detection may fail'))
+  assert.ok(logs.includes("Someone in the call said they can't hear you → check your mic"))
 })
