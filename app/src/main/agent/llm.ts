@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { LIMITS, LlmSummaryOutput, Summary } from './schemas.ts'
 import { cleanText, escapeTags, MAX } from './sanitize.ts'
 
-export type FallbackReason = 'no_key' | 'empty' | 'short' | 'timeout' | 'error' | 'invalid' | 'breaker'
+export type FallbackReason = 'no_key' | 'empty' | 'short' | 'timeout' | 'auth' | 'error' | 'invalid' | 'breaker'
 
 export interface SummaryOutcome {
   summary: Summary
@@ -123,8 +123,11 @@ export class Llm {
       const out = parseSummary(reply.data.content.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join(''))
       if (!out) return { ...templateSummary(text, userName, 'invalid'), costUsd }
       return { summary: out, costUsd, usedLlm: true }
-    } catch {
-      return templateSummary(text, userName, ctrl.signal.aborted ? 'timeout' : 'error')
+    } catch (err) {
+      // 401/403: the key itself was refused. Said separately so the log points at the key, not at the network.
+      const status = (err as { status?: unknown } | null)?.status
+      const why: FallbackReason = ctrl.signal.aborted ? 'timeout' : status === 401 || status === 403 ? 'auth' : 'error'
+      return templateSummary(text, userName, why)
     } finally {
       clearTimeout(timer)
     }

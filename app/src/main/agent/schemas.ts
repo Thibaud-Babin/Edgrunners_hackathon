@@ -42,7 +42,8 @@ export type Summary = z.infer<typeof Summary>
 /** What the LLM itself must return (`source` is set by our code, never by the model). */
 export const LlmSummaryOutput = z
   .object({
-    text: z.string().max(LIMITS.awayText),
+    // min(1): Haiku once returned an empty summary (seen by B); an empty card is worse than the template.
+    text: z.string().trim().min(1).max(LIMITS.awayText),
     askedYou: z.boolean(),
     question: z.string().max(LIMITS.question).nullable().optional(),
     topics: z.array(z.string().min(1).max(LIMITS.topic)).max(LIMITS.topics)
@@ -124,7 +125,7 @@ export const SummaryResult = z
     transcript: z.string().max(LIMITS.cardTranscript),
     costUsd: z.number().finite().nonnegative(),
     usedLlm: z.boolean(),
-    fallback: z.enum(['no_key', 'empty', 'short', 'timeout', 'error', 'invalid', 'breaker']).optional()
+    fallback: z.enum(['no_key', 'empty', 'short', 'timeout', 'auth', 'error', 'invalid', 'breaker']).optional()
   })
   .strict()
 

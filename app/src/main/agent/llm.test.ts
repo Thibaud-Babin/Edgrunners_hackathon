@@ -111,3 +111,18 @@ test('cost control: output is capped at 200 tokens', async () => {
   await new Llm({ client }).summarise(TRANSCRIPT, 'Thibaud')
   assert.equal(maxTokens, 200)
 })
+
+test('a refused key (401) → template, with its own reason so the log points at the key', async () => {
+  const refused = Object.assign(new Error('Invalid bearer token'), { status: 401 })
+  const out = await new Llm({ client: fake(() => Promise.reject(refused)) }).summarise(TRANSCRIPT, 'Thibaud')
+  assert.equal(out.summary.source, 'template')
+  assert.equal(out.fallback, 'auth')
+})
+
+test('an empty or blank AI summary → template, never an empty card', async () => {
+  for (const empty of ['{"text":"","askedYou":false,"topics":[]}', '{"text":"   ","askedYou":false,"topics":[]}']) {
+    const out = await new Llm({ client: fake(() => ok(empty)) }).summarise(TRANSCRIPT, 'Thibaud')
+    assert.equal(out.summary.source, 'template')
+    assert.ok(out.summary.text.length > 0)
+  }
+})

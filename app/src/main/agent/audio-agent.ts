@@ -18,6 +18,7 @@ const DETECTOR_EVENTS = ['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED'] as const
 
 const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
   timeout: 'AI took longer than 3 s → template summary (AI timeout)',
+  auth: 'AI key refused (401/403) → template summary; check ANTHROPIC_API_KEY in app/.env',
   error: 'AI offline → template summary',
   invalid: 'AI reply was not a valid summary → template summary',
   breaker: 'AI paused after repeated failures → template summary'
