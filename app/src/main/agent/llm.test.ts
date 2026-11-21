@@ -104,6 +104,7 @@ test('cost control: output is capped at 200 tokens', async () => {
     messages: {
       create: (body) => {
         maxTokens = body.max_tokens
+        assert.deepEqual(body.thinking, { type: 'disabled' }, 'thinking off: the 200 tokens are for the answer')
         return ok('{"text":"x","askedYou":false,"topics":[]}')
       }
     }
