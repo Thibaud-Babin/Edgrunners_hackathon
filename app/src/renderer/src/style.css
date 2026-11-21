@@ -174,39 +174,39 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 .pill .knock { display: none; color: var(--accent); font-size: 12px; }
 .pill.knocking .knock { display: inline; animation: knock 0.5s ease-in-out 3; }
 
-.card { position: relative; width: 100%; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 14px 16px 14px; box-shadow: 0 12px 40px var(--shadow); animation: cardin 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.card:hover { box-shadow: 0 0 0 2px var(--accent-soft), 0 12px 40px var(--shadow); }
-.card.out { animation: cardout 0.2s ease-in forwards; }
-.card.fix { border-left-color: var(--bad); }
-.card.reply { border-left-color: var(--ok); }
-.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-right: 24px; }
-.card-head .ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-soft); font-size: 14px; flex: none; }
-.card.fix .card-head .ico { background: rgba(255, 93, 93, 0.18); }
-.card.reply .card-head .ico { background: rgba(60, 207, 142, 0.18); color: var(--ok); }
-.card-title { font-weight: 700; font-size: 15px; }
-.card-sub { color: var(--text-2); font-size: 12px; }
-.close { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 14px; }
-.close:hover { background: var(--panel-2); color: var(--text); }
-.q-label { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.question { font-size: 24px; line-height: 1.25; font-weight: 700; margin: 2px 0 10px; }
-.card.recap .question { font-size: 20px; }
-.points { margin: 0 0 8px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.points li { position: relative; padding-left: 16px; font-size: 15px; }
-.points li::before { content: ''; position: absolute; left: 2px; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.problem { font-size: 20px; font-weight: 700; margin: 2px 0 6px; }
-.card details { margin-top: 4px; }
-.card summary { cursor: pointer; color: var(--text-2); font-size: 12px; list-style: none; }
-.card summary::before { content: '▸ '; }
-.card details[open] summary::before { content: '▾ '; }
-.transcript { margin: 8px 0 0; padding: 10px 12px; max-height: 180px; overflow: auto; background: var(--inset); border-radius: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+/* toasts: Windows-notification style, stacked bottom-right, newest at the bottom */
+#toasts { position: fixed; right: 12px; bottom: 12px; width: 364px; display: flex; flex-direction: column; gap: 8px; }
+.toast { position: relative; background: var(--card); border: 1px solid var(--glass-border); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow); overflow: hidden; text-shadow: var(--card-text-shadow); animation: toastin 0.3s ease-out; }
+.toast.out { animation: toastout 0.25s ease-in forwards; }
+.t-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 2px 10px; }
+.t-app { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.t-app .logo { width: 16px; height: 16px; border-radius: 5px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center; font-size: 10px; color: #fff; }
+.t-ctrl { display: inline-flex; }
+.t-ctrl button { width: 26px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--text-2); font-size: 13px; }
+.t-ctrl button:hover { background: var(--inset); color: var(--text); }
+.t-body { display: flex; gap: 10px; padding: 6px 12px 8px; }
+.tile { flex: none; width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 20px; background: var(--accent-soft); color: var(--accent); }
+.toast.fix .tile { background: rgba(255, 93, 93, 0.25); color: var(--bad); }
+.toast.reply .tile { background: rgba(60, 207, 142, 0.25); color: var(--ok); }
+.t-content { min-width: 0; }
+.t-title { font-weight: 600; font-size: 14px; }
+.question { font-size: 20px; font-weight: 600; line-height: 1.25; margin: 4px 0 8px; }
+.points { margin: 0 0 6px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.points li { position: relative; padding-left: 16px; font-size: 14px; }
+.points li::before { content: ''; position: absolute; left: 2px; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.toast details { margin-top: 4px; }
+.toast summary { cursor: pointer; color: var(--text-2); font-size: 12px; list-style: none; }
+.toast summary::before { content: '▸ '; }
+.toast details[open] summary::before { content: '▾ '; }
+.transcript { margin: 8px 0 0; padding: 10px 12px; max-height: 160px; overflow: auto; background: var(--inset); border-radius: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; text-shadow: none; }
 .transcript .q { color: var(--accent); font-weight: 600; }
-.card-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
-.card-actions .btn.primary { flex: 1; padding: 11px 14px; font-size: 15px; }
-.card-actions .hint { margin-left: auto; color: var(--text-2); font-size: 12px; }
-.reply-text { font-size: 22px; font-weight: 700; }
-.reply .check-anim { width: 26px; height: 26px; }
+.hint { color: var(--text-2); font-size: 12px; margin-top: 6px; }
+.t-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
+.t-actions .btn { flex: 1; padding: 7px 10px; }
+.reply-text { font-size: 18px; font-weight: 700; }
+.check-anim { width: 22px; height: 22px; }
 .reply .check-anim path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: draw 0.4s 0.1s ease-out forwards; }
-.timer { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--ok); border-radius: 0 0 0 var(--radius); animation: shrink linear forwards; }
+.timer { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--ok); animation: shrink linear forwards; }
 
 #flash { position: fixed; inset: 0; pointer-events: none; border-radius: 4px; }
 #flash.on { animation: flash 0.9s ease-out; }
@@ -214,8 +214,8 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 @keyframes pulse { 0% { transform: scale(0.9); opacity: 0.7; } 70% { opacity: 0; } 100% { transform: scale(1.2); opacity: 0; } }
 @keyframes wave { 0%, 100% { height: 4px; } 50% { height: 14px; } }
 @keyframes knock { 0%, 100% { transform: none; } 30% { transform: translateX(-2px) rotate(-8deg); } 60% { transform: translateX(2px) rotate(8deg); } }
-@keyframes cardin { from { transform: translateX(30px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes cardout { to { transform: translateX(30px); opacity: 0; } }
+@keyframes toastin { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toastout { to { transform: translateX(40px); opacity: 0; } }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes shrink { from { width: 100%; } to { width: 0; } }
 @keyframes flash { 0% { box-shadow: inset 0 0 0 10px var(--accent), inset 0 0 60px var(--flash); } 100% { box-shadow: inset 0 0 0 0 transparent; } }
@@ -223,5 +223,5 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 @keyframes rowin { from { background: var(--accent-soft); } to { background: transparent; } }
 
 /* overlay glass: see-through cards over the call, text kept readable */
-body.overlay .pill, body.overlay .card { text-shadow: var(--card-text-shadow); border-color: var(--glass-border); }
-body.overlay .card button { text-shadow: none; }
+body.overlay .pill, body.overlay .toast { text-shadow: var(--card-text-shadow); border-color: var(--glass-border); }
+body.overlay .toast button { text-shadow: none; }

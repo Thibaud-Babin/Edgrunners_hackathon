@@ -1,76 +1,96 @@
 /**
- * OWNER: D. The always-on-top overlay: a status pill plus cards over the meeting window.
- * The window ignores the mouse except while the cursor is over a card, so clicks reach Zoom/Teams underneath.
+ * OWNER: D. The always-on-top overlay: a status pill plus Windows-style toast notifications over the meeting window.
+ * The window ignores the mouse except while the cursor is over a toast, so clicks reach Zoom/Teams underneath.
  * Renderer only: it draws UiCommands and reports the user's clicks as USER_CLICK events.
  */
 import type { AllowedAction, UiCommand } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
-import { el, fmtDuration, toPoints } from './ui/dom'
+import { el, toPoints } from './ui/dom'
 import { initTheme } from './ui/theme'
 
 initTheme()
 
-const cards = document.getElementById('cards')!
+const toasts = document.getElementById('toasts')!
 const flash = document.getElementById('flash')!
 const pill = document.getElementById('pill')!
 const pillStatus = document.getElementById('pill-status')!
 const pillMeta = document.getElementById('pill-meta')!
 
 const REPLY_MS = 3000
+const MAX_TOASTS = 3
 
 function click(action_id: AllowedAction, args: Record<string, unknown> = {}): void {
   window.tap.emit(makeEvent('USER_CLICK', 'ui', { action_id, args }))
 }
 
-function removeCard(id: string): void {
-  const card = document.getElementById(id)
-  if (!card) return
-  card.classList.add('out')
-  setTimeout(() => card.remove(), 200)
+function removeToast(id: string): void {
+  const toast = document.getElementById(id)
+  if (!toast) return
+  toast.classList.add('out')
+  setTimeout(() => toast.remove(), 250)
   window.tap.setOverlayInteractive(false)
 }
 
-/** User pressed ✕ / Got it: tell the agent (it logs it and sends DISMISS back), and hide right away. */
+/** User pressed ✕ / Got it / Not now: tell the agent (it logs it and sends DISMISS back), and hide right away. */
 function userDismiss(id: string): void {
   click('dismiss_card', { id })
-  removeCard(id)
+  removeToast(id)
 }
 
-interface CardOpts {
+interface ToastOpts {
   id: string
   kind: 'hero' | 'recap' | 'fix' | 'reply'
-  icon: string
+  icon: string | SVGSVGElement
   title: string
-  sub?: string
   body: HTMLElement[]
   actions?: HTMLElement[]
   closable?: boolean
 }
 
-function addCard(o: CardOpts): HTMLElement {
+function addToast(o: ToastOpts): HTMLElement {
   document.getElementById(o.id)?.remove()
-  const card = el('div', `card ${o.kind}`)
-  card.id = o.id
-  const head = el('div', 'card-head')
-  const titles = el('div')
-  titles.append(el('div', 'card-title', o.title), ...(o.sub ? [el('div', 'card-sub', o.sub)] : []))
-  head.append(el('span', 'ico', o.icon), titles)
-  card.append(head, ...o.body)
-  if (o.actions?.length) {
-    const row = el('div', 'card-actions')
-    row.append(...o.actions)
-    card.append(row)
+  while (toasts.children.length >= MAX_TOASTS) {
+    const first = toasts.firstElementChild as HTMLElement | null
+    if (!first?.id) break
+    removeToast(first.id)
   }
+
+  const toast = el('div', `toast ${o.kind}`)
+  toast.id = o.id
+
+  const head = el('div', 't-head')
+  const app = el('span', 't-app')
+  app.append(el('span', 'logo', 'T'), document.createTextNode('Tap · now'))
+  const ctrl = el('span', 't-ctrl')
+  const dots = el('button', 'dots', '⋯')
+  dots.title = 'More'
+  ctrl.append(dots)
   if (o.closable !== false) {
     const x = el('button', 'close', '✕')
     x.title = 'Dismiss'
     x.onclick = () => userDismiss(o.id)
-    card.append(x)
+    ctrl.append(x)
   }
-  card.onmouseenter = () => window.tap.setOverlayInteractive(true)
-  card.onmouseleave = () => window.tap.setOverlayInteractive(false)
-  cards.prepend(card)
-  return card
+  head.append(app, ctrl)
+
+  const tile = el('span', 'tile')
+  if (typeof o.icon === 'string') tile.textContent = o.icon
+  else tile.append(o.icon)
+  const content = el('div', 't-content')
+  content.append(el('div', 't-title', o.title), ...o.body)
+  const body = el('div', 't-body')
+  body.append(tile, content)
+
+  toast.append(head, body)
+  if (o.actions?.length) {
+    const row = el('div', 't-actions')
+    row.append(...o.actions)
+    toast.append(row)
+  }
+  toast.onmouseenter = () => window.tap.setOverlayInteractive(true)
+  toast.onmouseleave = () => window.tap.setOverlayInteractive(false)
+  toasts.append(toast) // newest at the bottom, like Windows
+  return toast
 }
 
 function button(label: string, cls: string, fn: () => void): HTMLButtonElement {
@@ -79,8 +99,8 @@ function button(label: string, cls: string, fn: () => void): HTMLButtonElement {
   return b
 }
 
-function question(label: string, text: string): HTMLElement[] {
-  return [el('div', 'q-label', label), el('div', 'question', text)]
+function question(text: string): HTMLElement {
+  return el('div', 'question', `“${text}”`)
 }
 
 function points(summary: string, skip?: string): HTMLElement {
@@ -99,6 +119,10 @@ function transcript(label: string, text: string, highlight?: string): HTMLElemen
   return d
 }
 
+function gestureHint(): HTMLElement {
+  return el('div', 'hint', 'nod = yes · shake = no')
+}
+
 // ---------- status pill (display only; derived from the agent's log) ----------
 let awaySince: number | null = null
 let awayTimer: ReturnType<typeof setInterval> | undefined
@@ -110,14 +134,14 @@ function setAway(on: boolean): void {
   pill.classList.toggle('away', on)
   clearInterval(awayTimer)
   if (!on) {
-    pillStatus.textContent = 'listening'
+    pillStatus.textContent = 'Listening'
     pillStatus.className = ''
     return
   }
   pillStatus.className = 'away-timer'
   const tick = (): void => {
     const s = Math.max(0, Math.floor((Date.now() - (awaySince ?? Date.now())) / 1000))
-    pillStatus.textContent = `away · catching up ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+    pillStatus.textContent = `Away · catching up ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
   }
   tick()
   awayTimer = setInterval(tick, 250)
@@ -129,7 +153,15 @@ function knock(label: string): void {
   void pill.offsetWidth
   pill.classList.add('knocking')
   clearTimeout(knockTimer)
-  knockTimer = setTimeout(() => pill.classList.remove('knocking'), 2000)
+  knockTimer = setTimeout(() => pill.classList.remove('knocking'), 1500)
+}
+
+function checkIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('class', 'check-anim')
+  svg.innerHTML = '<path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+  return svg
 }
 
 // ---------- commands ----------
@@ -138,39 +170,37 @@ window.tap.onUi((cmd: UiCommand) => {
     case 'SHOW_AWAY_SUMMARY': {
       setAway(false)
       const q = cmd.question_to_you
-      addCard({
+      addToast({
         id: cmd.id,
         kind: 'hero',
         icon: cmd.trigger === 'name' ? '🔔' : '👋',
-        title: cmd.trigger === 'name' ? 'You were called while away' : 'While you were away',
-        sub: `${fmtDuration(cmd.until - cmd.away_from)} caught up`,
-        body: [...(q ? question('Question to you', q) : []), points(cmd.summary, q), transcript('Full transcript', cmd.transcript, q)],
-        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), el('span', 'hint', q ? 'nod = yes · shake = no' : '')]
+        title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
+        body: [...(q ? [question(q)] : []), points(cmd.summary, q), transcript('Full transcript', cmd.transcript, q), ...(q ? [gestureHint()] : [])],
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
       })
       break
     }
     case 'SHOW_RECAP':
-      addCard({
+      addToast({
         id: cmd.id,
         kind: 'recap',
         icon: '🔔',
         title: 'You were addressed',
-        sub: 'last 10 seconds',
-        body: [...(cmd.question ? question('Question', cmd.question) : []), points(cmd.summary, cmd.question), transcript('Last 10 seconds', cmd.transcript, cmd.question)],
-        actions: cmd.question ? [el('span', 'hint', 'nod = yes · shake = no')] : []
+        body: [...(cmd.question ? [question(cmd.question)] : []), points(cmd.summary, cmd.question), transcript('Last 10 seconds', cmd.transcript, cmd.question), ...(cmd.question ? [gestureHint()] : [])],
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
       })
       break
     case 'SHOW_FIX':
-      addCard({
+      addToast({
         id: cmd.id,
         kind: 'fix',
-        icon: '⚠️',
-        title: 'Problem detected',
-        body: [el('div', 'problem', cmd.problem)],
+        icon: '⚠',
+        title: cmd.problem,
+        body: [],
         actions: [
           button(cmd.fix_label, 'primary', () => {
             click(cmd.action_id)
-            removeCard(cmd.id)
+            removeToast(cmd.id)
           }),
           button('Not now', 'ghost', () => userDismiss(cmd.id))
         ]
@@ -178,20 +208,15 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     case 'SHOW_REPLY': {
       const id = `reply-${Date.now()}`
-      const check = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-      check.setAttribute('viewBox', '0 0 24 24')
-      check.setAttribute('class', 'check-anim')
-      check.innerHTML = '<path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
-      const card = addCard({ id, kind: 'reply', icon: '', title: 'You answered', body: [el('div', 'reply-text', cmd.text)], closable: false })
-      card.querySelector('.ico')!.append(check)
+      const toast = addToast({ id, kind: 'reply', icon: checkIcon(), title: 'You answered', body: [el('div', 'reply-text', cmd.text)], closable: false })
       const bar = el('div', 'timer')
       bar.style.animationDuration = `${REPLY_MS}ms`
-      card.append(bar)
-      setTimeout(() => removeCard(id), REPLY_MS)
+      toast.append(bar)
+      setTimeout(() => removeToast(id), REPLY_MS)
       break
     }
     case 'DISMISS':
-      removeCard(cmd.id)
+      removeToast(cmd.id)
       break
     case 'FLASH':
       flash.classList.remove('on')
@@ -207,7 +232,7 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     }
     case 'COUNTERS':
-      pillMeta.textContent = `AI ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)}`
+      pillMeta.textContent = `📷 🎙 · AI ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)}`
       break
   }
 })
