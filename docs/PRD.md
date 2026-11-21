@@ -186,8 +186,8 @@ docs/                PRD, design, research
 | Eyebrow raise | `browInnerUp`/`browOuterUp` ≈ 0.3 above the user's neutral baseline, held 300–500 ms |
 | Nod / shake | two reversals of ±8–10° in pitch (nod) or yaw (shake) within ~1.2 s |
 | Tilt left/right | ±15° roll held 400 ms |
-| Looking away | yaw > 25–30° for > 2 s |
-| Mouth moving | high variance of `jawOpen` over ~1 s |
+| Looking away | abs(yaw) > 28 deg or abs(pitch) > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
+| Mouth moving | jawOpen std-dev over a 1 s window, only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg (at a big pitch the blendshape drifts); reset + emit false outside that range |
 
 All gestures: hysteresis + ~1 s cooldown; a 10 s neutral-face calibration at start (pattern inspired by Google Project Gameface's `gesture → action, threshold, hold` bindings). These thresholds are starting points from our research, not measured values.
 

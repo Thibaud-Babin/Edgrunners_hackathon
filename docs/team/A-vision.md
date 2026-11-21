@@ -10,9 +10,9 @@
 ## What you send (events, via `window.tap.emit`)
 | Event | `data` | When |
 |---|---|---|
-| `USER_AWAY` | `{ reason: 'turned_away' \| 'no_face' }` | face turned > ~28° or missing for > 2 s |
+| `USER_AWAY` | `{ reason: 'turned_away' \| 'no_face' }` | yaw > 28 deg or pitch > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
 | `USER_BACK` | — | face back towards the screen |
-| `MOUTH_MOVING` | `{ active: boolean }` | **only when it changes** (talking starts/stops) |
+| `MOUTH_MOVING` | `{ active: boolean }` | only when it changes; only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg; forced false outside that range |
 | `FACE_OUT_OF_FRAME` | — | no face detected — **baseline: only emitted together with `USER_AWAY` (reason `no_face`)** |
 | `CAMERA_FROZEN` | — | frames identical for > 3 s — **not implemented in the baseline** |
 | `LOW_LIGHT` | `{ brightness }` | mean brightness too low — **not implemented in the baseline** |
@@ -53,6 +53,7 @@ If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a s
 - Head-pose signs depend on the matrix layout (column-major 4×4). Verify physically; compare with `vladmandic/human` `src/face/angles.ts` (MIT).
 - Emit events **on change**, not every frame (the log and the agent will drown).
 - Lighting at the venue differs from home: re-test on Saturday evening in the demo room.
+- Looking down at a phone/keyboard: yaw alone misses it; the pitch rule (> 22 deg) catches it. `jawOpen` drifts at large pitch, so `MOUTH_MOVING` is gated to abs(yaw) < 28 deg and abs(pitch) < 22 deg and forced false outside.
 - Research notes with thresholds and repos: `docs/research/build/face_gestures_and_glue.md`.
 
 ## Agent directives (paste to your AI coding agent)
