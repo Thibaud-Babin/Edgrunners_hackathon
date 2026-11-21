@@ -44,7 +44,7 @@ Also yours: `startMic(deviceId)` is used by the "switch to laptop mic" fix (`SWI
 | 02:00–09:00 | Help C/D; P1: user's own mic transcript, more trouble phrases. | — |
 
 ## How to test alone
-- **Capture check:** `npm run dev -- --autostart-call` starts call-audio capture by itself; the terminal prints `[audio] call_audio: ~32000 B/s, peak N` every second (peak ≈ 0 in silence, rises with sound). Silence it with `TAP_DEBUG_AUDIO=0` in `.env`. ✅ Verified on Thibaud's laptop (Windows 11) with a system sound.
+- **Capture check:** `npm run dev:call` (works in PowerShell too) starts call-audio capture by itself; the terminal prints `[audio] call_audio: ~32000 B/s, peak N` every second (peak ≈ 0 in silence, rises with sound). Silence it with `TAP_DEBUG_AUDIO=0` in `.env`. ✅ Verified on Thibaud's laptop (Windows 11) with a system sound.
 - `npm test` for detectors (add cases from real STT output!).
 - Dev text box = fake STT output; real STT should produce the same events.
 

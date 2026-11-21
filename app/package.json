@@ -13,7 +13,8 @@
     "test": "node --experimental-strip-types --test src/main/detectors/text.test.ts",
     "postinstall": "node scripts/setup-models.mjs",
     "setup-stt": "node scripts/setup-stt.mjs",
-    "stt-bench": "node --experimental-strip-types scripts/stt-bench.mts hotwords"
+    "stt-bench": "node --experimental-strip-types scripts/stt-bench.mts hotwords",
+    "dev:call": "electron-vite dev -- --autostart-call"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
