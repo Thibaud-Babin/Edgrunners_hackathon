@@ -10,39 +10,163 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body class="main">
-    <header>
-      <h1>Tap</h1>
-      <div id="counters">AI calls 0 · $0.0000 · video stays on this laptop</div>
-    </header>
+    <button class="theme-switch" id="theme-switch" aria-label="Switch between light and dark theme" aria-pressed="true"><span>Light</span><i class="knob"></i><span>Dark</span></button>
 
-    <main>
-      <section>
-        <h2>Senses</h2>
-        <div class="row">
-          <button id="btn-camera">Start camera</button>
-          <button id="btn-mic">Start mic</button>
-          <button id="btn-call">Start call audio</button>
-          <button id="btn-checkup">Check-up</button>
+    <!-- ============ Orbit hub ============ -->
+    <section id="hub">
+      <div class="hub-head">
+        <div class="hub-title"><span class="brand-dot">T</span>Tap</div>
+        <p>Control center · use it before and after the call. During the call Tap runs in the background.</p>
+        <span class="hub-counters" id="side-counters">AI calls 0 · $0.0000</span>
+      </div>
+      <p class="hub-note" id="hub-note">Click Start mic / Start call audio in Check-up, then minimize this window (don't close it) and join your call.</p>
+      <div class="orbit" id="orbit">
+        <div class="orbit-ring r-outer"></div>
+        <div class="orbit-ring r-inner"></div>
+        <div class="orbit-core">
+          <div class="core-disc" id="core-disc">T</div>
+          <span class="badge" id="core-badge">● not started</span>
         </div>
-        <video id="video" muted playsinline></video>
-        <pre id="vision-info"></pre>
-        <div id="checkup"></div>
+        <button class="orbit-node" data-orb="0" style="--c: rgba(52, 211, 153, 0.9)"><span class="o-glow"></span><span class="o-disc">✓</span><span class="o-name">Check-up</span><span class="badge o-badge" id="badge-check">not run yet</span></button>
+        <button class="orbit-node" data-orb="1" style="--c: rgba(96, 165, 250, 0.9)"><span class="o-glow"></span><span class="o-disc">≡</span><span class="o-name">Activity</span><span class="badge o-badge" id="badge-activity">0 events · 0 blocked</span></button>
+        <button class="orbit-node" data-orb="2" style="--c: rgba(251, 191, 36, 0.9)"><span class="o-glow"></span><span class="o-disc">▦</span><span class="o-name">IT view</span><span class="badge o-badge">simulated</span></button>
+        <button class="orbit-node" data-orb="3" style="--c: rgba(192, 132, 252, 0.9)"><span class="o-glow"></span><span class="o-disc">⚙</span><span class="o-name">Dev tools</span><span class="badge o-badge">team only</span></button>
+        <button class="orbit-node" data-orb="4" style="--c: rgba(244, 114, 182, 0.9)"><span class="o-glow"></span><span class="o-disc">◐</span><span class="o-name">Settings</span><span class="badge o-badge">theme</span></button>
+        <div class="orbit-panel" id="orbit-panel">
+          <h3 id="op-title"></h3>
+          <p id="op-desc"></p>
+          <div class="op-chips" id="op-chips"></div>
+          <button class="btn primary" id="op-open"></button>
+        </div>
+      </div>
+    </section>
+
+    <div class="content">
+      <!-- ============ Check-up ============ -->
+      <section class="page" id="page-check">
+        <div class="page-head">
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Check-up</h2>
+              <p>10 seconds before the call. Then open Zoom, Teams or Meet: Tap keeps running on top.</p>
+            </div>
+          </div>
+          <div class="head-right">
+            <button class="btn primary" id="btn-checkup">Run check-up</button>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Camera</h3>
+            <div class="cam-box">
+              <video id="video" muted playsinline></video>
+              <div class="cam-empty" id="cam-empty">Camera off</div>
+              <div class="face-frame" id="face-frame"></div>
+              <span class="cam-badge" id="cam-badge">off</span>
+            </div>
+            <pre class="vision-info" id="vision-info"></pre>
+            <div class="row mt">
+              <button class="btn" id="btn-camera">Start camera</button>
+              <button class="btn" id="btn-mic">Start mic</button>
+              <button class="btn" id="btn-call">Start call audio</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Result</h3>
+            <div class="score">
+              <span class="score-num" id="score-num">–</span>
+              <div class="score-bar"><i id="score-bar"></i></div>
+              <button class="btn" id="btn-checkup-again">Run again</button>
+            </div>
+            <ul class="checks" id="checks"></ul>
+          </div>
+        </div>
       </section>
 
-      <section>
-        <h2>Dev tools <small>(fake the senses)</small></h2>
-        <form id="speech-form">
-          <input id="speech" placeholder="Type what someone in the call says, e.g. 'so Thibaud, OK with Friday?'" />
-          <button>Say</button>
-        </form>
-        <div class="row" id="fake-buttons"></div>
+      <!-- ============ Activity ============ -->
+      <section class="page" id="page-activity">
+        <div class="page-head">
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Activity</h2>
+              <p>Everything Tap saw, decided and did — newest first.</p>
+            </div>
+          </div>
+          <div class="head-right">
+            <div class="filters" id="filters"></div>
+          </div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="k">AI calls</div><div class="v" id="c-ai">0</div></div>
+          <div class="tile"><div class="k">Cost</div><div class="v" id="c-cost">$0.0000</div></div>
+          <div class="tile"><div class="k">Events</div><div class="v" id="c-events">0</div></div>
+          <div class="tile bad"><div class="k">Blocked commands</div><div class="v" id="c-blocked">0</div></div>
+        </div>
+        <div class="local-banner">🔒 No audio or video left this laptop — only short text goes to the AI model.</div>
+        <div class="panel">
+          <table class="log">
+            <thead><tr><th>Time</th><th>Type</th><th>What happened</th><th style="text-align: right">Cost</th></tr></thead>
+            <tbody id="log"></tbody>
+          </table>
+          <div class="empty" id="log-empty">Nothing yet. Start the senses or run <code>npm run mock</code>.</div>
+        </div>
       </section>
 
-      <section class="wide">
-        <h2>Activity</h2>
-        <ol id="log"></ol>
+      <!-- ============ IT view ============ -->
+      <section class="page" id="page-it">
+        <div class="page-head">
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>IT view <span class="sim">SIMULATED DATA</span></h2>
+              <p id="it-sub">Meeting problems across the company.</p>
+            </div>
+          </div>
+          <div class="head-right"></div>
+        </div>
+        <div class="tiles" id="it-tiles"></div>
+        <div class="grid-2">
+          <div class="panel"><h3>Hours lost per problem type</h3><div class="bars" id="it-bars"></div></div>
+          <div class="panel"><h3>Agent health</h3><div class="health" id="it-health"></div></div>
+        </div>
       </section>
-    </main>
+
+      <!-- ============ Dev tools ============ -->
+      <section class="page" id="page-dev">
+        <div class="page-head">
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Dev tools</h2>
+              <p>Fake the senses to make the agent show cards on the overlay. For the team, not the demo.</p>
+            </div>
+          </div>
+          <div class="head-right"></div>
+        </div>
+        <div class="panel">
+          <h3>Someone in the call says…</h3>
+          <form class="dev-form" id="speech-form">
+            <input class="input" id="speech" placeholder="e.g. 'so Thibaud, OK with Friday?'" />
+            <button class="btn primary">Say</button>
+          </form>
+          <h3 class="mt">Fake events</h3>
+          <div class="row" id="fake-buttons"></div>
+        </div>
+        <div class="grid-2 mt">
+          <div class="panel">
+            <h3>Emit raw TapEvent (JSON)</h3>
+            <textarea id="raw-json">{ "type": "USER_AWAY", "source": "webcam" }</textarea>
+            <div class="row mt"><button class="btn" id="btn-raw">Emit</button><span class="vision-info" id="raw-err"></span></div>
+          </div>
+          <div class="panel">
+            <h3>Last UI commands received</h3>
+            <pre class="raw" id="raw-log"></pre>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <script type="module" src="./src/main.ts"></script>
   </body>
