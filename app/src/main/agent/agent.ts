@@ -25,10 +25,13 @@ export class Agent {
   private transcript: Line[] = []
   private awayFrom: number | null = null
   private lastMicLoud = now()
+  private lastMicLevelAt = 0 // when we last got a MIC_LEVEL: no mic monitoring → no mic-silent alert
   private mouthActive = false
   private lastMicAlert = 0
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
   private cardSeq = 0
+  /** Name heard; the card waits for the end of the sentence (next final transcript) so it includes the question. */
+  private pendingAddress: { e: TapEvent; timer: ReturnType<typeof setTimeout> } | null = null
 
   constructor(
     bus: EventBus,
@@ -64,6 +67,7 @@ export class Agent {
     this.transcript.push({ ts: e.ts, text: String(e.data?.text ?? '') })
     const cutoff = now() - 30 * 60 // keep 30 min
     this.transcript = this.transcript.filter((l) => l.ts >= cutoff)
+    if (this.pendingAddress) this.flushAddress()
   }
 
   private textSince(ts: number): string {
@@ -73,15 +77,25 @@ export class Agent {
       .join('\n')
   }
 
-  /** P0-1 / P0-2 / P0-3: name said → knock → recap, or "while you were away" if the user was away. */
+  /**
+   * P0-1 / P0-2 / P0-3: name said → knock NOW (may come from a partial transcript),
+   * then when the sentence ends (or after 4 s): recap, or "while you were away" if the user was away.
+   */
   private async onName(e: TapEvent): Promise<void> {
+    if (this.pendingAddress) return // same sentence
+    this.pendingAddress = { e, timer: setTimeout(() => this.flushAddress(), 4000) }
     await this.haptic(HAPTIC.addressed)
-    if (this.awayFrom !== null && now() - this.awayFrom >= AWAY_MIN_S) {
-      await this.awaySummary('name')
-      return
-    }
-    // Let the end of the sentence arrive before recapping.
-    setTimeout(() => void this.recap(e), 1500)
+    // Dev text box / mock send final lines: the transcript is already there.
+    if (!e.data?.partial) this.flushAddress()
+  }
+
+  private flushAddress(): void {
+    const p = this.pendingAddress
+    if (!p) return
+    clearTimeout(p.timer)
+    this.pendingAddress = null
+    if (this.awayFrom !== null && now() - this.awayFrom >= AWAY_MIN_S) void this.awaySummary('name')
+    else void this.recap(p.e)
   }
 
   private async recap(e: TapEvent): Promise<void> {
@@ -124,6 +138,7 @@ export class Agent {
   /** P0-4: mouth moving + mic silent for ≥ 2 s. */
   private onMicLevel(e: TapEvent): void {
     const rms = Number(e.data?.rms ?? 0)
+    this.lastMicLevelAt = e.ts
     if (rms > MIC_SILENT_RMS) this.lastMicLoud = e.ts
     this.checkMicSilent()
   }
@@ -135,6 +150,7 @@ export class Agent {
 
   private checkMicSilent(): void {
     const t = now()
+    if (t - this.lastMicLevelAt > 1.5) return // mic not monitored ("Start mic" not clicked): we know nothing
     if (!this.mouthActive || t - this.lastMicLoud < MIC_SILENT_AFTER_S || t - this.lastMicAlert < MIC_ALERT_COOLDOWN_S) return
     this.lastMicAlert = t
     this.log('decision', 'mouth moving but mic sends nothing → MIC_SILENT_WHILE_SPEAKING')

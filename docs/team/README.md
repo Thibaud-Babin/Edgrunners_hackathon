@@ -11,6 +11,39 @@ Read your own sheet, then this page. Product spec: [PRD](../PRD.md). Code guide:
 
 > Change from the earlier plan: **D is pure UI** (our UI enthusiast). **C owns integration** because the agent is where everything meets.
 
+## 📣 Update from B (audio), Sat 17:45 — read this
+
+**What changed:** call audio → **Deepgram** (cloud). If Deepgram is unavailable, Tap switches to **local Parakeet** on its own.
+- Real-call test: names 6/7 with Deepgram vs 0/7 with the old model.
+- The loop works end to end on a replayed real call: look away → name → knock → "while you were away" card, then recaps, then the "can't hear you" fix card.
+- Everything is on branch `b-audio` (PR #1). **Merge it before you build on audio.**
+
+**Everyone, after pulling:**
+1. `cd app`, `npm install`, then `npm run setup-stt`. This downloads Parakeet, about 460 MB: do it on good Wi-Fi.
+2. In `app/.env`, set `TAP_STT=deepgram` and `DEEPGRAM_API_KEY=…`. Ask B for the key in person, **never in the repo or a chat**. Without a key, Tap uses local Parakeet.
+3. Run `npm run dev:e2e`. It starts call audio and clicks "Look away" by itself. Play any English call or video with your name in it.
+4. The terminal now shows the agent's decisions and cards: `[agent]` and `[card]` lines.
+
+**C (agent, integration):**
+- Your contract with B is **unchanged**:
+  - `NAME_MENTIONED` (now often from a *partial*, so the knock comes before the sentence ends), `TRANSCRIPT_FINAL`, `QUESTION_TO_YOU`, `QUESTION_TO_GROUP`, `OTHERS_CANT_HEAR`, `VIDEO_FROZEN_REPORTED`;
+  - your current `agent.ts` already does name → knock → recap or away card. Verified live.
+- **Only call audio is transcribed now.** There's no mic transcript anymore; `TAP_STT_MIC=1` brings it back.
+- **Name hits are filtered:** they must be addressed to someone (question, "you", or the name opening the sentence). "Let's talk about the table → tibo" no longer knocks.
+- On this laptop **every knock fell back to the screen flash**: HapticWeb isn't set up here. Check `curl -X POST -d "" https://local.jmw.nz:41443/haptic/knock` on the demo laptop.
+- Summaries were the **template** because there's no `ANTHROPIC_API_KEY` on this laptop. The "question" field is the whole sentence; the LLM will do better.
+- **Your "Wi-Fi off" demo beat:** the speech engine also falls back. The activity log shows `Speech: Deepgram lost (…) → switched to local Parakeet`.
+- **Not used yet:** `QUESTION_TO_YOU`. Use it for the "Question to you" line on the card if you like.
+
+**D (UI):**
+- The counter text is now "video stays on this laptop". Audio goes to Deepgram, so we no longer claim "no audio left".
+- New activity-log lines of kind `decision` start with `Speech:` (which engine is running, and the switch). Style them as system status.
+- Expect many `FLASH` commands when the mouse isn't connected: make the flash short and not annoying.
+
+**A (vision):**
+- On the real call, `MOUTH_MOVING` flapped on and off constantly. Please add hysteresis or debounce: about 300 ms to turn on and 800 ms to turn off.
+- The "mic sends nothing" alert now needs `MIC_LEVEL` events from the last 1.5 s ("Start mic" on). Without them it never fires, which fixes the false alerts we saw.
+
 ## The 7 rules that prevent integration pain
 
 1. **The contract is `app/src/shared/events.ts`.** You only talk to other parts through those events and commands. Need a new field or event? Post in the team chat, get a 👍 from whoever consumes it, then make a small PR titled `contract: …`. Everyone pulls right after.

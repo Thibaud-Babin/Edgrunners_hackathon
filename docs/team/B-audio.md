@@ -4,6 +4,30 @@
 
 This is the **riskiest part** of the project. Do the risk spike first, decide fallbacks fast, and ask for help early (C and D can help after 19:00).
 
+## Decision (Sat 21 Nov, 18:00): Deepgram for the live demo ✅
+Real 2-min Meet call recorded with `TAP_RECORD=1`, compared with `scripts/stt-compare.mts`:
+
+| Engine | Sentences | Names (of 7) | False alerts | Notes |
+|---|---|---|---|---|
+| sherpa zipformer (old default) | gibberish | 0 | 0 | trained on audiobooks, fails on call audio |
+| Parakeet TDT 0.6B v2 (local) + context rule | ✓ | 5 | 0 | best local option, ~0.8 s per sentence |
+| **Deepgram nova-3 + keyterms (live in Tap)** | ✓ | **6** | **0** | knock fires on the partial, before the sentence ends |
+
+- Use `TAP_STT=deepgram` + `DEEPGRAM_API_KEY` in `app/.env`. Without a key it falls back to local sherpa.
+- A name only counts when the sentence speaks to someone (`addressesSomeone`), which removes "talk about the table → tibo".
+- `findAddressed` catches mangled names used to address someone ("hey bo, are you still here?").
+- ✅ Local fallback: Parakeet + Silero VAD (`parakeet.ts`). Pre-loaded when `TAP_STT=deepgram`, and switched to automatically when Deepgram can't connect or goes silent for 6 s. Tested with a bad key: the switch happens in about 2 s.
+- ✅ End to end (`npm run dev:e2e` + the real call replayed): away card, recaps, and the fix card all fire. Parakeet names 4/7 live.
+
+## Status (Sat 21 Nov, pre-hackathon spike) ✅
+- **Capture:** Electron loopback works on Thibaud's laptop (~32 kB/s, level follows the sound).
+- **Local STT:** sherpa-onnx streaming Zipformer (English, int8) — `npm run setup-stt`, `TAP_STT=sherpa`. ~7× faster than real time, model loads in ~5.5 s at startup.
+- **Name:** hotwords (`TAP_HOTWORDS`) + name checked on partial results. Offline bench (`npm run stt-bench`, 20 TTS clips): **9/10 names, 0/10 false alerts**, trouble phrases 4/4. Live through the speakers: **4/4 names, ~1.2 s from sentence start to detection**.
+- **Silence:** lone filler words ("and") dropped → 0 fake transcripts in 40 s of silence.
+- **Next:** test with real human voices + a real Meet/Zoom call (accents!), the Sony WH-1000XM4 Bluetooth hands-free issue (see below), replay mode for the demo, `MIC_SILENT_RMS` tuning.
+- **Limits:** English-only model: French meetings won't transcribe. Windows' French voice (Hortense) gave poor transcripts.
+- **Bluetooth headsets:** if the meeting app uses the headset mic, Windows moves the call audio to "Headset (… Hands-Free)": make that the default output, or use the laptop mic in the meeting app.
+
 ## Your files
 - `app/src/renderer/src/audio.ts`, `app/src/renderer/public/pcm-worklet.js`
 - `app/src/main/audio/` (`pipeline.ts` + new engines, e.g. `sherpa.ts`, `deepgram.ts`)
@@ -35,7 +59,7 @@ Also yours: `startMic(deviceId)` is used by the "switch to laptop mic" fix (`SWI
 | 02:00–09:00 | Help C/D; P1: user's own mic transcript, more trouble phrases. | — |
 
 ## How to test alone
-- **Capture check:** `npm run dev -- --autostart-call` starts call-audio capture by itself; the terminal prints `[audio] call_audio: ~32000 B/s, peak N` every second (peak ≈ 0 in silence, rises with sound). Silence it with `TAP_DEBUG_AUDIO=0` in `.env`. ✅ Verified on Thibaud's laptop (Windows 11) with a system sound.
+- **Capture check:** `npm run dev:call` (works in PowerShell too) starts call-audio capture by itself; the terminal prints `[audio] call_audio: ~32000 B/s, peak N` every second (peak ≈ 0 in silence, rises with sound). Silence it with `TAP_DEBUG_AUDIO=0` in `.env`. ✅ Verified on Thibaud's laptop (Windows 11) with a system sound.
 - `npm test` for detectors (add cases from real STT output!).
 - Dev text box = fake STT output; real STT should produce the same events.
 
