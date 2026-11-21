@@ -3,7 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
 import { IPC } from '../shared/events'
@@ -12,7 +12,7 @@ import { Haptics } from './haptics'
 import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
 import { AudioPipeline, createStt } from './audio/pipeline'
-import { runMock } from './mock'
+import { runMock, startRecording } from './mock'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo').split(',').map((s) => s.trim())
@@ -79,9 +79,10 @@ app.whenReady().then(() => {
 
   const bus = new EventBus()
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
-  // Role from config only (never speech, LLM or production UI). Missing/invalid → intern.
   const llm = new Llm()
   new Agent(bus, sendUi, haptics, llm, names[0])
+  // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
+  if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
@@ -109,7 +110,8 @@ app.whenReady().then(() => {
   }
 
   if (process.argv.includes('--mock')) {
-    const file = join(app.getAppPath(), '..', 'demo', 'mock-events.json')
+    const root = join(app.getAppPath(), '..')
+    const file = resolve(root, process.env.TAP_MOCK_FILE || join('demo', 'mock-events.json'))
     mainWin?.webContents.once('did-finish-load', () => runMock(file, bus, audio, () => llm.stallNextCall()))
   }
 })
