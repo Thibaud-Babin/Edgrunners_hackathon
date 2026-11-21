@@ -23,6 +23,7 @@ const MIC_ALERT_COOLDOWN_S = 15
 
 export class Agent {
   private transcript: Line[] = []
+  private speakers = new Set<string>()
   private awayFrom: number | null = null
   private lastMicLoud = now()
   private lastMicLevelAt = 0 // when we last got a MIC_LEVEL: no mic monitoring → no mic-silent alert
@@ -52,19 +53,29 @@ export class Agent {
     bus.on('GESTURE_SHAKE', () => this.gestureSeen('shake'))
     bus.on('GESTURE_BROW_RAISE', () => this.gestureSeen('eyebrow raise'))
     bus.on('USER_CLICK', (e) => this.onUserClick(e))
+    // ---- added by B (Sat evening). C: move these into the executor during the split. ----
+    bus.on('WAITING_FOR_YOU', (e) => void this.onWaiting(e))
+    bus.on('TOPIC_MENTIONED', (e) => void this.onTopic(e))
+    bus.on('INSTRUCTION_LIKE_SPEECH', (e) => this.onInstructionLike(e))
+    bus.on('MIC_QUALITY', (e) => this.onMicQuality(e))
+    bus.on('STT_USAGE', (e) => this.onSttUsage(e))
   }
 
   // ---------- senses ----------
 
   private onAny(e: TapEvent): void {
     this.counters.events++
-    if (e.type !== 'MIC_LEVEL' && e.type !== 'TRANSCRIPT_PARTIAL') this.log('event', `${e.type}${e.data?.text ? `: "${e.data.text}"` : ''}`)
+    if (e.type !== 'MIC_LEVEL' && e.type !== 'TRANSCRIPT_PARTIAL' && e.type !== 'STT_USAGE') this.log('event', `${e.type}${e.data?.text ? `: "${e.data.text}"` : ''}`)
     this.pushCounters()
   }
 
   private onTranscript(e: TapEvent): void {
     if (e.source !== 'call_audio') return
-    this.transcript.push({ ts: e.ts, text: String(e.data?.text ?? '') })
+    // Speaker labels (Deepgram diarization) let the summary say who asked: "Speaker 2: so Thibaud, OK with Friday?"
+    // Labels only once 2+ voices were heard: with one voice "Speaker 1 is discussing…" just adds noise.
+    if (e.data?.speaker) this.speakers.add(String(e.data.speaker))
+    const who = e.data?.speaker && this.speakers.size >= 2 ? `${String(e.data.speaker)}: ` : ''
+    this.transcript.push({ ts: e.ts, text: who + String(e.data?.text ?? '') })
     const cutoff = now() - 30 * 60 // keep 30 min
     this.transcript = this.transcript.filter((l) => l.ts >= cutoff)
     if (this.pendingAddress) this.flushAddress()
@@ -85,6 +96,8 @@ export class Agent {
     if (this.pendingAddress) return // same sentence
     this.pendingAddress = { e, timer: setTimeout(() => this.flushAddress(), 4000) }
     await this.haptic(HAPTIC.addressed)
+    if (typeof e.data?.latency_s === 'number')
+      this.log('decision', `knock ${e.data.latency_s} s after ${e.data.latency_ref === 'name_word' ? 'your name was said' : 'the sentence started'}`)
     // Dev text box / mock send final lines: the transcript is already there.
     if (!e.data?.partial) this.flushAddress()
   }
@@ -168,6 +181,45 @@ export class Agent {
     void this.haptic(HAPTIC.gestureSeen)
     this.log('decision', `gesture recognised: ${name}`)
     // TODO(C, P1-1): map nod → "Yes" / shake → "No" / eyebrow → raise hand via execute()
+  }
+
+  // ---------- added by B (Sat evening) ----------
+
+  /** A question to you, then silence: they're waiting for your answer → "knock knock" + nudge card. */
+  private async onWaiting(e: TapEvent): Promise<void> {
+    this.log('decision', `${e.data?.silent_s ?? '?'} s of silence after a question to you → nudge`)
+    this.ui({ type: 'SHOW_NUDGE', id: this.cardId(), text: "They're waiting for your answer", question: String(e.data?.question ?? '') })
+    await this.haptic(HAPTIC.waiting)
+    await new Promise((r) => setTimeout(r, 250))
+    await this.haptic(HAPTIC.waiting)
+  }
+
+  private async onTopic(e: TapEvent): Promise<void> {
+    this.log('decision', `topic "${e.data?.topic}" mentioned → soft heads-up`)
+    await this.haptic(HAPTIC.topic)
+  }
+
+  /** PRD S-1: speech never triggers actions. We only log that we noticed (demo beat: injection attempt). */
+  private onInstructionLike(e: TapEvent): void {
+    this.counters.blocked++
+    this.log('blocked', `instruction-like speech ignored (speech can't trigger actions): "${e.data?.text}"`)
+    this.pushCounters()
+  }
+
+  /** B measures, C decides. For now: log it. TODO(C): offer the laptop mic when level stays bad. */
+  private onMicQuality(e: TapEvent): void {
+    const level = String(e.data?.level ?? '')
+    if (level === 'ok') this.log('decision', 'mic quality back to ok')
+    else this.log('decision', `mic quality: ${level.replace('_', ' ')} (speech ${e.data?.speech_rms}, noise ${e.data?.noise_rms}, clipped ${e.data?.clipped_pct} %)`)
+  }
+
+  private sttCostUsd = 0
+  /** Speech-to-text cost goes into the same counter as the LLM (AXA: frugality, every cent visible). */
+  private onSttUsage(e: TapEvent): void {
+    const cost = Number(e.data?.cost_usd ?? 0)
+    this.counters.costUsd += cost - this.sttCostUsd
+    this.sttCostUsd = cost
+    this.pushCounters()
   }
 
   // ---------- executor (allowlist) ----------

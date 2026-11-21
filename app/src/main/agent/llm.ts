@@ -32,7 +32,10 @@ export class Llm {
     try {
       const msg = await this.client.messages.create({
         model: this.model,
-        max_tokens: 200,
+        // Haiku 5.5 thinks by default and thinking counts toward max_tokens: with 200 tokens it sometimes thought
+        // and never answered (empty card). A 3-line summary doesn't need it, and it's faster without.
+        max_tokens: 400,
+        thinking: { type: 'disabled' },
         system: SYSTEM,
         messages: [{ role: 'user', content: `The user's name is ${userName}.\n<transcript>\n${transcript}\n</transcript>` }]
       })

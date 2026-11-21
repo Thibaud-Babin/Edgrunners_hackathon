@@ -12,7 +12,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Source } from '../../shared/events'
-import type { SttEngine } from './pipeline'
+import type { OnText, SttEngine } from './pipeline'
 
 const MODELS = resolve('models')
 const MODEL_DIR = process.env.TAP_PARAKEET_MODEL || join(MODELS, 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8')
@@ -73,7 +73,7 @@ function concat(parts: Float32Array[]): Float32Array {
   return out
 }
 
-export function createParakeetEngine(source: Source, onText: (text: string, final: boolean) => void): SttEngine {
+export function createParakeetEngine(source: Source, onText: OnText): SttEngine {
   loadParakeet()
   const vad = new sherpa.Vad(
     {
@@ -89,6 +89,7 @@ export function createParakeetEngine(source: Source, onText: (text: string, fina
   let preroll: Float32Array[] = [] // last ~0.3 s while silent
   let speech: Float32Array[] = [] // the sentence so far, while speaking
   let speaking = false
+  let speechStartWall = 0 // when the current sentence started (wall clock ms), for the knock-speed measure
   let lastPartialAt = 0
   let partialBusy = false
   let queue: Promise<void> = Promise.resolve() // finals decoded in order
@@ -109,10 +110,11 @@ export function createParakeetEngine(source: Source, onText: (text: string, fina
     partialBusy = true
     lastPartialAt = Date.now()
     const id = sentenceId
+    const startWall = speechStartWall
     void decode(audio)
       .then((text) => {
         const t = clean(text)
-        if (t && id === sentenceId && !stopped) onText(t, false) // drop if the sentence already ended
+        if (t && id === sentenceId && !stopped) onText(t, false, { speechStartWall: startWall }) // drop if the sentence already ended
       })
       .catch((err) => console.warn('[stt] parakeet partial failed:', err))
       .finally(() => (partialBusy = false))
@@ -120,10 +122,11 @@ export function createParakeetEngine(source: Source, onText: (text: string, fina
 
   const final = (samples: Float32Array): void => {
     sentenceId++
+    const startWall = speechStartWall || Date.now() - (samples.length / SR) * 1000
     queue = queue.then(async () => {
       try {
         const t = clean(await decode(samples))
-        if (t && !stopped) onText(t, true)
+        if (t && !stopped) onText(t, true, { speechStartWall: startWall })
       } catch (err) {
         console.warn('[stt] parakeet decode failed:', err)
       }
@@ -145,6 +148,7 @@ export function createParakeetEngine(source: Source, onText: (text: string, fina
         if (vad.isDetected()) {
           if (!speaking) {
             speaking = true
+            speechStartWall = Date.now() - ((preroll.length + 1) * WINDOW * 1000) / SR - 300 // VAD reacts ~0.3 s late
             speech = [...preroll]
             lastPartialAt = Date.now()
           }
