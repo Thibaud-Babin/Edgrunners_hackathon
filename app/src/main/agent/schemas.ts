@@ -150,9 +150,13 @@ export const SummaryResult = z
     summary: Summary,
     transcript: z.string().max(LIMITS.cardTranscript),
     costUsd: z.number().finite().nonnegative(),
-    usedLlm: z.boolean()
+    usedLlm: z.boolean(),
+    fallback: z.enum(['no_key', 'empty', 'timeout', 'error', 'invalid', 'breaker']).optional()
   })
   .strict()
+
+/** Executor → Monitor: what happened when an action ran (e.g. the haptic HTTP call failed). */
+export const ActionResult = z.object({ action: z.enum(ALLOWED_ACTIONS), ok: z.boolean() }).strict()
 
 /**
  * The agent bus registry: every envelope kind, its payload schema and the provenances it may carry.
@@ -165,7 +169,8 @@ export const KINDS = {
   vision: { schema: VisionSignal, provenance: ['vision'] },
   user: { schema: UserInput, provenance: ['user'] },
   'summary.request': { schema: SummaryRequest, provenance: ['system'] },
-  summary: { schema: SummaryResult, provenance: ['llm', 'transcript'] }
+  summary: { schema: SummaryResult, provenance: ['llm', 'transcript'] },
+  'action.result': { schema: ActionResult, provenance: ['system'] }
 } as const satisfies Record<string, { schema: z.ZodType; provenance: readonly Provenance[] }>
 export type Kind = keyof typeof KINDS
 export type PayloadOf<K extends Kind> = z.infer<(typeof KINDS)[K]['schema']>

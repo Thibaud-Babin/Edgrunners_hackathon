@@ -82,7 +82,6 @@ export class AudioAgent {
   private async onRequest(req: PayloadOf<'summary.request'>): Promise<void> {
     const text = this.textSince(req.fromTs) || req.fallbackText
     const out = await this.llm.summarise(text, req.kind, this.userName)
-    if (out.usedLlm || out.costUsd > 0) this.report.aiCall(out.costUsd)
     if (out.usedLlm) this.report.log('llm', `summary (${text.length} chars)`, out.costUsd)
     const why = out.fallback && FALLBACK_LOG[out.fallback]
     if (why) this.report.log('error', why)
@@ -91,7 +90,8 @@ export class AudioAgent {
       summary: out.summary,
       transcript: text.length <= LIMITS.cardTranscript ? text : text.slice(text.length - LIMITS.cardTranscript),
       costUsd: out.costUsd,
-      usedLlm: out.usedLlm
+      usedLlm: out.usedLlm,
+      ...(out.fallback ? { fallback: out.fallback } : {})
     })
   }
 }
