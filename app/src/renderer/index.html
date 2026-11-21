@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:; connect-src 'self' ws: data: blob:; worker-src 'self' blob:"
+    />
+    <title>Tap</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body class="main">
+    <header>
+      <h1>Tap</h1>
+      <div id="counters">AI calls 0 · $0.0000 · no audio or video left this laptop</div>
+    </header>
+
+    <main>
+      <section>
+        <h2>Senses</h2>
+        <div class="row">
+          <button id="btn-camera">Start camera</button>
+          <button id="btn-mic">Start mic</button>
+          <button id="btn-call">Start call audio</button>
+          <button id="btn-checkup">Check-up</button>
+        </div>
+        <video id="video" muted playsinline></video>
+        <pre id="vision-info"></pre>
+        <div id="checkup"></div>
+      </section>
+
+      <section>
+        <h2>Dev tools <small>(fake the senses)</small></h2>
+        <form id="speech-form">
+          <input id="speech" placeholder="Type what someone in the call says, e.g. 'so Thibaud, OK with Friday?'" />
+          <button>Say</button>
+        </form>
+        <div class="row" id="fake-buttons"></div>
+      </section>
+
+      <section class="wide">
+        <h2>Activity</h2>
+        <ol id="log"></ol>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

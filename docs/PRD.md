@@ -300,9 +300,11 @@ The organisers told us compliance and security are **not a judging priority** at
 | **A — Vision** | Renderer vision worker | Gestures (nod, shake, brow, tilt), away, mouth-moving, frozen camera, low light, calibration screen | `GESTURE_*`, `USER_*`, `CAMERA_*` events |
 | **B — Audio** | Main-process audio pipeline | Loopback capture (+ PyAudioWPatch fallback), mic level, local STT (sherpa-onnx) with Deepgram fallback, name/question/tech-trouble detectors, demo replay mode | `TRANSCRIPT_*`, `NAME_MENTIONED`, `QUESTION_*`, `OTHERS_CANT_HEAR`, `MIC_LEVEL` |
 | **C — Agent & Logitech** | Main-process agent + haptics | Event bus, rules, allowlist executor, LLM recap/replies, activity log + costs, injection defence, HapticWeb then C# plugin | `SHOW_*`, `LOG_ENTRY`, `COUNTERS`, haptic commands |
-| **D — UI & pitch** | Renderer UI + overlay window | Electron shell (electron-vite), recap card, check-up, activity panel, chat overlay, IT dashboard, tally; demo script, slides, backup video, user tests | `USER_CLICK`; the pitch |
+| **D — Integrator & UI** | Electron shell, windows, joining everyone's work | Electron shell (electron-vite), joins A+B+C into the end-to-end loop by 19:00 then helps whoever is behind (most likely B), recap card, check-up, activity panel, IT view; owns the demo script (Saturday afternoon), backup video v1 (19:00) and the user test (Saturday) | `USER_CLICK`; the demo script |
 
-Each person owns a mock of the others' events from hour 1 (replay a JSON file), so nobody is blocked. D sets up the electron-vite skeleton in the first hour so A, B and C code inside it from the start; C keeps the Rule 30 table (§6) up to date.
+Each person owns a mock of the others' events from hour 1 (replay a JSON file), so nobody is blocked. D sets up the electron-vite skeleton in the first hour so A, B and C code inside it from the start; C keeps the Rule 30 table (§6) up to date. **Slides, final video and rehearsals are done by everyone together on Sunday 09:00–11:30.**
+
+**Code skeleton:** `app/` already contains the Electron app with the event contract (`app/src/shared/events.ts`), the agent, the overlay, fake events (`npm run mock`) and `TODO(A/B/C/D)` markers — see [app/README.md](../app/README.md).
 
 ## 9. Timeline (Sat 12:00 → Sun 12:00)
 
@@ -353,6 +355,7 @@ Prepare a 30-second, 2-minute and per-sponsor 60-second version.
 | Haptics plugin issues / old firmware | Low–medium | Update Options+ Saturday morning; HapticWeb → own plugin → WebHID; visual flash |
 | HapticWeb needs DNS + a certificate download (venue Wi-Fi) | Medium | Hosts-file entry `127.0.0.1 local.jmw.nz`; first run at home; own plugin over plain localhost HTTP |
 | Licence contamination (GPL code copied) | Low | Copy only MIT/Apache/BSD; GPL repos read-only; Rule 30 table |
+| **Zoom/Meet and Tap can't both open the webcam** (depends on the camera and Windows) | Medium | Test in hour 1 with the real meeting app. Fallback: Tap opens the real camera and passes the video to Zoom through OBS Virtual Camera |
 | Laptop overload (Electron + MediaPipe + OBS) | Medium | Vision in a worker at reduced FPS; OBS only for P2; test on the demo laptop |
 | Can't detect "muted inside Zoom" | Certain | Detect what we can (device silence, wrong device, others saying they can't hear); say so honestly |
 | "Did you talk to users?" | High | Test with a deaf/HoH attendee; otherwise say next step is SGB-FSS |

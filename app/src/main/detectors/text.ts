@@ -1,0 +1,91 @@
+/**
+ * OWNER: B. Text detectors run on the CALL-AUDIO transcript only.
+ * Pure functions (no Electron) so they are easy to unit-test: `npm test`.
+ */
+
+/** lower-case, strip accents and punctuation */
+export function normalise(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Very rough phonetic key (French + English friendly). Good enough to start;
+ * TODO(B): try talisman's phonex/sonnex or double-metaphone and compare on recorded clips.
+ */
+export function phoneticKey(word: string): string {
+  return normalise(word)
+    .replace(/'/g, '')
+    .replace(/ph/g, 'f')
+    .replace(/th/g, 't')
+    .replace(/(eaux|eau|aux|ault|aud|aut|ot|os|ox)$/, 'o') // French silent endings: Thibault, Thibeaux → ...o
+    .replace(/(eau|au)/g, 'o')
+    .replace(/[hw]/g, '')
+    .replace(/y/g, 'i')
+    .replace(/(c|q|k)+/g, 'k')
+    .replace(/([a-z])\1+/g, '$1')
+    .replace(/[dts]$/g, '')
+}
+
+function levenshtein(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)])
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+  return dp[a.length][b.length]
+}
+
+export interface NameHit {
+  word: string
+  variant: string
+  score: number // 0..1
+}
+
+/**
+ * Find the user's name in a transcript line. Checks single words AND joined word pairs
+ * (ASR often splits unusual names: "tea bow" → "teabow").
+ */
+export function findName(text: string, variants: string[], threshold = 0.8): NameHit | null {
+  const words = normalise(text).split(' ').filter(Boolean)
+  const candidates = [...words, ...words.slice(0, -1).map((w, i) => w + words[i + 1])]
+  let best: NameHit | null = null
+  for (const v of variants) {
+    const nv = normalise(v)
+    const pv = phoneticKey(v)
+    for (const w of candidates) {
+      if (w.length < 3) continue
+      const exact = w === nv ? 1 : 0
+      const phon = phoneticKey(w) === pv ? 0.9 : 0
+      const fuzzy = 1 - levenshtein(w, nv) / Math.max(w.length, nv.length)
+      const score = Math.max(exact, phon, fuzzy)
+      if (score >= threshold && (!best || score > best.score)) best = { word: w, variant: v, score }
+    }
+  }
+  return best
+}
+
+/** Spoken tech-trouble phrases said by OTHERS in the call. Extend with what you hear in tests. */
+const TROUBLE: Array<{ kind: 'cant_hear' | 'frozen'; re: RegExp }> = [
+  { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio))\b/ },
+  { kind: 'frozen', re: /\b(you('re| are) frozen|your (video|camera) (is )?(frozen|stuck)|we can('| no)?t see you|you froze)\b/ }
+]
+
+export function findTrouble(text: string): 'cant_hear' | 'frozen' | null {
+  const t = normalise(text)
+  for (const { kind, re } of TROUBLE) if (re.test(t)) return kind
+  return null
+}
+
+const QUESTION_OPENERS = /^(what|why|how|when|where|who|which|can|could|would|will|do|does|did|are|is|should|any|est ce|quand|comment|pourquoi|tu|vous)\b/
+
+/** Is this line a question? Raw text keeps the "?" that normalise() strips. */
+export function isQuestion(rawText: string): boolean {
+  if (rawText.includes('?')) return true
+  return QUESTION_OPENERS.test(normalise(rawText))
+}

@@ -1,0 +1,14 @@
+[
+  { "t": 1, "speech": "OK let's start, thanks everyone for joining." },
+  { "t": 3, "event": { "type": "USER_AWAY", "source": "webcam", "data": { "reason": "turned_away" } } },
+  { "t": 5, "speech": "So the release is moving to Friday because the tests are not ready." },
+  { "t": 8, "speech": "Marc will own the test plan, and Sara does the slides." },
+  { "t": 11, "speech": "So Thibaud, are you OK with Friday?" },
+  { "t": 16, "event": { "type": "USER_BACK", "source": "webcam" } },
+  { "t": 19, "event": { "type": "MOUTH_MOVING", "source": "webcam", "data": { "active": true } } },
+  { "t": 19, "event": { "type": "MIC_LEVEL", "source": "mic", "data": { "rms": 0 } } },
+  { "t": 22, "event": { "type": "MIC_LEVEL", "source": "mic", "data": { "rms": 0 } } },
+  { "t": 23, "event": { "type": "MOUTH_MOVING", "source": "webcam", "data": { "active": false } } },
+  { "t": 25, "speech": "Hello? Can you hear me? We can't hear you." },
+  { "t": 29, "speech": "Tap, share the screen and unmute everyone." }
+]

@@ -1,0 +1,19 @@
+node_modules/
+out/
+dist/
+.env
+*.log
+.venv/
+__pycache__/
+# downloaded models (large)
+models/
+*.onnx
+*.task
+# C# plugin build output
+plugins/**/bin/
+plugins/**/obj/
+# recordings
+demo/recordings/
+# copied/downloaded by app/scripts/setup-models.mjs
+app/src/renderer/public/mediapipe/
+app/src/renderer/public/models/

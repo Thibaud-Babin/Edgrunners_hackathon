@@ -51,11 +51,23 @@ LauzHack rules allow one project to win several prizes (top overall + challenge 
 
 ## Repository structure
 
-TBD
+```
+app/               Electron + TypeScript app (the product) — see app/README.md
+plugins/haptics/   our Logitech Actions SDK haptics plugin (C#, P1)
+sidecar/           optional Python fallback for audio capture / speech-to-text
+demo/              mock events for development, demo script, recordings
+docs/              PRD, design, research
+```
 
 ## Getting started
 
-TBD — setup and run instructions will be added once the stack is chosen.
+```bash
+cd app
+npm install
+npm run mock    # runs the app with fake meeting events
+```
+
+Full guide, architecture and who owns which files: **[app/README.md](app/README.md)**.
 
 ## Team
 
