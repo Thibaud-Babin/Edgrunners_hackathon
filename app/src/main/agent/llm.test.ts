@@ -78,3 +78,10 @@ test('template summaries respect the length caps', async () => {
   const out = await new Llm({ client: null }).summarise(long, 'recap', 'Thibaud')
   assert.ok(out.summary.text.length <= 280)
 })
+
+test('stallNextCall: the next call times out even without a key, then normal behaviour resumes', async () => {
+  const llm = new Llm({ client: null, timeoutMs: 50 })
+  llm.stallNextCall()
+  assert.equal((await llm.summarise(TRANSCRIPT, 'recap', 'Thibaud')).fallback, 'timeout')
+  assert.equal((await llm.summarise(TRANSCRIPT, 'recap', 'Thibaud')).fallback, 'no_key')
+})

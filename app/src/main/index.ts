@@ -81,7 +81,8 @@ app.whenReady().then(() => {
   const bus = new EventBus()
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
   // Role from config only (never speech, LLM or production UI). Missing/invalid → intern.
-  new Agent(bus, sendUi, haptics, new Llm(), names[0], roleFromConfig(process.env.TAP_USER_ROLE))
+  const llm = new Llm()
+  new Agent(bus, sendUi, haptics, llm, names[0], roleFromConfig(process.env.TAP_USER_ROLE))
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
@@ -110,7 +111,7 @@ app.whenReady().then(() => {
 
   if (process.argv.includes('--mock')) {
     const file = join(app.getAppPath(), '..', 'demo', 'mock-events.json')
-    mainWin?.webContents.once('did-finish-load', () => runMock(file, bus, audio))
+    mainWin?.webContents.once('did-finish-load', () => runMock(file, bus, audio, () => llm.stallNextCall()))
   }
 })
 

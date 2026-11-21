@@ -55,6 +55,7 @@ export class Llm {
   private model: string
   private timeoutMs: number
   private templateUntil = 0
+  private stallNext = false
 
   constructor(opts: { client?: MessagesClient | null; model?: string; timeoutMs?: number } = {}) {
     this.client = opts.client !== undefined ? opts.client : process.env.ANTHROPIC_API_KEY ? new Anthropic() : null
@@ -66,6 +67,14 @@ export class Llm {
     return this.client !== null
   }
 
+  /**
+   * Mock mode only (demo/mock-events.json `"sim": "ai_timeout"`): the next call hangs, so the real
+   * 3 s timeout and template fallback run, even without an API key.
+   */
+  stallNextCall(): void {
+    this.stallNext = true
+  }
+
   /** Circuit breaker (Monitor): use templates only until `ts` (seconds since epoch). */
   forceTemplateUntil(ts: number): void {
     this.templateUntil = ts
@@ -74,7 +83,9 @@ export class Llm {
   async summarise(transcript: string, kind: SummaryKind, userName: string): Promise<SummaryOutcome> {
     const text = transcript.trim()
     if (!text) return { summary: summaryOf(kind, '(nothing was said)', [], undefined, 'template'), costUsd: 0, usedLlm: false, fallback: 'empty' }
-    if (!this.client) return templateSummary(text, kind, userName, 'no_key')
+    const client = this.stallNext ? HANGING : this.client
+    this.stallNext = false
+    if (!client) return templateSummary(text, kind, userName, 'no_key')
     if (Date.now() / 1000 < this.templateUntil) return templateSummary(text, kind, userName, 'breaker')
 
     const ctrl = new AbortController()
@@ -87,7 +98,7 @@ export class Llm {
     })
     try {
       const name = escapeTags(cleanText(userName, MAX.speakerName))
-      const call = this.client.messages.create(
+      const call = client.messages.create(
         {
           model: this.model,
           max_tokens: 300,
@@ -110,6 +121,13 @@ export class Llm {
     } finally {
       clearTimeout(timer)
     }
+  }
+}
+
+/** A client that never answers until aborted (used by `stallNextCall`). */
+const HANGING: MessagesClient = {
+  messages: {
+    create: (_body, opts) => new Promise((_resolve, reject) => opts?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
   }
 }
 
