@@ -19,17 +19,101 @@ themeBtn.onclick = () => {
 }
 syncThemeBtn()
 
-// ---------- graph hub ----------
+// ---------- orbit hub ----------
 const hub = $('hub')
-const edges = document.getElementById('hub-edges') as unknown as SVGSVGElement
-const PAGES: Array<[string, string, string]> = [
-  ['check', '✓', 'Check-up'],
-  ['activity', '≡', 'Activity'],
-  ['it', '▦', 'IT view'],
-  ['dev', '⚙', 'Dev tools']
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+interface OrbNode {
+  page: string
+  icon: string
+  name: string
+  color: string
+  desc: string
+  rel: string[]
+}
+const ORBIT: OrbNode[] = [
+  { page: 'check', icon: '✓', name: 'Check-up', color: 'rgba(52, 211, 153, 0.9)', desc: 'Camera, mic and playback test before the call.', rel: ['activity'] },
+  { page: 'activity', icon: '≡', name: 'Activity', color: 'rgba(96, 165, 250, 0.9)', desc: 'Everything Tap saw, decided and did — plus cost.', rel: ['check', 'it', 'dev'] },
+  { page: 'it', icon: '▦', name: 'IT view', color: 'rgba(251, 191, 36, 0.9)', desc: 'Team impact metrics — simulated data.', rel: ['activity'] },
+  { page: 'dev', icon: '⚙', name: 'Dev tools', color: 'rgba(192, 132, 252, 0.9)', desc: 'Replay fake meeting events for the demo.', rel: ['activity'] },
+  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Theme and display.', rel: [] }
 ]
+const RADIUS = 220
+const nodeEls = Array.from(document.querySelectorAll<HTMLElement>('.orbit-node'))
+const STEP = 360 / nodeEls.length
+let rot = 0
+let rotTimer: ReturnType<typeof setInterval> | null = null
+let selected = -1
+
+function layoutOrbit(): void {
+  nodeEls.forEach((n, i) => {
+    const rad = ((rot + i * STEP) * Math.PI) / 180
+    const x = RADIUS * Math.cos(rad)
+    const y = RADIUS * Math.sin(rad)
+    const depth = (Math.sin(rad) + 1) / 2 // 1 = front (bottom of the orbit)
+    const sel = i === selected
+    n.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${sel ? 1.4 : 1})`
+    n.style.opacity = sel ? '1' : (0.45 + 0.55 * depth).toFixed(2)
+    n.style.zIndex = sel ? '30' : String(Math.round(depth * 20))
+  })
+}
+
+const rotAllowed = (): boolean => selected < 0 && !hub.classList.contains('hidden') && !document.hidden && !REDUCED
+function startRot(): void {
+  if (rotTimer || !rotAllowed()) return
+  rotTimer = setInterval(() => {
+    rot = (rot + 0.3) % 360
+    layoutOrbit()
+  }, 50)
+}
+function stopRot(): void {
+  if (rotTimer) {
+    clearInterval(rotTimer)
+    rotTimer = null
+  }
+}
+
+function clearSelection(): void {
+  selected = -1
+  $('orbit-panel').classList.remove('show')
+  nodeEls.forEach((n) => n.classList.remove('sel', 'rel'))
+}
+
+function selectNode(i: number): void {
+  selected = i
+  stopRot()
+  const target = 270 - i * STEP // bring the node to the top, via the shortest spin
+  rot += ((((target - rot) % 360) + 540) % 360) - 180
+  layoutOrbit()
+  nodeEls.forEach((n, j) => {
+    n.classList.toggle('sel', j === i)
+    n.classList.toggle('rel', j !== i && ORBIT[i].rel.includes(ORBIT[j].page))
+  })
+  const o = ORBIT[i]
+  $('op-title').textContent = o.name
+  $('op-desc').textContent = o.desc
+  $('op-chips').replaceChildren(
+    ...o.rel.map((r) => {
+      const j = ORBIT.findIndex((x) => x.page === r)
+      const c = el('button', 'op-chip', ORBIT[j].name)
+      c.style.setProperty('--c', ORBIT[j].color)
+      c.onclick = (e) => {
+        e.stopPropagation()
+        selectNode(j)
+      }
+      return c
+    })
+  )
+  const open = $('op-open')
+  open.textContent = o.page === 'settings' ? 'Switch theme' : `Open ${o.name}`
+  open.style.background = o.color
+  open.style.borderColor = o.color
+  $('orbit-panel').classList.add('show')
+}
 
 function openPage(p: string): void {
+  clearSelection()
+  stopRot()
   hub.classList.add('hidden')
   document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === `page-${p}`))
   document.querySelectorAll<HTMLElement>('.mini-graph button').forEach((b) => b.classList.toggle('active', b.dataset.page === p))
@@ -38,70 +122,65 @@ function openPage(p: string): void {
 function showHub(): void {
   hub.classList.remove('hidden')
   document.querySelectorAll('.page').forEach((pg) => pg.classList.remove('active'))
-  requestAnimationFrame(drawEdges)
+  layoutOrbit()
+  startRot()
 }
 
-// Mini-graph: 4 round page-jump buttons appended to each page header.
+// Mini-graph: round page-jump buttons appended to each page header, in each node's color.
 for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
   const mini = el('div', 'mini-graph')
-  for (const [p, ico, label] of PAGES) {
-    const b = el('button', '', ico)
-    b.dataset.page = p
-    b.title = label
-    b.setAttribute('aria-label', label)
-    b.onclick = () => openPage(p)
+  for (const o of ORBIT.filter((x) => x.page !== 'settings')) {
+    const b = el('button', '', o.icon)
+    b.dataset.page = o.page
+    b.title = o.name
+    b.style.setProperty('--c', o.color)
+    b.setAttribute('aria-label', o.name)
+    b.onclick = () => openPage(o.page)
     mini.append(b)
   }
   right.append(mini)
 }
 
-// Edges: one line from the core disc to each node's disc, redrawn on resize.
-const nodes = Array.from(document.querySelectorAll<HTMLElement>('.node'))
-const lines = new Map<HTMLElement, SVGLineElement>()
-function drawEdges(): void {
-  const hr = hub.getBoundingClientRect()
-  edges.setAttribute('viewBox', `0 0 ${Math.round(hr.width)} ${Math.round(hr.height)}`)
-  const c = $('core-disc').getBoundingClientRect()
-  const cx = c.left - hr.left + c.width / 2
-  const cy = c.top - hr.top + c.height / 2
-  const coreR = c.width / 2 + 6 // stop a few px outside the disc
-  const nodeR = 40 // node disc radius + gap
-  for (const n of nodes) {
-    const d = n.querySelector('.disc')!.getBoundingClientRect()
-    const nx = d.left - hr.left + d.width / 2
-    const ny = d.top - hr.top + d.height / 2
-    const dx = nx - cx
-    const dy = ny - cy
-    const len = Math.hypot(dx, dy) || 1
-    const ux = dx / len
-    const uy = dy / len
-    let l = lines.get(n)
-    if (!l) {
-      l = document.createElementNS('http://www.w3.org/2000/svg', 'line')
-      l.setAttribute('class', 'hub-line')
-      edges.append(l)
-      lines.set(n, l)
+nodeEls.forEach((n, i) => {
+  n.onclick = (e) => {
+    e.stopPropagation()
+    if (selected === i) {
+      clearSelection()
+      startRot()
+    } else {
+      selectNode(i)
     }
-    l.setAttribute('x1', String(cx + ux * coreR))
-    l.setAttribute('y1', String(cy + uy * coreR))
-    l.setAttribute('x2', String(nx - ux * nodeR))
-    l.setAttribute('y2', String(ny - uy * nodeR))
+  }
+})
+$('orbit-panel').onclick = (e) => e.stopPropagation()
+$('orbit').onclick = () => {
+  if (selected >= 0) {
+    clearSelection()
+    startRot()
   }
 }
-for (const n of nodes) {
-  n.onclick = () => openPage(n.dataset.page!)
-  const hot = (on: boolean) => () => lines.get(n)?.classList.toggle('hot', on)
-  n.onmouseenter = hot(true)
-  n.onmouseleave = hot(false)
-  n.onfocus = hot(true)
-  n.onblur = hot(false)
+$('op-open').onclick = () => {
+  const o = ORBIT[selected]
+  if (!o) return
+  if (o.page === 'settings') {
+    toggleTheme()
+    syncThemeBtn()
+    return
+  }
+  openPage(o.page)
 }
 document.querySelectorAll<HTMLElement>('.back-hub').forEach((b) => (b.onclick = showHub))
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && hub.classList.contains('hidden') && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) showHub()
+  if (e.key !== 'Escape' || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  if (hub.classList.contains('hidden')) showHub()
+  else if (selected >= 0) {
+    clearSelection()
+    startRot()
+  }
 })
-window.addEventListener('resize', drawEdges)
-drawEdges()
+document.addEventListener('visibilitychange', () => (document.hidden ? stopRot() : startRot()))
+layoutOrbit()
+startRot()
 
 function setListening(): void {
   const b = $('core-badge')

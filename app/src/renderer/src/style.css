@@ -7,6 +7,7 @@
   --ok: #3ccf8e; --warn: #f5b547; --bad: #ff5d5d;
   --card: rgba(14, 19, 30, 0.62); --card-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
   --glass-border: rgba(255, 255, 255, 0.22); --inset: rgba(0, 0, 0, 0.3); --shadow: rgba(0, 0, 0, 0.45); --flash: rgba(76, 141, 255, 0.6);
+  --ring: rgba(255, 255, 255, 0.12);
   --radius: 8px;
 }
 :root[data-theme='light'] {
@@ -16,6 +17,7 @@
   --ok: #0e7a0e; --warn: #9d5d00; --bad: #c42b1c;
   --card: rgba(250, 250, 250, 0.62); --card-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
   --glass-border: rgba(255, 255, 255, 0.7); --inset: rgba(0, 0, 0, 0.06); --shadow: rgba(0, 0, 0, 0.2); --flash: rgba(15, 108, 189, 0.45);
+  --ring: rgba(15, 23, 42, 0.14);
 }
 body { margin: 0; font: 14px/1.45 'Inter', ui-sans-serif, system-ui, sans-serif; color: var(--text); }
 button { font: inherit; color: inherit; cursor: pointer; }
@@ -31,40 +33,57 @@ button { font: inherit; color: inherit; cursor: pointer; }
 body.main { background: var(--bg); height: 100vh; overflow: hidden; position: relative; }
 .brand-dot { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center; font-size: 14px; color: #fff; }
 
-/* graph hub (control center) */
+/* orbit hub (control center) */
 #hub { position: absolute; inset: 0; background: var(--bg); z-index: 10; }
 #hub.hidden { display: none; }
-.hub-head { position: absolute; top: 28px; left: 32px; max-width: 420px; }
+.hub-head { position: absolute; top: 28px; left: 32px; max-width: 420px; z-index: 5; }
 .hub-title { display: flex; align-items: center; gap: 10px; font-size: 26px; font-weight: 700; }
 .hub-head p { margin: 8px 0 4px; color: var(--text-2); }
-.hub-counters { position: absolute; left: 32px; bottom: 24px; color: var(--text-3); font-size: 12px; }
-#hub-edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.hub-line { stroke: var(--line); stroke-width: 2; stroke-dasharray: 6 6; transition: stroke 0.15s; }
-.hub-line.hot { stroke: var(--accent); stroke-dasharray: none; }
-.hub-core { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 360px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; z-index: 1; }
-.core-disc { position: relative; width: 96px; height: 96px; border-radius: 50%; background: radial-gradient(circle at 32% 30%, #479ef5, #0f6cbd 58%, #4b2ea8); display: grid; place-items: center; font-size: 38px; font-weight: 700; color: #fff; box-shadow: 0 12px 40px var(--shadow); }
-.core-disc::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; animation: pulse 2.4s ease-out infinite; }
-.core-name { font-size: 18px; font-weight: 700; }
-.hub-note { margin: 12px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.55; }
-.badge { font-size: 11px; color: var(--text-2); padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+.hub-counters { display: block; margin-top: 6px; color: var(--text-3); font-size: 12px; }
+.orbit { position: absolute; inset: 0; }
+.orbit-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; border: 1px solid var(--ring); pointer-events: none; }
+.orbit-ring.r-outer { width: 440px; height: 440px; }
+.orbit-ring.r-inner { width: 200px; height: 200px; }
+.orbit-core { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 340px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; z-index: 1; pointer-events: none; }
+.core-disc { position: relative; width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(135deg, #a855f7, #3b82f6 50%, #14b8a6); display: grid; place-items: center; font-size: 32px; font-weight: 700; color: #fff; box-shadow: 0 12px 40px var(--shadow); }
+.core-disc::before, .core-disc::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 2px solid #3b82f6; opacity: 0; animation: ping 2.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+.core-disc::after { animation-delay: 1.3s; }
+@keyframes ping { 0% { transform: scale(1); opacity: 0.55; } 80%, 100% { transform: scale(2.1); opacity: 0; } }
+.hub-note { margin: 6px 0 0; padding: 4px 10px; border-radius: 8px; background: var(--bg); color: var(--text-2); font-size: 12px; line-height: 1.55; }
+.badge { font-size: 11px; color: var(--text-2); padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; background: var(--bg); }
 .badge.ok, #core-badge.on { color: var(--ok); border-color: var(--ok); }
 .badge.bad { color: var(--bad); border-color: var(--bad); }
-.node { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 10px; background: transparent; border: 0; transition: transform 0.15s; }
-.node.pos-tl { left: 24%; top: 30%; }
-.node.pos-tr { left: 76%; top: 30%; }
-.node.pos-bl { left: 26%; top: 76%; }
-.node.pos-br { left: 74%; top: 76%; }
-.node:hover { transform: translate(-50%, -50%) scale(1.06); }
-.node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 14px; }
-.node .disc { width: 64px; height: 64px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; font-size: 24px; color: var(--text); box-shadow: 0 4px 18px var(--shadow); transition: border-color 0.15s; }
-.node:hover .disc { border-color: var(--accent); }
-.node-name { font-weight: 600; color: var(--text); }
+.orbit-node { position: absolute; left: 50%; top: 50%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px; background: transparent; border: 0; transition: transform 0.7s ease, opacity 0.7s ease; }
+.orbit-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 14px; }
+.o-glow { position: absolute; left: 50%; top: 34px; transform: translate(-50%, -50%); width: 96px; height: 96px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--c) 45%, transparent), transparent 70%); opacity: 0.55; pointer-events: none; transition: opacity 0.2s; }
+.o-disc { position: relative; width: 56px; height: 56px; border-radius: 50%; background: color-mix(in srgb, var(--c) 22%, transparent); border: 2px solid color-mix(in srgb, var(--c) 70%, transparent); display: grid; place-items: center; font-size: 22px; color: var(--text); transition: transform 0.15s, box-shadow 0.15s; }
+.orbit-node:hover .o-disc { transform: scale(1.12); box-shadow: 0 0 26px color-mix(in srgb, var(--c) 60%, transparent); }
+.orbit-node:hover .o-glow { opacity: 1; }
+.orbit-node.sel .o-disc { box-shadow: 0 0 30px color-mix(in srgb, var(--c) 70%, transparent); }
+.orbit-node.rel .o-disc { animation: relpulse 1.1s ease-in-out infinite; }
+@keyframes relpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); } 50% { box-shadow: 0 0 0 12px transparent; } }
+.o-name { font-weight: 600; font-size: 13px; color: var(--text); }
+.o-badge { color: color-mix(in srgb, var(--c) 80%, var(--text)); border-color: color-mix(in srgb, var(--c) 55%, transparent); }
+.orbit-panel { position: absolute; left: 50%; top: calc(50% - 138px); transform: translate(-50%, 8px); width: 300px; padding: 14px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; z-index: 40; }
+.orbit-panel.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.orbit-panel h3 { margin: 0 0 4px; font-size: 15px; }
+.orbit-panel p { margin: 0 0 10px; color: var(--text-2); font-size: 12px; }
+.op-chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+.op-chips:empty { margin-bottom: 0; }
+.op-chip { padding: 3px 10px; border-radius: 999px; font-size: 11px; border: 1px solid color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--text); }
+.op-chip:hover { background: color-mix(in srgb, var(--c) 35%, transparent); }
+#op-open { width: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .core-disc::before, .core-disc::after { display: none; animation: none; }
+  .orbit-node { transition: none; }
+  .orbit-node.rel .o-disc { animation: none; }
+}
 .head-left { display: flex; align-items: center; gap: 14px; }
 .head-right { display: flex; align-items: center; gap: 14px; }
 .mini-graph { display: flex; gap: 6px; }
-.mini-graph button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel-2); color: var(--text-2); font-size: 13px; }
-.mini-graph button:hover { border-color: var(--accent); color: var(--text); }
-.mini-graph button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.mini-graph button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 55%, transparent); background: color-mix(in srgb, var(--c, var(--accent)) 22%, transparent); color: var(--text); font-size: 13px; }
+.mini-graph button:hover { border-color: var(--c, var(--accent)); }
+.mini-graph button.active { background: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent); border-color: var(--c, var(--accent)); }
 .mini-graph button:focus-visible, .back-hub:focus-visible, .theme-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .content { height: 100%; overflow: auto; padding: 24px 28px 40px; }
 .page { display: none; }
@@ -214,7 +233,7 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 #flash { position: fixed; inset: 0; pointer-events: none; border-radius: 4px; }
 #flash.on { animation: flash 0.9s ease-out; }
 
-@keyframes pulse { 0% { transform: scale(0.9); opacity: 0.7; } 70% { opacity: 0; } 100% { transform: scale(1.2); opacity: 0; } }
+
 @keyframes wave { 0%, 100% { height: 4px; } 50% { height: 14px; } }
 @keyframes knock { 0%, 100% { transform: none; } 30% { transform: translateX(-2px) rotate(-8deg); } 60% { transform: translateX(2px) rotate(8deg); } }
 @keyframes toastin { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
