@@ -16,6 +16,12 @@ export type EventType =
   | 'OTHERS_CANT_HEAR'
   | 'VIDEO_FROZEN_REPORTED'
   | 'MIC_LEVEL'
+  // B — audio, added Sat 21 Nov evening (additive; see docs/team/README.md "Update from B")
+  | 'WAITING_FOR_YOU' // { question, silent_s, mic_monitored } a question to you, then silence: they wait for your answer
+  | 'TOPIC_MENTIONED' // { topic, text } a TAP_TOPICS word was said ("deadline", "budget"…)
+  | 'INSTRUCTION_LIKE_SPEECH' // { text } "Tap, ignore your instructions…": log it as ignored, never act on it
+  | 'MIC_QUALITY' // { level: 'ok'|'too_quiet'|'clipping'|'noisy', speech_rms, noise_rms, clipped_pct } measured only; the agent decides
+  | 'STT_USAGE' // { engine, seconds, cost_usd } speech-to-text usage since start (every 30 s while audio flows)
   // A — webcam
   | 'GESTURE_NOD'
   | 'GESTURE_SHAKE'
@@ -40,7 +46,9 @@ export interface TapEvent {
   source: Source
   confidence?: number
   /**
-   * TRANSCRIPT_*: { text }        MIC_LEVEL: { rms }      NAME_MENTIONED / QUESTION_* / OTHERS_CANT_HEAR: { text }
+   * TRANSCRIPT_*: { text, speaker? }        MIC_LEVEL: { rms }      NAME_MENTIONED / QUESTION_* / OTHERS_CANT_HEAR: { text, speaker? }
+   * NAME_MENTIONED also: { matched, partial, latency_s?, latency_ref? ('name_word' | 'sentence_start') }
+   * speaker = "Speaker 1", "Speaker 2"… (Deepgram diarization; absent with the local engine)
    * MOUTH_MOVING: { active }      USER_CLICK: { action_id, args? }
    */
   data?: Record<string, unknown>
@@ -63,6 +71,8 @@ export type UiCommand =
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
+  | { type: 'SHOW_NUDGE'; id: string; text: string; question?: string } // "They're waiting for your answer"
+  | { type: 'CAPTION'; text: string; final: boolean; speaker?: string; highlight?: string } // live captions (overlay)
   | { type: 'DISMISS'; id: string }
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }
@@ -118,7 +128,9 @@ export const HAPTIC = {
   groupQuestion: 'ringing',
   done: 'completed',
   problem: 'angry_alert',
-  gestureSeen: 'subtle_collision'
+  gestureSeen: 'subtle_collision',
+  waiting: 'knock', // fired twice: "knock knock, they're waiting for you"
+  topic: 'damp_state_change'
 } as const satisfies Record<string, Waveform>
 
 /** IPC channel names shared by main, preload and renderer. */

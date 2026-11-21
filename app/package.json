@@ -1,7 +1,7 @@
 {
   "name": "tap",
   "version": "0.1.0",
-  "description": "Tap: on-device meeting companion (LauzHack 2026)",
+  "description": "Tap: meeting companion for missed moments (LauzHack 2026)",
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {
@@ -10,13 +10,19 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/main/detectors/text.test.ts",
-    "postinstall": "node scripts/setup-models.mjs"
+    "test": "node --experimental-strip-types --test \"src/main/**/*.test.ts\"",
+    "postinstall": "node scripts/setup-models.mjs",
+    "setup-stt": "node scripts/setup-stt.mjs",
+    "stt-bench": "node --experimental-strip-types scripts/stt-bench.mts hotwords",
+    "dev:call": "electron-vite dev -- --autostart-call",
+    "dev:e2e": "electron-vite dev -- --autostart-call --autostart-away"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
     "@mediapipe/tasks-vision": "^1.2.3",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "sherpa-onnx-node": "^2.0.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
