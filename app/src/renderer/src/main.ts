@@ -19,12 +19,85 @@ themeBtn.onclick = () => {
 }
 syncThemeBtn()
 
-// ---------- sidebar pages ----------
-for (const nav of document.querySelectorAll<HTMLButtonElement>('.nav[data-page]')) {
-  nav.onclick = () => {
-    document.querySelectorAll('.nav').forEach((n) => n.classList.toggle('active', n === nav))
-    document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${nav.dataset.page}`))
+// ---------- graph hub ----------
+const hub = $('hub')
+const edges = document.getElementById('hub-edges') as unknown as SVGSVGElement
+const PAGES: Array<[string, string, string]> = [
+  ['check', '✓', 'Check-up'],
+  ['activity', '≡', 'Activity'],
+  ['it', '▦', 'IT view'],
+  ['dev', '⚙', 'Dev tools']
+]
+
+function openPage(p: string): void {
+  hub.classList.add('hidden')
+  document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === `page-${p}`))
+  document.querySelectorAll<HTMLElement>('.mini-graph button').forEach((b) => b.classList.toggle('active', b.dataset.page === p))
+}
+
+function showHub(): void {
+  hub.classList.remove('hidden')
+  document.querySelectorAll('.page').forEach((pg) => pg.classList.remove('active'))
+  requestAnimationFrame(drawEdges)
+}
+
+// Mini-graph: 4 round page-jump buttons appended to each page header.
+for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
+  const mini = el('div', 'mini-graph')
+  for (const [p, ico, label] of PAGES) {
+    const b = el('button', '', ico)
+    b.dataset.page = p
+    b.title = label
+    b.setAttribute('aria-label', label)
+    b.onclick = () => openPage(p)
+    mini.append(b)
   }
+  right.append(mini)
+}
+
+// Edges: one line from the core disc to each node's disc, redrawn on resize.
+const nodes = Array.from(document.querySelectorAll<HTMLElement>('.node'))
+const lines = new Map<HTMLElement, SVGLineElement>()
+function drawEdges(): void {
+  const hr = hub.getBoundingClientRect()
+  edges.setAttribute('viewBox', `0 0 ${Math.round(hr.width)} ${Math.round(hr.height)}`)
+  const c = $('core-disc').getBoundingClientRect()
+  const cx = c.left - hr.left + c.width / 2
+  const cy = c.top - hr.top + c.height / 2
+  for (const n of nodes) {
+    const d = n.querySelector('.disc')!.getBoundingClientRect()
+    let l = lines.get(n)
+    if (!l) {
+      l = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+      l.setAttribute('class', 'hub-line')
+      edges.append(l)
+      lines.set(n, l)
+    }
+    l.setAttribute('x1', String(cx))
+    l.setAttribute('y1', String(cy))
+    l.setAttribute('x2', String(d.left - hr.left + d.width / 2))
+    l.setAttribute('y2', String(d.top - hr.top + d.height / 2))
+  }
+}
+for (const n of nodes) {
+  n.onclick = () => openPage(n.dataset.page!)
+  const hot = (on: boolean) => () => lines.get(n)?.classList.toggle('hot', on)
+  n.onmouseenter = hot(true)
+  n.onmouseleave = hot(false)
+  n.onfocus = hot(true)
+  n.onblur = hot(false)
+}
+document.querySelectorAll<HTMLElement>('.back-hub').forEach((b) => (b.onclick = showHub))
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && hub.classList.contains('hidden') && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) showHub()
+})
+window.addEventListener('resize', drawEdges)
+drawEdges()
+
+function setListening(): void {
+  const b = $('core-badge')
+  b.textContent = '● listening'
+  b.classList.add('on')
 }
 
 // ---------- senses ----------
@@ -64,12 +137,14 @@ async function switchMic(prefer: 'laptop' | 'headset'): Promise<void> {
   micDeviceId = target.deviceId
   stopMic = await startMic(target.deviceId)
   $('btn-mic').textContent = `Mic: ${target.label || 'other device'}`
+  setListening()
 }
 
 $('btn-mic').onclick = async () => {
   try {
     stopMic = await startMic()
     $('btn-mic').textContent = 'Mic on'
+    setListening()
   } catch (err) {
     alert(`Mic failed: ${(err as Error).message}`)
   }
@@ -78,6 +153,7 @@ $('btn-call').onclick = async () => {
   try {
     await startCallAudio()
     $('btn-call').textContent = 'Call audio on'
+    setListening()
   } catch (err) {
     alert(`Call audio failed: ${(err as Error).message}`)
   }
@@ -221,6 +297,9 @@ $('btn-checkup').onclick = async () => {
       const ok = list.querySelectorAll('.check.ok').length
       $('score-num').textContent = `${ok}/6`
       $('score-bar').style.width = `${(ok / 6) * 100}%`
+      const badge = $('badge-check')
+      badge.textContent = `${ok}/6`
+      badge.className = `badge ${ok === 6 ? 'ok' : 'bad'}`
       btn.disabled = false
       btn.textContent = 'Run check-up'
     })
@@ -288,6 +367,7 @@ window.tap.onUi((cmd: UiCommand) => {
       $('c-events').textContent = String(cmd.events)
       $('c-blocked').textContent = String(cmd.blocked)
       $('side-counters').textContent = `AI calls ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)}`
+      $('badge-activity').textContent = `${cmd.events} events · ${cmd.blocked} blocked`
       break
     case 'SWITCH_MIC':
       void switchMic(cmd.prefer)

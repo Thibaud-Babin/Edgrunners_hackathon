@@ -10,26 +10,42 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body class="main">
-    <nav class="sidebar">
-      <div class="brand"><span class="brand-dot">T</span>Tap</div>
-      <button class="nav active" data-page="check"><span class="ico">✓</span>Check-up</button>
-      <button class="nav" data-page="activity"><span class="ico">≡</span>Activity</button>
-      <button class="nav" data-page="it"><span class="ico">▦</span>IT view</button>
-      <button class="nav" data-page="dev"><span class="ico">⚙</span>Dev tools<span class="dev-badge">team</span></button>
-      <div class="sidebar-foot"><b>● Stays on this laptop</b><span id="side-counters">AI calls 0 · $0.0000</span></div>
-    </nav>
-
     <button class="theme-switch" id="theme-switch" aria-label="Switch between light and dark theme" aria-pressed="true"><span>Light</span><i class="knob"></i><span>Dark</span></button>
+
+    <!-- ============ Graph hub ============ -->
+    <section id="hub">
+      <div class="hub-head">
+        <div class="hub-title"><span class="brand-dot">T</span>Tap</div>
+        <p>Control center · use it before and after the call. During the call Tap runs in the background.</p>
+        <span class="hub-counters" id="side-counters">AI calls 0 · $0.0000</span>
+      </div>
+      <svg id="hub-edges"></svg>
+      <div class="hub-core">
+        <div class="core-disc" id="core-disc">T</div>
+        <div class="core-name">Tap</div>
+        <span class="badge" id="core-badge">● not started</span>
+        <p class="hub-note">Tap is listening in the background. Minimize this window (don't close it) and start your call in Zoom / Teams / Meet — notifications will pop up when needed.</p>
+      </div>
+      <button class="node pos-tl" data-page="check"><span class="disc">✓</span><span class="node-name">Check-up</span><span class="badge" id="badge-check">not run yet</span></button>
+      <button class="node pos-tr" data-page="activity"><span class="disc">≡</span><span class="node-name">Activity</span><span class="badge" id="badge-activity">0 events · 0 blocked</span></button>
+      <button class="node pos-bl" data-page="it"><span class="disc">▦</span><span class="node-name">IT view</span><span class="badge">simulated</span></button>
+      <button class="node pos-br" data-page="dev"><span class="disc">⚙</span><span class="node-name">Dev tools</span><span class="badge">team only</span></button>
+    </section>
 
     <div class="content">
       <!-- ============ Check-up ============ -->
-      <section class="page active" id="page-check">
+      <section class="page" id="page-check">
         <div class="page-head">
-          <div>
-            <h2>Check-up</h2>
-            <p>10 seconds before the call. Then open Zoom, Teams or Meet: Tap keeps running on top.</p>
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Check-up</h2>
+              <p>10 seconds before the call. Then open Zoom, Teams or Meet: Tap keeps running on top.</p>
+            </div>
           </div>
-          <button class="btn primary" id="btn-checkup">Run check-up</button>
+          <div class="head-right">
+            <button class="btn primary" id="btn-checkup">Run check-up</button>
+          </div>
         </div>
         <div class="grid-2">
           <div class="panel">
@@ -60,11 +76,16 @@
       <!-- ============ Activity ============ -->
       <section class="page" id="page-activity">
         <div class="page-head">
-          <div>
-            <h2>Activity</h2>
-            <p>Everything Tap saw, decided and did — newest first.</p>
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Activity</h2>
+              <p>Everything Tap saw, decided and did — newest first.</p>
+            </div>
           </div>
-          <div class="filters" id="filters"></div>
+          <div class="head-right">
+            <div class="filters" id="filters"></div>
+          </div>
         </div>
         <div class="tiles">
           <div class="tile"><div class="k">AI calls</div><div class="v" id="c-ai">0</div></div>
@@ -85,11 +106,16 @@
       <!-- ============ IT view ============ -->
       <section class="page" id="page-it">
         <div class="page-head">
-          <div>
-            <h2>IT view</h2>
-            <p id="it-sub">Meeting problems across the company.</p>
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>IT view</h2>
+              <p id="it-sub">Meeting problems across the company.</p>
+            </div>
           </div>
-          <span class="sim">SIMULATED DATA</span>
+          <div class="head-right">
+            <span class="sim">SIMULATED DATA</span>
+          </div>
         </div>
         <div class="tiles" id="it-tiles"></div>
         <div class="grid-2">
@@ -101,10 +127,14 @@
       <!-- ============ Dev tools ============ -->
       <section class="page" id="page-dev">
         <div class="page-head">
-          <div>
-            <h2>Dev tools</h2>
-            <p>Fake the senses to make the agent show cards on the overlay. For the team, not the demo.</p>
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Dev tools</h2>
+              <p>Fake the senses to make the agent show cards on the overlay. For the team, not the demo.</p>
+            </div>
           </div>
+          <div class="head-right"></div>
         </div>
         <div class="panel">
           <h3>Someone in the call says…</h3>
