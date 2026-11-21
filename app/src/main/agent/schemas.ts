@@ -153,11 +153,8 @@ export const ActionRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict()
 ])
 
-/**
- * Every action the executor may run: the contract's allowlist plus `show_nudge`, which B added as a UI command
- * (SHOW_NUDGE) but not to ALLOWED_ACTIONS in events.ts. TODO(team): add 'show_nudge' there (contract PR).
- */
-export const AGENT_ACTIONS = [...ALLOWED_ACTIONS, 'show_nudge'] as const
+/** Every action the executor may run: the contract's allowlist (show_nudge is in it since the roles contract). */
+export const AGENT_ACTIONS = ALLOWED_ACTIONS
 export type ActionRequest = z.infer<typeof ActionRequest>
 
 /** A cleaned call-audio transcript line. Display and summaries only: it can never trigger anything. */

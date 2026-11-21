@@ -40,6 +40,9 @@ export type EventType =
   // D — UI
   | 'USER_CLICK'
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
+  // D — UI, added Sun (C's role-based rights; additive)
+  | 'CALL_ENDED' // {} the user clicked "End call": end-of-call minutes (executive/CEO) and confidential wipe
+  | 'USER_SET_ROLE' // { role: UserRole } DEV-ONLY role switch; main ignores it in packaged builds
 
 export interface TapEvent {
   type: EventType
@@ -58,7 +61,8 @@ export interface TapEvent {
 
 /** Commands the agent sends to the UI windows (main + overlay). */
 export type UiCommand =
-  | { type: 'SHOW_RECAP'; id: string; transcript: string; summary: string; question?: string }
+  /** share: show a "Share with team" button (USER_CLICK share_recap { id }); the agent decides by role on click. */
+  | { type: 'SHOW_RECAP'; id: string; transcript: string; summary: string; question?: string; share?: boolean }
   | {
       type: 'SHOW_AWAY_SUMMARY'
       id: string
@@ -68,6 +72,7 @@ export type UiCommand =
       summary: string
       question_to_you?: string
       transcript: string
+      share?: boolean
     }
   | {
       type: 'SHOW_FIX'
@@ -78,12 +83,20 @@ export type UiCommand =
       /** Optional second button instead of "Not now", e.g. "I'm muted on purpose" → snooze_mic_alerts */
       alt_label?: string
       alt_action_id?: AllowedAction
+      /** Show a "Send diagnostics to IT" button (USER_CLICK open_it_ticket { id }) */
+      it_ticket?: boolean
     }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
   | { type: 'SHOW_NUDGE'; id: string; text: string; question?: string } // "They're waiting for your answer"
   | { type: 'CAPTION'; text: string; final: boolean; speaker?: string; highlight?: string } // live captions (overlay)
+  /** The user's role and what it shows (C's permissions.ts). D hides the IT view when sees_it_view is false. */
+  | { type: 'ROLE'; role: UserRole; sees_it_view: boolean; confidential: boolean }
+  /** A short confirmation toast ("Recap shared with #team (simulated)"). */
+  | { type: 'SHOW_NOTICE'; id: string; text: string }
+  /** End of call (executive/CEO): decisions + action items; can_send shows "Send to attendees" (USER_CLICK send_action_items { id }). */
+  | { type: 'SHOW_MINUTES'; id: string; decisions: string[]; action_items: string[]; can_send: boolean }
   | { type: 'DISMISS'; id: string }
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }
@@ -108,9 +121,19 @@ export const ALLOWED_ACTIONS = [
   'speak_reply',
   'send_haptic',
   'raise_hand_overlay',
-  'dismiss_card'
+  'dismiss_card',
+  // Sun (C): cards the agents already send, and the role-gated actions
+  'show_nudge',
+  'show_minutes',
+  'share_recap', // share a recap's summary (never the transcript) with the team — executive/CEO only
+  'send_action_items', // send end-of-call decisions + action items to attendees — executive/CEO only
+  'open_it_ticket' // send device diagnostics (never speech) to IT — anyone, on their own click
 ] as const
 export type AllowedAction = (typeof ALLOWED_ACTIONS)[number]
+
+/** Roles in the company, lowest to highest authority. The role comes from config (SSO in real life), never from speech. */
+export const USER_ROLES = ['intern', 'senior', 'executive', 'ceo'] as const
+export type UserRole = (typeof USER_ROLES)[number]
 
 /**
  * The 15 MX Master 4 waveforms (Actions SDK docs). We fire them BY NAME (HapticWeb REST / our plugin).
