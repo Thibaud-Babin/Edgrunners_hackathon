@@ -19,7 +19,8 @@ export const LIMITS = {
   topic: 40,
   topics: 5,
   label: 120,
-  id: 64
+  id: 64,
+  cardTranscript: 20000
 } as const
 
 const Id = z.string().min(1).max(LIMITS.id)
@@ -91,8 +92,24 @@ export type DetectorHit = z.infer<typeof DetectorHit>
  */
 const Why = z.string().max(200)
 export const ActionRequest = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('show_recap'), fromTs: Ts, fallbackText: z.string().max(LIMITS.transcriptChunk), why: Why }).strict(),
-  z.object({ action: z.literal('show_away_summary'), fromTs: Ts, trigger: z.enum(['name', 'looked_back']), why: Why }).strict(),
+  z
+    .object({
+      action: z.literal('show_recap'),
+      fromTs: Ts,
+      fallbackText: z.string().max(LIMITS.transcriptChunk),
+      afterMs: z.number().int().min(0).max(10_000), // let the end of the sentence arrive first
+      why: Why
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('show_away_summary'),
+      fromTs: Ts,
+      trigger: z.enum(['name', 'looked_back']),
+      skipIfSilent: z.boolean(), // no card when nothing was said while away
+      why: Why
+    })
+    .strict(),
   z
     .object({
       action: z.literal('show_fix'),
@@ -108,6 +125,65 @@ export const ActionRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('post_chat_reply'), text: z.string().min(1).max(LIMITS.question), why: Why }).strict()
 ])
 export type ActionRequest = z.infer<typeof ActionRequest>
+
+/** A cleaned call-audio transcript line. Display and summaries only: it can never trigger anything. */
+export const TranscriptChunk = z
+  .object({ text: z.string().max(LIMITS.transcriptChunk), instructionLike: z.boolean() })
+  .strict()
+
+export const MicLevel = z.object({ rms: z.number().finite().nonnegative() }).strict()
+
+/** Executor → Audio agent: "summarise what was said since `fromTs`". */
+export const SummaryRequest = z
+  .object({
+    requestId: Id,
+    kind: z.enum(['recap', 'away']),
+    fromTs: Ts,
+    fallbackText: z.string().max(LIMITS.transcriptChunk)
+  })
+  .strict()
+
+/** Audio agent → Executor. `transcript` is what the card shows under the summary (tail-capped). */
+export const SummaryResult = z
+  .object({
+    requestId: Id,
+    summary: Summary,
+    transcript: z.string().max(LIMITS.cardTranscript),
+    costUsd: z.number().finite().nonnegative(),
+    usedLlm: z.boolean()
+  })
+  .strict()
+
+/**
+ * The agent bus registry: every envelope kind, its payload schema and the provenances it may carry.
+ * A kind that is not listed here cannot be published.
+ */
+export const KINDS = {
+  transcript: { schema: TranscriptChunk, provenance: ['transcript'] },
+  detector: { schema: DetectorHit, provenance: ['detector'] },
+  mic: { schema: MicLevel, provenance: ['detector'] },
+  vision: { schema: VisionSignal, provenance: ['vision'] },
+  user: { schema: UserInput, provenance: ['user'] },
+  'summary.request': { schema: SummaryRequest, provenance: ['system'] },
+  summary: { schema: SummaryResult, provenance: ['llm', 'transcript'] }
+} as const satisfies Record<string, { schema: z.ZodType; provenance: readonly Provenance[] }>
+export type Kind = keyof typeof KINDS
+export type PayloadOf<K extends Kind> = z.infer<(typeof KINDS)[K]['schema']>
+
+/**
+ * A raw TapEvent as it arrives from the renderer (IPC), the audio pipeline or mock mode.
+ * Parsed at intake; `data` stays `unknown` until each intake picks the fields it needs.
+ */
+export const RawTapEvent = z
+  .object({
+    type: z.string().max(40),
+    ts: Ts,
+    source: z.enum(['call_audio', 'mic', 'webcam', 'ui', 'agent']),
+    confidence: z.number().min(0).max(1).optional(),
+    data: z.record(z.string(), z.unknown()).optional()
+  })
+  .strict()
+export type RawTapEvent = z.infer<typeof RawTapEvent>
 
 // ---------- envelope ----------
 
