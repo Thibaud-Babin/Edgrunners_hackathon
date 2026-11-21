@@ -174,6 +174,14 @@ export const TranscriptChunk = z
 
 export const MicLevel = z.object({ rms: z.number().finite().nonnegative() }).strict()
 
+/** End of call (executive/CEO): what was decided and who does what. Built on the laptop by rules, never by the AI. */
+export const MINUTES_MAX = 5
+const MinutesLine = z.string().min(1).max(LIMITS.question)
+export const MinutesRequest = z.object({ requestId: Id }).strict()
+export const MinutesResult = z
+  .object({ requestId: Id, decisions: z.array(MinutesLine).max(MINUTES_MAX), actionItems: z.array(MinutesLine).max(MINUTES_MAX) })
+  .strict()
+
 /** Executor → Audio agent: "summarise what was said between `fromTs` and `untilTs`". */
 export const SummaryRequest = z
   .object({
@@ -211,6 +219,9 @@ export const KINDS = {
   'summary.request': { schema: SummaryRequest, provenance: ['system'] },
   summary: { schema: SummaryResult, provenance: ['llm', 'transcript'] },
   'action.result': { schema: ActionResult, provenance: ['system'] },
+  // Executor → Audio agent at call end, and the reply (display only, like a summary).
+  'minutes.request': { schema: MinutesRequest, provenance: ['system'] },
+  minutes: { schema: MinutesResult, provenance: ['transcript'] },
   // Executor → Audio agent: the call ended; wipe what was said if the role is confidential.
   'call.end': { schema: z.object({ wipe: z.boolean() }).strict(), provenance: ['system'] }
 } as const satisfies Record<string, { schema: z.ZodType; provenance: readonly Provenance[] }>

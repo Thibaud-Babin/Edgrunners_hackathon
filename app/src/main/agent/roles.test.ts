@@ -3,7 +3,7 @@ import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { EventType, UiCommand } from '../../shared/events.ts'
 import { AgentBus, EventBus } from '../bus.ts'
-import { AudioAgent } from './audio-agent.ts'
+import { AudioAgent, templateMinutes } from './audio-agent.ts'
 import { Executor, gate, type ItTicket, STT_GRACE_MS } from './executor.ts'
 import { Llm, type MessagesClient } from './llm.ts'
 import { RoleState, type UserRole } from './permissions.ts'
@@ -176,4 +176,67 @@ test('share recap: after the CEO\'s call ends, old recaps can no longer be share
 test('share recap: a detector or the AI can never share, even for the CEO', () => {
   const req = { action: 'share_recap', cardId: 'card-1', why: 'test' }
   for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
+})
+
+test('minutes by rules: decisions and action items, capped, never more than asked', () => {
+  const m = templateMinutes([
+    'Hello everyone.',
+    'Budget approved, Sara sends the numbers tonight.',
+    'We decided to ship on Friday.',
+    'Paul will check the tests by Monday.',
+    'Nice weather today.'
+  ])
+  assert.deepEqual(m.decisions, ['Budget approved, Sara sends the numbers tonight.', 'We decided to ship on Friday.'])
+  assert.deepEqual(m.actionItems, ['Budget approved, Sara sends the numbers tonight.', 'Paul will check the tests by Monday.'])
+  const many = templateMinutes(Array.from({ length: 9 }, (_, i) => `We agreed on point ${i}. ${'x'.repeat(200)}`))
+  assert.equal(many.decisions.length, 5)
+  assert.ok(many.decisions.every((l) => l.length <= 140))
+})
+
+test('end of call: the CEO gets a minutes card (zero AI calls) and may send it; then the transcript is wiped', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = roleRig('ceo')
+  r.say('Budget approved, Sara sends the numbers tonight.', T0 + 1)
+  r.ui_('CALL_ENDED')
+  await r.flush()
+  assert.equal(r.aiCalls(), 0)
+  const card = r.ui.find((c) => c.type === 'SHOW_MINUTES')
+  assert.ok(card && card.type === 'SHOW_MINUTES')
+  assert.deepEqual([card.decisions, card.action_items, card.can_send], [['Budget approved, Sara sends the numbers tonight.'], ['Budget approved, Sara sends the numbers tonight.'], true])
+  // Minutes were made before the wipe.
+  const minutesAt = r.logs.findIndex((l) => l.startsWith('Call ended → minutes card: 1 decisions, 1 action items'))
+  const wipeAt = r.logs.findIndex((l) => l.startsWith('Call ended: 1 transcript lines deleted'))
+  assert.ok(minutesAt >= 0 && wipeAt > minutesAt, r.logs.join('\n'))
+  r.ui_('USER_CLICK', { action_id: 'send_action_items', args: { id: card.id } })
+  await r.flush()
+  assert.ok(r.ui.some((c) => c.type === 'SHOW_NOTICE' && c.text === 'Decisions and action items sent to the attendees (simulated)'))
+  // A second click sends nothing again.
+  r.ui_('USER_CLICK', { action_id: 'send_action_items', args: { id: card.id } })
+  await r.flush()
+  assert.ok(r.logs.includes('You clicked "Send to attendees" → nothing sent (those minutes are no longer kept)'))
+})
+
+test('end of call: the intern and the senior get no minutes card, and a forged send click is blocked', async (t) => {
+  t.after(() => mock.timers.reset())
+  for (const role of ['intern', 'senior'] as const) {
+    const r = roleRig(role)
+    r.say('Budget approved, Sara sends the numbers tonight.', T0 + 1)
+    r.ui_('CALL_ENDED')
+    await r.flush()
+    assert.ok(!r.ui.some((c) => c.type === 'SHOW_MINUTES'), role)
+    r.ui_('USER_CLICK', { action_id: 'send_action_items', args: { id: 'card-1' } })
+    await r.flush()
+    assert.ok(r.logs.some((l) => l.startsWith('send_action_items blocked (sharing meeting content outside the call')), role)
+    mock.timers.reset()
+  }
+})
+
+test('end of call with nothing decided: no minutes card', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = roleRig('executive')
+  r.say('Nice weather today.', T0 + 1)
+  r.ui_('CALL_ENDED')
+  await r.flush()
+  assert.ok(!r.ui.some((c) => c.type === 'SHOW_MINUTES'))
+  assert.ok(r.logs.includes('Call ended → no minutes card (no decision or action item was heard)'))
 })

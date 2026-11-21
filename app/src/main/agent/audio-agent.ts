@@ -10,7 +10,7 @@ import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
 import type { FallbackReason, Llm } from './llm.ts'
 import { RoleState } from './permissions.ts'
-import { DETECTOR_TYPES, type DetectorHit, LIMITS, type PayloadOf, RawTapEvent } from './schemas.ts'
+import { DETECTOR_TYPES, type DetectorHit, LIMITS, MINUTES_MAX, type PayloadOf, RawTapEvent } from './schemas.ts'
 import { cleanText, looksLikeInstruction, MAX } from './sanitize.ts'
 
 const KEEP_S = 30 * 60 // keep 30 min of transcript
@@ -56,6 +56,13 @@ export class AudioAgent {
     events.on('MIC_LEVEL', (e) => this.onMicLevel(e))
     bus.on('summary.request', (e) => void this.onRequest(e.payload))
     bus.on('call.end', (e) => this.onCallEnd(e.payload.wipe))
+    bus.on('minutes.request', (e) => this.onMinutes(e.payload.requestId))
+  }
+
+  /** Decisions and action items of the whole call (what is still kept), by rules on this laptop. Never the AI. */
+  private onMinutes(requestId: string): void {
+    const m = templateMinutes(this.lines.map((l) => l.text))
+    this.bus.publish('audio', 'transcript', 'minutes', { requestId, ...m })
   }
 
   /** Retention by role: confidential roles keep nothing that was said once the call ends. */
@@ -154,4 +161,17 @@ export class AudioAgent {
       ...(out.fallback ? { fallback: out.fallback } : {})
     })
   }
+}
+
+const DECISION = /\b(decided|decision|agreed|approved|we will go with|we go with|let's go with|final answer)\b/i
+const ACTION_ITEM = /\b(will send|will do|will check|will prepare|will follow up|sends?|to do|action item|follow up|take care of|by (monday|tuesday|wednesday|thursday|friday|tomorrow|tonight|next week|end of (the )?(day|week)))\b/i
+
+/**
+ * Minutes by rules: lines that state a decision, and lines that give someone a task. A line can be both
+ * ("Budget approved, Sara sends the numbers tonight"). At most MINUTES_MAX each, the latest ones, cut to fit.
+ */
+export function templateMinutes(lines: string[]): { decisions: string[]; actionItems: string[] } {
+  const cut = (l: string) => (l.length <= LIMITS.question ? l : `${l.slice(0, LIMITS.question - 1)}…`)
+  const pick = (re: RegExp) => lines.filter((l) => re.test(l)).slice(-MINUTES_MAX).map(cut)
+  return { decisions: pick(DECISION), actionItems: pick(ACTION_ITEM) }
 }

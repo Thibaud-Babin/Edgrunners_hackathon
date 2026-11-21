@@ -107,6 +107,9 @@ export class Executor {
   private ticketSeq = 0
   /** Recap card id → its summary (never the transcript): what "Share with team" may send. */
   private shareable = new Map<string, string>()
+  /** The last minutes card: what "Send to attendees" may send. */
+  private minutes: { id: string; decisions: string[]; actionItems: string[] } | null = null
+  private pendingMinutes = new Map<string, (m: PayloadOf<'minutes'> | null) => void>()
 
   constructor(
     events: EventBus,
@@ -141,12 +144,20 @@ export class Executor {
       this.pending.delete(e.payload.requestId)
       done?.(e.payload)
     })
+    bus.on('minutes', (e) => {
+      const done = this.pendingMinutes.get(e.payload.requestId)
+      this.pendingMinutes.delete(e.payload.requestId)
+      done?.(e.payload)
+    })
   }
 
   /** D's "End call" button. Retention by role: confidential roles keep nothing that was said. */
   private async onCallEnded(e: TapEvent): Promise<void> {
     const raw = RawTapEvent.safeParse(e)
     if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('CALL_ENDED with a bad shape or source')
+    // Minutes first (executive, CEO: the roles that may send them), while what was said is still here.
+    if (permission(this.roles.role, 'send_action_items') !== 'deny')
+      await this.run([{ action: 'show_minutes', why: 'you ended the call' }], 'user', now())
     const wipe = this.roles.flags.wipeAtCallEnd
     if (wipe) this.shareable.clear()
     this.bus.publish('executor', 'system', 'call.end', { wipe })
@@ -299,10 +310,31 @@ export class Executor {
         this.report.log('action', `You clicked "Share with team" → recap summary shared with #team (simulated; ${summary.length} chars, summary only, never the transcript)`)
         return true
       }
-      case 'show_minutes':
-      case 'send_action_items':
-        this.report.log('decision', `${a.action} is not wired yet`) // filled in by the next steps
-        return false
+      case 'show_minutes': {
+        const m = await this.requestMinutes()
+        if (!m) return false
+        if (!m.decisions.length && !m.actionItems.length) {
+          this.report.log('decision', 'Call ended → no minutes card (no decision or action item was heard)')
+          return true
+        }
+        const id = this.cardId()
+        this.minutes = { id, decisions: m.decisions, actionItems: m.actionItems }
+        this.ui({ type: 'SHOW_MINUTES', id, decisions: m.decisions, action_items: m.actionItems, can_send: true })
+        this.report.log('action', `Call ended → minutes card: ${m.decisions.length} decisions, ${m.actionItems.length} action items (made on this laptop, nothing sent until you click)`)
+        return true
+      }
+      case 'send_action_items': {
+        // The gate already checked the role (T3) and that this is the user's own click.
+        const m = this.minutes
+        if (!m || m.id !== a.cardId) {
+          this.report.log('decision', 'You clicked "Send to attendees" → nothing sent (those minutes are no longer kept)')
+          return false
+        }
+        this.minutes = null
+        this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: 'Decisions and action items sent to the attendees (simulated)' })
+        this.report.log('action', `You clicked "Send to attendees" → ${m.decisions.length} decisions and ${m.actionItems.length} action items sent (simulated; the minutes only, never the transcript)`)
+        return true
+      }
       case 'send_haptic': {
         if (this.hapticsDisabled) {
           this.ui({ type: 'FLASH', reason: a.waveform })
@@ -373,6 +405,27 @@ export class Executor {
       })
       if (!this.bus.publish('executor', 'system', 'summary.request', { requestId, fromTs, untilTs })) {
         this.pending.delete(requestId)
+        clearTimeout(timer)
+        resolve(null)
+      }
+    })
+  }
+
+  /** Ask the Audio agent for the call's minutes over the bus. */
+  private requestMinutes(): Promise<PayloadOf<'minutes'> | null> {
+    const requestId = `min-${++this.reqSeq}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.pendingMinutes.delete(requestId)) return
+        this.report.log('error', 'No minutes arrived in time → card skipped')
+        resolve(null)
+      }, SUMMARY_WAIT_MS)
+      this.pendingMinutes.set(requestId, (m) => {
+        clearTimeout(timer)
+        resolve(m)
+      })
+      if (!this.bus.publish('executor', 'system', 'minutes.request', { requestId })) {
+        this.pendingMinutes.delete(requestId)
         clearTimeout(timer)
         resolve(null)
       }
