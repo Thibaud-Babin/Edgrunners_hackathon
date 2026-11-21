@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ActionRequest, envelopeOf, EnvelopeBase, LlmSummaryOutput, Summary, VisionSignal } from './schemas.ts'
+import { ActionRequest, EnvelopeBase, LlmSummaryOutput, Summary, VisionSignal } from './schemas.ts'
 
 const okSummary = { kind: 'recap', text: 'Release moves to Friday.', askedYou: true, question: 'OK with Friday?', topics: ['release'], source: 'cloud' }
 const okEnvelope = { id: 'e1', ts: 1, from: 'audio', provenance: 'llm', kind: 'summary', payload: {} }
@@ -30,12 +30,6 @@ test('rejects unknown provenance and sender', () => {
   assert.ok(EnvelopeBase.safeParse(okEnvelope).success)
   assert.ok(!EnvelopeBase.safeParse({ ...okEnvelope, provenance: 'admin' }).success)
   assert.ok(!EnvelopeBase.safeParse({ ...okEnvelope, from: 'llm' }).success)
-})
-
-test('typed envelope checks its payload', () => {
-  const E = envelopeOf(Summary)
-  assert.ok(E.safeParse({ ...okEnvelope, payload: okSummary }).success)
-  assert.ok(!E.safeParse({ ...okEnvelope, payload: { ...okSummary, source: 'gpt' } }).success)
 })
 
 test('vision signals carry no free text', () => {

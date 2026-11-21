@@ -5,6 +5,7 @@
  */
 import { z } from 'zod'
 import { ALLOWED_ACTIONS, WAVEFORMS } from '../../shared/events.ts'
+import { MAX } from './sanitize.ts'
 
 export const AGENTS = ['audio', 'vision', 'executor', 'monitor', 'user', 'detector'] as const
 export const PROVENANCES = ['user', 'vision', 'detector', 'transcript', 'llm', 'system'] as const
@@ -12,7 +13,7 @@ export type AgentName = (typeof AGENTS)[number]
 export type Provenance = (typeof PROVENANCES)[number]
 
 export const LIMITS = {
-  transcriptChunk: 4000,
+  transcriptChunk: MAX.transcriptChunk, // one source: what cleanText() caps to
   recapText: 280,
   awayText: 400,
   question: 140,
@@ -211,9 +212,4 @@ export interface Envelope<T = unknown> {
   provenance: Provenance
   kind: string
   payload: T
-}
-
-/** Build a strict envelope schema for one payload type. */
-export function envelopeOf<T extends z.ZodType>(payload: T) {
-  return EnvelopeBase.extend({ payload })
 }

@@ -73,7 +73,7 @@ export class Executor {
   private report: Reporter
   private role: Role
   /** At most one action waiting for the user's OK. */
-  private awaiting: { req: ActionRequest; tier: Tier; cardId: string; until: number } | null = null
+  private awaiting: { req: ActionRequest; tier: Tier; cardId: string; timer: ReturnType<typeof setTimeout> } | null = null
   private pausedUntil = 0
   private hapticsDisabled = false
 
@@ -122,7 +122,10 @@ export class Executor {
   private async run(actions: unknown[], provenance: Provenance, trigger: Trigger): Promise<void> {
     for (const a of actions) {
       const g = gate(a, provenance, this.role, trigger)
-      if (g.verdict === 'block') {
+      // Spam guard pauses automation only. The user's own click or gesture always goes through.
+      if (g.verdict !== 'block' && provenance !== 'user' && now() < this.pausedUntil) {
+        this.report.blocked(`${describe(g.req)} skipped (executor paused by the spam guard)`, 'paused')
+      } else if (g.verdict === 'block') {
         const name = (a as { action?: unknown })?.action
         this.report.blocked(`${typeof name === 'string' ? name : 'action'} blocked (${g.reason})`, g.category)
       } else if (g.verdict === 'deny') {
@@ -137,7 +140,7 @@ export class Executor {
 
   // ---------- safety levers, pulled only by the Monitor ----------
 
-  /** Spam guard: skip actions until `untilTs`. */
+  /** Spam guard: skip automatic (non-user) actions until `untilTs`. */
   pause(untilTs: number): void {
     this.pausedUntil = untilTs
   }
@@ -150,8 +153,13 @@ export class Executor {
   /** Show a confirm card (SHOW_FIX reused: no contract change). The user's eyebrow raise or click confirms. */
   private askConfirm(req: ActionRequest, tier: Tier): void {
     const cardId = this.cardId()
-    if (this.awaiting) this.ui({ type: 'DISMISS', id: this.awaiting.cardId })
-    this.awaiting = { req, tier, cardId, until: now() + CONFIRM_TTL_S }
+    this.clearAwaiting()
+    const timer = setTimeout(() => {
+      if (this.awaiting?.cardId !== cardId) return
+      this.clearAwaiting()
+      this.report.log('decision', `${describe(req)} not confirmed within ${CONFIRM_TTL_S} s → card removed, nothing sent`)
+    }, CONFIRM_TTL_S * 1000)
+    this.awaiting = { req, tier, cardId, timer }
     this.ui({ type: 'SHOW_FIX', id: cardId, problem: `Confirm: ${describe(req)}?`, fix_label: 'Confirm (or raise your eyebrows)', action_id: req.action })
     this.report.log('decision', `${req.why} → ${describe(req)} waiting for your OK (as ${this.role}, Tap asks before it can ${TIER_VERB[tier]}, T${tier}): raise your eyebrows or click`)
   }
@@ -160,25 +168,23 @@ export class Executor {
   private confirms(u: UserInput): boolean {
     const w = this.awaiting
     if (!w) return false
-    if (now() > w.until) {
-      this.awaiting = null
-      this.report.log('decision', `${describe(w.req)} not confirmed within ${CONFIRM_TTL_S} s → dropped`)
-      return false
-    }
     const byClick = u.input === 'click' && u.actionId === w.req.action
     if (!byClick && u.input !== 'brow_raise') return false
-    this.awaiting = null
-    this.ui({ type: 'DISMISS', id: w.cardId })
+    this.clearAwaiting()
     this.report.log('decision', `${byClick ? 'Click' : 'Eyebrow raise'} seen → ${describe(w.req)} confirmed (T${w.tier})`)
     void this.perform(w.req)
     return true
   }
 
+  /** Remove the waiting confirm card (if any) and stop its expiry timer. */
+  private clearAwaiting(): void {
+    if (!this.awaiting) return
+    clearTimeout(this.awaiting.timer)
+    this.ui({ type: 'DISMISS', id: this.awaiting.cardId })
+    this.awaiting = null
+  }
+
   private async perform(a: ActionRequest): Promise<void> {
-    if (now() < this.pausedUntil) {
-      this.report.blocked(`${describe(a)} skipped (executor paused by the spam guard)`, 'paused')
-      return
-    }
     let ok = true
     try {
       ok = await this.act(a)
