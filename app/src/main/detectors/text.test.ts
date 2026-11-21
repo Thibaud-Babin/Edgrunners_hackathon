@@ -14,6 +14,13 @@ test('finds ASR spellings of the name', () => {
   assert.ok(findName('thibeaux can you check', NAMES))
 })
 
+test('real sherpa-onnx outputs (Windows TTS through the speakers, 2026-11-21)', () => {
+  assert.ok(findName('Tiboo what do you think a boozhabitjay', NAMES)) // "Tibo, what do you think about the budget?"
+  assert.ok(findName('Suitiboo ario kait friday', NAMES)) // "So Thibaud, are you OK with Friday?"
+  assert.equal(findName("Let's talk a boozoo tabou by the window", NAMES), null)
+  assert.equal(findName('The release his moving to friday because the testa not ready', NAMES), null)
+})
+
 test('does not fire on unrelated speech', () => {
   assert.equal(findName('the table is over there by the window', NAMES), null)
   assert.equal(findName('let us talk about the budget', NAMES), null)

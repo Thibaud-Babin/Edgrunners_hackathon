@@ -29,6 +29,8 @@ export class Agent {
   private lastMicAlert = 0
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
   private cardSeq = 0
+  /** Name heard; the card waits for the end of the sentence (next final transcript) so it includes the question. */
+  private pendingAddress: { e: TapEvent; timer: ReturnType<typeof setTimeout> } | null = null
 
   constructor(
     bus: EventBus,
@@ -64,6 +66,7 @@ export class Agent {
     this.transcript.push({ ts: e.ts, text: String(e.data?.text ?? '') })
     const cutoff = now() - 30 * 60 // keep 30 min
     this.transcript = this.transcript.filter((l) => l.ts >= cutoff)
+    if (this.pendingAddress) this.flushAddress()
   }
 
   private textSince(ts: number): string {
@@ -73,15 +76,25 @@ export class Agent {
       .join('\n')
   }
 
-  /** P0-1 / P0-2 / P0-3: name said → knock → recap, or "while you were away" if the user was away. */
+  /**
+   * P0-1 / P0-2 / P0-3: name said → knock NOW (may come from a partial transcript),
+   * then when the sentence ends (or after 4 s): recap, or "while you were away" if the user was away.
+   */
   private async onName(e: TapEvent): Promise<void> {
+    if (this.pendingAddress) return // same sentence
+    this.pendingAddress = { e, timer: setTimeout(() => this.flushAddress(), 4000) }
     await this.haptic(HAPTIC.addressed)
-    if (this.awayFrom !== null && now() - this.awayFrom >= AWAY_MIN_S) {
-      await this.awaySummary('name')
-      return
-    }
-    // Let the end of the sentence arrive before recapping.
-    setTimeout(() => void this.recap(e), 1500)
+    // Dev text box / mock send final lines: the transcript is already there.
+    if (!e.data?.partial) this.flushAddress()
+  }
+
+  private flushAddress(): void {
+    const p = this.pendingAddress
+    if (!p) return
+    clearTimeout(p.timer)
+    this.pendingAddress = null
+    if (this.awayFrom !== null && now() - this.awayFrom >= AWAY_MIN_S) void this.awaySummary('name')
+    else void this.recap(p.e)
   }
 
   private async recap(e: TapEvent): Promise<void> {

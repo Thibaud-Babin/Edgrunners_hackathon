@@ -4,6 +4,15 @@
 
 This is the **riskiest part** of the project. Do the risk spike first, decide fallbacks fast, and ask for help early (C and D can help after 19:00).
 
+## Status (Sat 21 Nov, pre-hackathon spike) ✅
+- **Capture:** Electron loopback works on Thibaud's laptop (~32 kB/s, level follows the sound).
+- **Local STT:** sherpa-onnx streaming Zipformer (English, int8) — `npm run setup-stt`, `TAP_STT=sherpa`. ~7× faster than real time, model loads in ~5.5 s at startup.
+- **Name:** hotwords (`TAP_HOTWORDS`) + name checked on partial results. Offline bench (`npm run stt-bench`, 20 TTS clips): **9/10 names, 0/10 false alerts**, trouble phrases 4/4. Live through the speakers: **4/4 names, ~1.2 s from sentence start to detection**.
+- **Silence:** lone filler words ("and") dropped → 0 fake transcripts in 40 s of silence.
+- **Next:** test with real human voices + a real Meet/Zoom call (accents!), the Sony WH-1000XM4 Bluetooth hands-free issue (see below), replay mode for the demo, `MIC_SILENT_RMS` tuning.
+- **Limits:** English-only model: French meetings won't transcribe. Windows' French voice (Hortense) gave poor transcripts.
+- **Bluetooth headsets:** if the meeting app uses the headset mic, Windows moves the call audio to "Headset (… Hands-Free)": make that the default output, or use the laptop mic in the meeting app.
+
 ## Your files
 - `app/src/renderer/src/audio.ts`, `app/src/renderer/public/pcm-worklet.js`
 - `app/src/main/audio/` (`pipeline.ts` + new engines, e.g. `sherpa.ts`, `deepgram.ts`)

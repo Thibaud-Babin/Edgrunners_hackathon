@@ -63,7 +63,19 @@ export function findName(text: string, variants: string[], threshold = 0.8): Nam
       const exact = w === nv ? 1 : 0
       const phon = phoneticKey(w) === pv ? 0.9 : 0
       const fuzzy = 1 - levenshtein(w, nv) / Math.max(w.length, nv.length)
-      const score = Math.max(exact, phon, fuzzy)
+      // The transcriber sometimes glues the name to the previous word ("so Thibaud" → "suitiboo"):
+      // also compare the END of long words (slightly lower score).
+      let glued = 0
+      if (w.length >= nv.length + 2) {
+        for (let len = nv.length - 1; len <= nv.length + 1; len++) {
+          const tail = w.slice(-len)
+          if (tail.length < 4) continue
+          const tailFuzzy = 1 - levenshtein(tail, nv) / Math.max(tail.length, nv.length)
+          const tailPhon = phoneticKey(tail) === pv ? 0.9 : 0
+          glued = Math.max(glued, 0.95 * Math.max(tailFuzzy, tailPhon))
+        }
+      }
+      const score = Math.max(exact, phon, fuzzy, glued)
       if (score >= threshold && (!best || score > best.score)) best = { word: w, variant: v, score }
     }
   }

@@ -15,7 +15,7 @@ import { AudioPipeline, createStt } from './audio/pipeline'
 import { runMock } from './mock'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
-const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo').split(',').map((s) => s.trim())
+const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
 
 let mainWin: BrowserWindow | null = null
 let overlayWin: BrowserWindow | null = null

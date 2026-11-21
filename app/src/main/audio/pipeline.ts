@@ -11,6 +11,7 @@ import type { Source } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import type { EventBus } from '../bus'
 import { findName, findTrouble, isQuestion } from '../detectors/text'
+import { createSherpaEngine, loadSherpa } from './sherpa'
 
 export interface SttEngine {
   /** feed 16 kHz mono Int16 PCM */
@@ -29,12 +30,22 @@ export type SttFactory = (source: Source, onText: (text: string, final: boolean)
  */
 export function createStt(kind: string): SttFactory | null {
   if (kind === 'none') return null
+  if (kind === 'sherpa') {
+    try {
+      loadSherpa() // load now (~6 s) so the first sentence isn't delayed
+      return createSherpaEngine
+    } catch (err) {
+      console.error('[stt] sherpa-onnx failed to load — falling back to the dev text box only:', err)
+      return null
+    }
+  }
   console.warn(`[stt] engine "${kind}" not implemented yet — use the dev text box or --mock`)
   return null
 }
 
 export class AudioPipeline {
   private engines = new Map<Source, SttEngine>()
+  private nameFiredThisSentence = false
 
   constructor(
     private bus: EventBus,
@@ -71,14 +82,24 @@ export class AudioPipeline {
   /** Called by the STT engine (or the dev text box / mock) for every result. */
   onText(source: Source, text: string, final: boolean): void {
     if (!text.trim()) return
+    if (process.env.TAP_DEBUG_AUDIO !== '0' && final) console.log(`[stt ${Date.now()}] ${source} FINAL: ${text}`)
     this.bus.publish(makeEvent(final ? 'TRANSCRIPT_FINAL' : 'TRANSCRIPT_PARTIAL', source, { text }))
-    // Detectors only look at OTHER people (call audio), and only at final lines for now.
-    // TODO(B): also check partials for the name to cut latency (debounce so it fires once).
-    if (source !== 'call_audio' || !final) return
+    // Detectors only look at OTHER people (call audio).
+    if (source !== 'call_audio') return
 
+    // Name: checked on PARTIAL results too, so the knock comes while the sentence is still being said.
+    // Fires once per sentence (reset on the final result).
     const name = findName(text, this.names)
-    if (name) {
-      this.bus.publish(makeEvent('NAME_MENTIONED', source, { text, matched: name.word }, name.score))
+    if (name && !this.nameFiredThisSentence) {
+      this.nameFiredThisSentence = true
+      if (process.env.TAP_DEBUG_AUDIO !== '0') console.log(`[stt ${Date.now()}] NAME_MENTIONED (${final ? 'final' : 'partial'}) "${name.word}" in: ${text}`)
+      this.bus.publish(makeEvent('NAME_MENTIONED', source, { text, matched: name.word, partial: !final }, name.score))
+    }
+    if (!final) return
+
+    const addressed = this.nameFiredThisSentence
+    this.nameFiredThisSentence = false
+    if (addressed) {
       if (isQuestion(text)) this.bus.publish(makeEvent('QUESTION_TO_YOU', source, { text }))
     } else if (isQuestion(text) && /\b(anyone|everyone|guys|team|all)\b/i.test(text)) {
       this.bus.publish(makeEvent('QUESTION_TO_GROUP', source, { text }))

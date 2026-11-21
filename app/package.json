@@ -11,12 +11,15 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/main/detectors/text.test.ts",
-    "postinstall": "node scripts/setup-models.mjs"
+    "postinstall": "node scripts/setup-models.mjs",
+    "setup-stt": "node scripts/setup-stt.mjs",
+    "stt-bench": "node --experimental-strip-types scripts/stt-bench.mts hotwords"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
     "@mediapipe/tasks-vision": "^1.2.3",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "sherpa-onnx-node": "^2.0.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
