@@ -129,9 +129,9 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 | F3 | same, while away ≥ 2 s | "while you were away" card at once, no need to look back; the away period restarts there, so looking back later recaps only the rest |
 | F4 | `WAITING_FOR_YOU` | nudge card "They're waiting for your answer" + two knocks |
 | F5 | `NAME_MENTIONED.latency_s` | log "Knock X s after your name was said" |
-| F6 | `QUESTION_TO_GROUP` | log only; `ringing` only with `TAP_OPTIONAL_HAPTICS=1` (Sat 22:30: only 4 vibrations, see below) |
+| F6 | `QUESTION_TO_GROUP` | log only; `ringing` only with Settings → Extra vibrations (or `TAP_OPTIONAL_HAPTICS=1`) (Sat 22:30: only 4 vibrations, see below) |
 | F7 | `OTHERS_CANT_HEAR` | fix card "Switch to laptop mic" + angry_alert; only the user's click switches the mic (gate: `USER_ONLY_ACTIONS`) |
-| F8 | `TOPIC_MENTIONED` | log only; `damp_state_change` only with `TAP_OPTIONAL_HAPTICS=1` |
+| F8 | `TOPIC_MENTIONED` | log only; `damp_state_change` only with Settings → Extra vibrations (or `TAP_OPTIONAL_HAPTICS=1`) |
 | F9 | `MIC_QUALITY` bad > 10 s | fix card "Switch to laptop mic"; if still bad 10 s after the user switched, a card with what else to try (unmute, move closer, headset) |
 | F10 | `STT_USAGE` | speech-to-text cost added to the cost counter (checkup) |
 | F11 | `speaker` on transcripts | "Speaker N:" prefix once 2+ voices were heard |

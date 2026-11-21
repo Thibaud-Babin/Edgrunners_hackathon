@@ -7,6 +7,7 @@ import type { AllowedAction, UiCommand } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { el, toPoints } from './ui/dom'
 import { initTheme } from './ui/theme'
+import { playCue, soundOn } from './ui/sound'
 
 initTheme()
 
@@ -267,6 +268,20 @@ function checkIcon(): SVGSVGElement {
   return svg
 }
 
+// ---------- pill "Summary" button: summarize this meeting without leaving the call (B) ----------
+const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
+pillSummary.onmouseenter = () => window.tap.setOverlayInteractive(true)
+pillSummary.onmouseleave = () => window.tap.setOverlayInteractive(false)
+pillSummary.onclick = () => {
+  pillSummary.disabled = true
+  pillSummary.textContent = '📝 Summarizing…'
+  window.tap.emit(makeEvent('CALL_SUMMARY_REQUEST', 'ui', { from: 'overlay' }))
+  setTimeout(() => {
+    pillSummary.disabled = false
+    pillSummary.textContent = '📝 Summary'
+  }, 25000)
+}
+
 // ---------- commands ----------
 window.tap.onUi((cmd: UiCommand) => {
   switch (cmd.type) {
@@ -368,6 +383,42 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'event' && t.startsWith('USER_BACK')) setAway(false)
       const h = /^send_haptic (\S+)/.exec(t)
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
+      break
+    }
+    case 'CUE':
+      // Settings → "Sound with each vibration" (off by default): same signal, in the headphones.
+      if (soundOn()) playCue(cmd.waveform)
+      break
+    case 'CALL_SUMMARY': {
+      // The full summary lives in the main window (Meeting Summary). Here: a short "ready" card with the essentials,
+      // for the automatic summary and the pill's button. Not when the user is already in the main window's panel.
+      if (cmd.from !== 'auto' && cmd.from !== 'overlay') break
+      pillSummary.disabled = false
+      pillSummary.textContent = '📝 Summary'
+      const toastId = `${cmd.id}-${Date.now()}`
+      if (!cmd.lines) {
+        addToast({ id: toastId, kind: 'nudge', icon: '📝', title: 'Nothing was said in the call yet', body: [el('p', '', 'Start call audio on the Check-up page so Tap can hear the call.')], actions: [button('Got it', 'primary', () => removeToast(toastId))], autoDismissMs: 8000 })
+        break
+      }
+      const ul = el('ul', 'points')
+      for (const q of cmd.questions_to_you.slice(0, 2)) ul.append(el('li', '', `Question to you: ${q}`))
+      for (const t of cmd.your_tasks.slice(0, 2)) ul.append(el('li', '', `Your task: ${t}`))
+      if (!ul.childElementCount) for (const p of cmd.points.slice(0, 3)) ul.append(el('li', '', p))
+      addToast({
+        id: toastId,
+        kind: 'recap',
+        icon: '📝',
+        title: `${cmd.final ? 'Meeting summary ready' : 'Meeting summary so far'} · ${cmd.points.length} talking points`,
+        body: ul.childElementCount ? [ul] : [],
+        actions: [
+          button('Open summary', 'primary', () => {
+            window.tap.emit(makeEvent('OPEN_SUMMARY', 'ui', {}))
+            removeToast(toastId)
+          }),
+          button('Later', 'ghost', () => removeToast(toastId))
+        ],
+        autoDismissMs: 30000
+      })
       break
     }
     case 'COUNTERS':
