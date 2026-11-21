@@ -85,3 +85,29 @@ test('stallNextCall: the next call times out even without a key, then normal beh
   assert.equal((await llm.summarise(TRANSCRIPT, 'recap', 'Thibaud')).fallback, 'timeout')
   assert.equal((await llm.summarise(TRANSCRIPT, 'recap', 'Thibaud')).fallback, 'no_key')
 })
+
+test('cost control: a slice shorter than MIN_CHARS_FOR_AI is never sent to the AI', async () => {
+  let calls = 0
+  const client = fake(() => {
+    calls++
+    return ok('{"text":"x","askedYou":false,"topics":[]}')
+  })
+  const out = await new Llm({ client }).summarise('Yes, agreed.', 'away', 'Thibaud')
+  assert.equal(calls, 0)
+  assert.equal(out.fallback, 'short')
+  assert.equal(out.summary.text, 'Yes, agreed.')
+})
+
+test('cost control: output is capped at 200 tokens', async () => {
+  let maxTokens = 0
+  const client: MessagesClient = {
+    messages: {
+      create: (body) => {
+        maxTokens = body.max_tokens
+        return ok('{"text":"x","askedYou":false,"topics":[]}')
+      }
+    }
+  }
+  await new Llm({ client }).summarise(TRANSCRIPT, 'away', 'Thibaud')
+  assert.equal(maxTokens, 200)
+})

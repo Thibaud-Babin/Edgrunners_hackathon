@@ -138,7 +138,7 @@ export class Monitor {
       this.counters.aiCalls++
       this.counters.costUsd += r.costUsd
     }
-    if (r.fallback && r.fallback !== 'empty') this.detail.fallbacks++
+    if (r.fallback && r.fallback !== 'empty' && r.fallback !== 'short') this.detail.fallbacks++ // only real AI fallbacks
     if (r.usedLlm) this.aiFails = 0
     else if (r.fallback === 'timeout' || r.fallback === 'error' || r.fallback === 'invalid') {
       this.aiFails++

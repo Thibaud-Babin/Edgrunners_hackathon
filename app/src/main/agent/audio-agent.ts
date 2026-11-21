@@ -84,7 +84,11 @@ export class AudioAgent {
   private async onRequest(req: PayloadOf<'summary.request'>): Promise<void> {
     const text = this.textBetween(req.fromTs, req.untilTs)
     const out = await this.llm.summarise(text, req.kind, this.userName)
-    if (out.usedLlm) this.report.log('llm', `summary (${text.length} chars)`, out.costUsd)
+    // Every paid call is logged with its cost, including one whose reply was invalid.
+    if (out.usedLlm || out.costUsd > 0) {
+      const cost = out.costUsd.toFixed(5)
+      this.report.log('llm', `AI recap of ${text.length} chars (${this.llm.modelName}) → cost ${cost} USD`, out.costUsd)
+    }
     const why = out.fallback && FALLBACK_LOG[out.fallback]
     if (why) this.report.log('error', why)
     this.bus.publish('audio', out.usedLlm ? 'llm' : 'transcript', 'summary', {

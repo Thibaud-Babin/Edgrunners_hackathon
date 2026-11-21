@@ -132,7 +132,7 @@ export const SummaryResult = z
     transcript: z.string().max(LIMITS.cardTranscript),
     costUsd: z.number().finite().nonnegative(),
     usedLlm: z.boolean(),
-    fallback: z.enum(['no_key', 'empty', 'timeout', 'error', 'invalid', 'breaker']).optional()
+    fallback: z.enum(['no_key', 'empty', 'short', 'timeout', 'error', 'invalid', 'breaker']).optional()
   })
   .strict()
 
