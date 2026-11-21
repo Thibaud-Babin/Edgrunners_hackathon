@@ -6,7 +6,8 @@
 import { createRequire } from 'node:module'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { findName, findTrouble } from '../src/main/detectors/text.ts'
+import { findAddressed, findName, findTrouble } from '../src/main/detectors/text.ts'
+import 'dotenv/config'
 import { tokenize } from '../src/main/audio/sherpa.ts'
 
 const require = createRequire(import.meta.url)
@@ -25,7 +26,7 @@ const find = (dir: string, re: RegExp): string => {
 // ---------- models ----------
 interface Model {
   name: string
-  transcribe: (samples: Float32Array) => string
+  transcribe: (samples: Float32Array) => string | Promise<string>
 }
 
 function zipformer(): Model {
@@ -110,6 +111,47 @@ function parakeetHot(): Model {
   }
 }
 
+function parakeetV3(): Model {
+  const d = join(M, 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8')
+  return offline('parakeet-tdt-0.6b-v3 (multi)', {
+    transducer: { encoder: join(d, 'encoder.int8.onnx'), decoder: join(d, 'decoder.int8.onnx'), joiner: join(d, 'joiner.int8.onnx') },
+    tokens: join(d, 'tokens.txt'),
+    modelType: 'nemo_transducer'
+  })
+}
+
+// Deepgram (cloud): needs DEEPGRAM_API_KEY in app/.env. Uses nova-3 with one keyterm per name variant.
+function deepgram(): Model {
+  const key = process.env.DEEPGRAM_API_KEY
+  if (!key) throw new Error('DEEPGRAM_API_KEY not set in app/.env')
+  const params = new URLSearchParams({ model: process.env.DG_MODEL || 'nova-3', language: 'en', smart_format: 'true', punctuate: 'true' })
+  for (const w of HOT) params.append('keyterm', w.trim())
+  return {
+    name: `deepgram-${params.get('model')}+keyterms`,
+    async transcribe(samples) {
+      const pcm = new Int16Array(samples.length)
+      for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767)))
+      const body = Buffer.concat([wavHeader(pcm.byteLength), Buffer.from(pcm.buffer)])
+      const r = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {
+        method: 'POST',
+        headers: { Authorization: `Token ${key}`, 'Content-Type': 'audio/wav' },
+        body
+      })
+      if (!r.ok) throw new Error(`deepgram ${r.status}: ${(await r.text()).slice(0, 200)}`)
+      const j = (await r.json()) as { results?: { channels?: Array<{ alternatives?: Array<{ transcript?: string }> }> } }
+      return j.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? ''
+    }
+  }
+}
+
+function wavHeader(dataBytes: number): Buffer {
+  const h = Buffer.alloc(44)
+  h.write('RIFF', 0); h.writeUInt32LE(36 + dataBytes, 4); h.write('WAVE', 8); h.write('fmt ', 12)
+  h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(16000, 24)
+  h.writeUInt32LE(32000, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(dataBytes, 40)
+  return h
+}
+
 function whisper(): Model {
   const d = join(M, 'sherpa-onnx-whisper-small.en')
   return offline('whisper-small.en', {
@@ -189,6 +231,8 @@ const builders: Array<[string, () => Model]> = [
   ['zipformer', zipformer],
   ['parakeet', parakeet],
   ['parakeethot', parakeetHot],
+  ['parakeetv3', parakeetV3],
+  ['deepgram', deepgram],
   ['whisper', whisper],
   ['moonshine', moonshine]
 ]
@@ -207,7 +251,7 @@ for (const [key, build] of builders) {
   const ms: number[] = []
   for (const seg of segments) {
     const t = performance.now()
-    texts.push(model.transcribe(seg.samples).trim().toLowerCase())
+    texts.push((await model.transcribe(seg.samples)).trim().toLowerCase())
     ms.push(performance.now() - t)
   }
   results.push({ model: model.name, texts, ms })
@@ -219,7 +263,8 @@ segments.forEach((seg, i) => {
   for (const r of results) {
     const hit = findName(r.texts[i], NAMES)
     const tr = findTrouble(r.texts[i])
-    console.log(`  ${r.model.padEnd(28)} ${hit ? 'NAME ' : '     '}${tr ? `[${tr}] ` : ''}${r.texts[i]}`)
+    const voc = !hit && findAddressed(r.texts[i], NAMES)
+    console.log(`  ${r.model.padEnd(28)} ${hit ? 'NAME ' : voc ? 'NAME?' : '     '}${tr ? `[${tr}] ` : ''}${r.texts[i]}`)
   }
 })
 
@@ -228,6 +273,7 @@ console.log('\n=== SUMMARY ===')
 const scored = files.some((f) => /-(name|neg|trouble)/.test(f))
 for (const r of results) {
   const names = r.texts.filter((t) => findName(t, NAMES)).length
+  const withRule = r.texts.filter((t) => findName(t, NAMES) || findAddressed(t, NAMES)).length
   const trouble = r.texts.filter((t) => findTrouble(t)).length
   const total = r.ms.reduce((a, b) => a + b, 0)
   const p90 = [...r.ms].sort((a, b) => a - b)[Math.floor(r.ms.length * 0.9)] ?? 0
@@ -240,5 +286,5 @@ for (const r of results) {
     })
     score = `  names ${tp}/${pos}, false alerts ${fp}/${neg}`
   }
-  console.log(`${r.model.padEnd(28)} sentences with name: ${names}, trouble phrases: ${trouble}${score}  | speed ${(audioSec / (total / 1000)).toFixed(1)}x real time, per sentence p90 ${p90.toFixed(0)} ms`)
+  console.log(`${r.model.padEnd(28)} sentences with name: ${names} (+context rule: ${withRule}), trouble phrases: ${trouble}${score}  | speed ${(audioSec / (total / 1000)).toFixed(1)}x real time, per sentence p90 ${p90.toFixed(0)} ms`)
 }

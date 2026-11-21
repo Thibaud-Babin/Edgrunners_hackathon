@@ -82,6 +82,32 @@ export function findName(text: string, variants: string[], threshold = 0.8): Nam
   return best
 }
 
+/**
+ * Backup for names the transcriber mangles ("hey bo, are you still here?", "philot, are you ready?").
+ * Fires when a short word is said AS A VOCATIVE (alone before a comma at the start, or after the last comma
+ * of a question), the sentence speaks to "you", and the word sounds like the name's ending (French "-o" sound).
+ * Needs punctuated transcripts (Parakeet / Deepgram). Expect some false alerts on other "-o" names (Leo, Bruno).
+ */
+const COMMON_O_WORDS = new Set(['so', 'no', 'oh', 'ok', 'hello', 'also', 'two', 'too', 'to', 'do', 'go', 'who', 'yo', 'bravo', 'ago', 'though', 'although', 'photo', 'video', 'demo', 'memo', 'radio', 'audio', 'info', 'logo', 'hmm', 'ohno'])
+
+export function findAddressed(rawText: string, variants: string[]): NameHit | null {
+  const raw = rawText.toLowerCase()
+  if (!/\byou\b/.test(raw)) return null
+  const parts = raw.split(',').map((p) => normalise(p)).filter(Boolean)
+  if (parts.length < 2) return null
+  const candidates = [parts[0], raw.includes('?') ? parts[parts.length - 1] : '']
+    .map((p) => p.replace(/^(so|and|ok|okay|hey|well|then)\s+/, '$1').replace(/^(so|and|ok|okay|well|then)(?=\S)/, ''))
+    .filter((p) => p && p.split(' ').length <= 2 && p.length <= 8)
+  const endings = new Set(variants.map((v) => phoneticKey(v).slice(-1)))
+  for (const c of candidates) {
+    const w = c.replace(/ /g, '')
+    const key = phoneticKey(w)
+    if (COMMON_O_WORDS.has(w)) continue
+    if (w.length >= 3 && endings.has(key.slice(-1)) && /[aeiou]/.test(key.slice(-1))) return { word: w, variant: 'vocative', score: 0.7 }
+  }
+  return null
+}
+
 /** Spoken tech-trouble phrases said by OTHERS in the call. Extend with what you hear in tests. */
 const TROUBLE: Array<{ kind: 'cant_hear' | 'frozen'; re: RegExp }> = [
   { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio) (is )?(not working|off|muted|broken|cutting))\b/ },

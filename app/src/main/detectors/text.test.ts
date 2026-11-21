@@ -1,7 +1,7 @@
 // Run with: npm test   (Node's built-in test runner, no extra deps)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findName, findTrouble, isQuestion } from './text.ts'
+import { findAddressed, findName, findTrouble, isQuestion } from './text.ts'
 
 const NAMES = ['Thibaud', 'Thibault', 'Tibo']
 
@@ -39,4 +39,13 @@ test('detects questions', () => {
   assert.ok(isQuestion('are you ok with friday'))
   assert.ok(isQuestion('Friday works for you?'))
   assert.ok(!isQuestion('the release moved to friday'))
+})
+
+test('context rule: mangled name used to address someone (real Parakeet output, 2026-11-21)', () => {
+  assert.ok(findAddressed('hey bo, are you still here?', NAMES))
+  assert.ok(findAddressed('so philot, are you ready for friday?', NAMES))
+  assert.ok(findAddressed('ebo, could you check the numbers before monday?', NAMES))
+  assert.equal(findAddressed('marc, can you send it?', NAMES), null)
+  assert.equal(findAddressed('so, are you coming?', NAMES), null)
+  assert.equal(findAddressed('yes, i can hear you.', NAMES), null)
 })
