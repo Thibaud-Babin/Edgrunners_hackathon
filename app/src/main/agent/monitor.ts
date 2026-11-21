@@ -224,6 +224,13 @@ export class Monitor {
     this.log('error', text)
   }
 
+  /** An AI call made outside the Audio agent (B: end-of-call summary) → counted in "AI calls" and the cost. */
+  recordAiCall(costUsd: number): void {
+    this.counters.aiCalls++
+    this.counters.costUsd += costUsd
+    this.pushCounters()
+  }
+
   private onSummary(r: { costUsd: number; usedLlm: boolean; fallback?: string }): void {
     if (r.usedLlm || r.costUsd > 0) {
       this.counters.aiCalls++

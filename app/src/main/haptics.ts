@@ -17,12 +17,15 @@ export class Haptics {
   private chain: Promise<unknown> = Promise.resolve()
   private lastAt = 0
   static readonly GAP_MS = 350
+  /** Called the moment a waveform is sent (B): index.ts turns it into a CUE so the overlay can play its sound. */
+  onFire: ((waveform: Waveform) => void) | null = null
 
   fire(waveform: Waveform): Promise<boolean> {
     const run = this.chain.then(async () => {
       const wait = this.lastAt + Haptics.GAP_MS - Date.now()
       if (wait > 0) await new Promise((r) => setTimeout(r, wait))
       this.lastAt = Date.now()
+      this.onFire?.(waveform)
       return this.send(waveform)
     })
     this.chain = run.catch(() => undefined)

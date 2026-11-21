@@ -11,6 +11,8 @@ import { EventBus } from './bus'
 import { Haptics } from './haptics'
 import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
+import { CallTranscript, summarizeCall } from './agent/call-summary'
+import { hapticSettings } from './agent/rules'
 import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
 import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
@@ -68,12 +70,13 @@ function createWindows(): void {
 
 function sendUi(cmd: UiCommand): void {
   // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
-  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION') {
+  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION' && cmd.type !== 'CUE') {
     if (cmd.type === 'LOG_ENTRY') {
       if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
     } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
     else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
     else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
+    else if (cmd.type === 'CALL_SUMMARY') console.log(`[card] CALL SUMMARY (${cmd.source}, ${cmd.minutes} min): ${cmd.points.length} points, ${cmd.questions_to_you.length} questions to you, ${cmd.your_tasks.length} tasks, ${cmd.decisions.length} decisions`)
     else if (cmd.type === 'SHOW_NUDGE') console.log(`[card] NUDGE: ${cmd.text}${cmd.question ? ` | ${cmd.question}` : ''}`)
     else console.log(`[ui] ${cmd.type}`)
   }
@@ -94,7 +97,9 @@ app.whenReady().then(() => {
   const llm = new Llm()
   // B: Windows-level mic (state for the mic doctor, and the fixes a card names). Only a click runs a fix.
   const winMic = new WinMic()
-  new Agent(bus, sendUi, haptics, llm, names[0], winMic.available ? winMic : null)
+  const agent = new Agent(bus, sendUi, haptics, llm, names[0], winMic.available ? winMic : null)
+  // Settings → "Sound with each vibration": the overlay plays the sound when the vibration is actually sent.
+  haptics.onFire = (waveform) => sendUi({ type: 'CUE', waveform })
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
   // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
   if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
@@ -117,6 +122,42 @@ app.whenReady().then(() => {
       sendUi({ type: 'CAPTION', text, final: type === 'TRANSCRIPT_FINAL', speaker, highlight: findName(text, names)?.word })
     })
   }
+  // ---------- End-of-call summary (B, agent/call-summary.ts) ----------
+  // Every final line of the call is kept. The summary runs on "Summarize the call", or by itself once the call has
+  // been quiet for TAP_SUMMARY_AFTER_S (default 120 s) with enough new speech (Settings → "Summary when the call goes quiet").
+  const call = new CallTranscript()
+  const quietS = Number(process.env.TAP_SUMMARY_AFTER_S ?? 120)
+  const settings = { autoSummary: true }
+  let quietTimer: ReturnType<typeof setTimeout> | undefined
+  let summarizing = false
+  const runCallSummary = async (auto: boolean): Promise<void> => {
+    if (summarizing) return
+    if (!call.lines.length) {
+      sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text: 'Call summary: nothing was said in the call yet' } })
+      sendUi({ type: 'CALL_SUMMARY', id: `call-${Date.now()}`, points: [], questions_to_you: [], your_tasks: [], decisions: [], source: 'template', minutes: 0, lines: 0, auto })
+      return
+    }
+    summarizing = true
+    try {
+      const r = await summarizeCall(call, llm, names)
+      call.markSummarized()
+      if (r.costUsd > 0) agent.recordAiCall(r.costUsd)
+      const how = r.source === 'cloud' ? 'AI' : `without AI (${r.fallback})`
+      sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: r.source === 'cloud' ? 'llm' : 'decision', text: `Call summary${auto ? ' (call went quiet)' : ''}: ${r.minutes} min, ${r.points.length} talking points, ${r.questionsToYou.length} questions to you, ${r.yourTasks.length} tasks, ${r.decisions.length} decisions · ${how}`, ...(r.costUsd ? { costUsd: r.costUsd } : {}) } })
+      sendUi({ type: 'CALL_SUMMARY', id: `call-${Date.now()}`, points: r.points, questions_to_you: r.questionsToYou, your_tasks: r.yourTasks, decisions: r.decisions, source: r.source, minutes: r.minutes, lines: r.lines, auto })
+    } finally {
+      summarizing = false
+    }
+  }
+  bus.on('TRANSCRIPT_FINAL', (e) => {
+    if (e.source !== 'call_audio') return
+    call.add(cleanText(e.data?.text, MAX.transcriptChunk), e.ts, cleanText(e.data?.speaker, MAX.speakerName) || undefined)
+    clearTimeout(quietTimer)
+    if (quietS > 0) quietTimer = setTimeout(() => {
+      if (settings.autoSummary && call.newLines >= 8) void runCallSummary(true)
+    }, quietS * 1000)
+  })
+
   app.on('before-quit', () => {
     audio.stop() // closes recordings cleanly
     winMic.stop()
@@ -128,6 +169,28 @@ app.whenReady().then(() => {
   })
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
+    // Settings page (main window): the two settings the main process needs. The others stay in the UI.
+    if (ev.type === 'SETTINGS' && ev.source === 'ui') {
+      const extra = ev.data?.optional_haptics === true
+      const auto = ev.data?.auto_summary !== false
+      if (extra !== hapticSettings.optional || auto !== settings.autoSummary) console.log(`[settings] extra vibrations ${extra ? 'on' : 'off'} · summary when the call goes quiet ${auto ? 'on' : 'off'}`)
+      hapticSettings.optional = extra
+      settings.autoSummary = auto
+      return
+    }
+    if (ev.type === 'CALL_SUMMARY_REQUEST' && ev.source === 'ui') {
+      void runCallSummary(false)
+      return
+    }
+    if (ev.type === 'OPEN_SUMMARY' && ev.source === 'ui') {
+      if (mainWin && !mainWin.isDestroyed()) {
+        if (mainWin.isMinimized()) mainWin.restore()
+        mainWin.show()
+        mainWin.focus()
+        mainWin.webContents.send(IPC.ui, { type: 'OPEN_SUMMARY' } satisfies UiCommand)
+      }
+      return
+    }
     // Check-up "Try the vibrations": the user learns the 4 signals. Fires only a known pattern, decides nothing.
     if (ev.type === 'HAPTIC_TEST' && ev.source === 'ui') {
       const key = String(ev.data?.pattern ?? '')

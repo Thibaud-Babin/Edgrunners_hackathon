@@ -5,6 +5,7 @@ import { startCallAudio, startMic } from './audio'
 import { cameraHealth, startVision } from './vision'
 import { el } from './ui/dom'
 import { currentTheme, initTheme, toggleTheme } from './ui/theme'
+import { playCue, SOUND_KEY, soundOn, soundVolume, VOLUME_KEY } from './ui/sound'
 
 initTheme()
 
@@ -37,7 +38,7 @@ const ORBIT: OrbNode[] = [
   { page: 'activity', icon: '≡', name: 'Activity', color: 'rgba(96, 165, 250, 0.9)', desc: 'Everything Tap saw, decided and did — plus cost.', rel: ['check', 'it', 'dev'] },
   { page: 'it', icon: '▦', name: 'IT view', color: 'rgba(251, 191, 36, 0.9)', desc: 'Team impact metrics — simulated data.', rel: ['activity'] },
   { page: 'dev', icon: '⚙', name: 'Dev tools', color: 'rgba(192, 132, 252, 0.9)', desc: 'Replay fake meeting events for the demo.', rel: ['activity'] },
-  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Theme and display.', rel: [] },
+  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Sound with each vibration, extra vibrations, captions, end-of-call summary, theme.', rel: ['check'] },
   { page: 'captions', icon: '', name: 'Live Captions', color: 'rgba(34, 211, 238, 0.88)', desc: 'Show or hide live captions without stopping transcription.', rel: ['activity'], action: 'captions' },
   { page: 'summary', icon: '', name: 'Meeting Summary', color: 'rgba(167, 139, 250, 0.9)', desc: 'Open the real recaps collected during this meeting.', rel: ['activity'], action: 'summary' }
 ]
@@ -108,7 +109,7 @@ function selectNode(i: number): void {
     })
   )
   const open = $('op-open')
-  open.textContent = o.page === 'settings' ? 'Switch theme' : `Open ${o.name}`
+  open.textContent = `Open ${o.name}`
   open.style.background = o.color
   open.style.borderColor = o.color
   $('orbit-panel').classList.add('show')
@@ -119,6 +120,7 @@ function openPage(p: string): void {
   stopRot()
   hub.classList.add('hidden')
   document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === `page-${p}`))
+  if (p === 'settings') syncSettings() // a setting may have changed from the hub (captions node) or the theme switch
   document.querySelectorAll<HTMLElement>('.mini-graph button').forEach((b) => b.classList.toggle('active', b.dataset.page === p))
 }
 
@@ -175,6 +177,8 @@ interface MeetingSummaryItem {
   transcript: string
   question?: string
   receivedAt: number
+  /** End-of-call summary (B): titled lists, e.g. "Talking points". Empty lists are not shown. */
+  sections?: { label: string; items: string[] }[]
 }
 
 const summaryPanel = $('meeting-summary')
@@ -199,6 +203,12 @@ function renderMeetingSummaries(): void {
       article.append(meta)
       if (item.question) article.append(el('p', 'summary-entry-question', item.question))
       if (item.summary) article.append(el('p', 'summary-entry-text', item.summary))
+      for (const sec of item.sections ?? []) {
+        if (!sec.items.length) continue
+        const ul = el('ul', 'summary-list')
+        for (const it of sec.items) ul.append(el('li', '', it))
+        article.append(el('h4', 'summary-section', sec.label), ul)
+      }
       if (item.transcript) {
         const details = document.createElement('details')
         details.append(el('summary', '', 'View transcript'), el('pre', 'summary-transcript', item.transcript))
@@ -274,11 +284,6 @@ $('orbit').onclick = () => {
 $('op-open').onclick = () => {
   const o = ORBIT[selected]
   if (!o) return
-  if (o.page === 'settings') {
-    toggleTheme()
-    syncThemeBtn()
-    return
-  }
   openPage(o.page)
 }
 document.querySelectorAll<HTMLElement>('.back-hub').forEach((b) => (b.onclick = showHub))
@@ -575,6 +580,35 @@ window.tap.onUi((cmd: UiCommand) => {
         receivedAt: Date.now()
       })
       break
+    case 'CALL_SUMMARY': {
+      const gen = $<HTMLButtonElement>('summary-generate')
+      gen.disabled = false
+      gen.textContent = 'Summarize the call'
+      const nothing = !cmd.lines
+      rememberMeetingSummary({
+        id: cmd.id,
+        title: nothing ? 'Call summary' : `Call summary · ${cmd.minutes} min`,
+        summary: nothing
+          ? 'Nothing was said in the call yet. Start call audio on the Check-up page, then try again.'
+          : cmd.source === 'template'
+            ? 'Made without AI (no AI key, or it did not answer): key lines picked from the transcript.'
+            : '',
+        transcript: '',
+        sections: [
+          { label: 'Questions to you', items: cmd.questions_to_you },
+          { label: 'Your tasks', items: cmd.your_tasks },
+          { label: 'Decisions', items: cmd.decisions },
+          { label: 'Talking points', items: cmd.points }
+        ],
+        receivedAt: Date.now()
+      })
+      if (!cmd.auto) setSummaryOpen(true)
+      break
+    }
+    case 'OPEN_SUMMARY':
+      showHub()
+      setSummaryOpen(true)
+      break
     case 'SHOW_AWAY_SUMMARY':
       rememberMeetingSummary({
         id: cmd.id,
@@ -706,3 +740,81 @@ for (const [key, p] of Object.entries(HAPTIC_PATTERNS)) {
   b.onclick = () => window.tap.emit(makeEvent('HAPTIC_TEST', 'ui', { pattern: key }))
   $('haptic-tests').append(b)
 }
+
+// ---------- Meeting Summary: "Summarize the call" (B: main process builds it, CALL_SUMMARY fills the panel) ----------
+$<HTMLButtonElement>('summary-generate').onclick = () => {
+  const gen = $<HTMLButtonElement>('summary-generate')
+  gen.disabled = true
+  gen.textContent = 'Summarizing…'
+  window.tap.emit(makeEvent('CALL_SUMMARY_REQUEST', 'ui', {}))
+  setTimeout(() => {
+    gen.disabled = false
+    gen.textContent = 'Summarize the call'
+  }, 25000)
+}
+
+// ---------- Settings page (B). Stored on this laptop; the overlay reads the same keys. ----------
+const AUTO_SUMMARY_KEY = 'tap:auto-summary'
+const EXTRA_HAPTICS_KEY = 'tap:extra-haptics'
+const store = {
+  get: (k: string): string | null => {
+    try {
+      return localStorage.getItem(k)
+    } catch {
+      return null
+    }
+  },
+  set: (k: string, v: string): void => {
+    try {
+      localStorage.setItem(k, v)
+    } catch {
+      /* storage unavailable: the setting lasts until restart */
+    }
+  }
+}
+/** The two settings the main process needs (extra vibrations, automatic summary). Sent at start and on change. */
+const sendMainSettings = (): void =>
+  window.tap.emit(makeEvent('SETTINGS', 'ui', { optional_haptics: store.get(EXTRA_HAPTICS_KEY) === 'true', auto_summary: store.get(AUTO_SUMMARY_KEY) !== 'false' }))
+
+function syncSettings(): void {
+  $<HTMLInputElement>('set-sound').checked = soundOn()
+  $<HTMLInputElement>('set-volume').value = String(soundVolume())
+  $('set-sound-more').classList.toggle('off', !soundOn())
+  $<HTMLInputElement>('set-extra').checked = store.get(EXTRA_HAPTICS_KEY) === 'true'
+  $<HTMLInputElement>('set-captions').checked = captionsEnabled()
+  $<HTMLInputElement>('set-auto-summary').checked = store.get(AUTO_SUMMARY_KEY) !== 'false'
+  $<HTMLInputElement>('set-theme').checked = currentTheme() === 'dark'
+}
+
+$<HTMLInputElement>('set-sound').onchange = (e) => {
+  const on = (e.target as HTMLInputElement).checked
+  store.set(SOUND_KEY, String(on))
+  if (on) playCue('knock')
+  syncSettings()
+}
+$<HTMLInputElement>('set-volume').oninput = (e) => store.set(VOLUME_KEY, (e.target as HTMLInputElement).value)
+$<HTMLInputElement>('set-volume').onchange = () => playCue('knock')
+$('set-sound-test').onclick = () => {
+  // The 4 signals in order, as they sound in a call: knock · knock knock · problem · fixed.
+  const seq: [Parameters<typeof playCue>[0], number][] = [['knock', 0], ['knock', 1100], ['knock', 1450], ['angry_alert', 2500], ['completed', 3700]]
+  for (const [w, at] of seq) setTimeout(() => playCue(w), at)
+}
+$<HTMLInputElement>('set-extra').onchange = (e) => {
+  store.set(EXTRA_HAPTICS_KEY, String((e.target as HTMLInputElement).checked))
+  sendMainSettings()
+}
+$<HTMLInputElement>('set-auto-summary').onchange = (e) => {
+  store.set(AUTO_SUMMARY_KEY, String((e.target as HTMLInputElement).checked))
+  sendMainSettings()
+}
+$<HTMLInputElement>('set-captions').onchange = (e) => {
+  if ((e.target as HTMLInputElement).checked !== captionsEnabled()) toggleCaptions()
+}
+$<HTMLInputElement>('set-theme').onchange = () => {
+  toggleTheme()
+  syncThemeBtn()
+}
+// Keep the page right when something changes elsewhere (hub captions node, top-right theme switch).
+document.addEventListener('click', () => setTimeout(syncSettings, 0))
+syncSettings()
+sendMainSettings()

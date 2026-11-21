@@ -26,10 +26,13 @@ B **detects and measures**, C **decides**, D **shows**. To make the features vis
 | Injection attempt | `INSTRUCTION_LIKE_SPEECH` `{text}` | log `blocked`: "instruction-like speech ignored", counts as blocked | — |
 | Mic quality | `MIC_QUALITY` `{level: ok/too_quiet/clipping/noisy, …}`, **measure only** | log only. **TODO(C):** decide (e.g. offer the laptop mic after 10 s of "noisy") | — |
 | Cost | `STT_USAGE` `{engine, seconds, cost_usd}` every 30 s | added to the cost counter (AXA frugality) | — |
+| End-of-call summary (Sun) | every `TRANSCRIPT_FINAL` of the call is kept (`call-summary.ts`); `CALL_SUMMARY_REQUEST` from the "Summarize the call" button, or by itself after `TAP_SUMMARY_AFTER_S` (120 s) of silence with 8+ new lines | one AI call (`llm.complete`, quoted transcript, JSON validated, cost counted) or a template without AI → `CALL_SUMMARY` | D's Meeting Summary panel: questions to you, your tasks, decisions, talking points; overlay "Call summary ready" card when automatic |
+| Settings (Sun) | `SETTINGS` `{optional_haptics, auto_summary}` from the Settings page | extra vibrations on/off at runtime (`hapticSettings`), automatic summary on/off | Settings page: sound with each vibration (+ volume), extra vibrations, captions (same switch as D's hub node), automatic summary, theme |
+| Sound cues (Sun) | `haptics.onFire` → `CUE` `{waveform}` | — | overlay plays the waveform's sound (`ui/sound.ts`, Web Audio) if "Sound with each vibration" is on |
 
 **C, please also note:**
 - **The LLM fix matters for your cards.** Haiku 5.5 *thinks by default*, and thinking counts toward `max_tokens`. With 200 tokens it sometimes thought and never answered, which gave an empty card. Fixed in `llm.ts` with `thinking: { type: 'disabled' }` and `max_tokens: 400`. Since then: 5/5 summaries correct, about 0.8 s each.
-- **End-of-call minutes (idea #7) is yours:** one LLM call over the full transcript → decisions + action items for the user.
+- **End-of-call minutes (idea #7): done by B (Sun)** in `agent/call-summary.ts` with a new `Llm.complete()`; review welcome.
 - `HAPTIC` gained `waiting` (knock) and `topic` (damp_state_change).
 
 **D, please also note:** the new UI commands are `SHOW_NUDGE {id, text, question?}` and `CAPTION {text, final, speaker?, highlight?}`. The caption strip is plain on purpose. It should stay readable over a video call: big font, high contrast. It's the accessibility feature judges will see first.

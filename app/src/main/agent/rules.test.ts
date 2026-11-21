@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { decide, initialState, type RulesState } from './rules.ts'
+import { decide, hapticSettings, initialState, type RulesState } from './rules.ts'
 import type { Envelope } from './schemas.ts'
 
 const env = (kind: string, payload: unknown, ts: number, provenance: Envelope['provenance'] = 'vision'): Envelope<unknown> => ({
@@ -227,4 +227,11 @@ test('mic doctor: a coworker can\'t hear you and the Windows volume is 15 % → 
   assert.match(card!.problem, /very quiet \(volume 15 %\)/)
   assert.equal(card!.fixLabel, 'Raise mic volume to 80 %')
   assert.ok(r.log.includes('Mic problem fixed after a coworker reported it'))
+})
+
+test('Settings → "Extra vibrations" on: question to the group rings again, a topic gives the soft one', (t) => {
+  hapticSettings.optional = true
+  t.after(() => (hapticSettings.optional = false))
+  assert.deepEqual(kinds(play([[det('QUESTION_TO_GROUP'), 1]])), ['send_haptic:ringing'])
+  assert.deepEqual(kinds(play([[det('TOPIC_MENTIONED'), 1]])), ['send_haptic:damp_state_change'])
 })

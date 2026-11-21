@@ -7,6 +7,7 @@ import type { AllowedAction, UiCommand } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { el, toPoints } from './ui/dom'
 import { initTheme } from './ui/theme'
+import { playCue, soundOn } from './ui/sound'
 
 initTheme()
 
@@ -368,6 +369,34 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'event' && t.startsWith('USER_BACK')) setAway(false)
       const h = /^send_haptic (\S+)/.exec(t)
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
+      break
+    }
+    case 'CUE':
+      // Settings → "Sound with each vibration" (off by default): same signal, in the headphones.
+      if (soundOn()) playCue(cmd.waveform)
+      break
+    case 'CALL_SUMMARY': {
+      // The full summary lives in the main window (Meeting Summary). Here: a short "ready" card with the essentials.
+      if (!cmd.auto) break // the user clicked "Summarize the call" in the main window: they are already looking at it
+      const ul = el('ul', 'points')
+      for (const q of cmd.questions_to_you.slice(0, 2)) ul.append(el('li', '', `Question to you: ${q}`))
+      for (const t of cmd.your_tasks.slice(0, 2)) ul.append(el('li', '', `Your task: ${t}`))
+      if (!ul.childElementCount) for (const p of cmd.points.slice(0, 3)) ul.append(el('li', '', p))
+      addToast({
+        id: cmd.id,
+        kind: 'recap',
+        icon: '📝',
+        title: `Call summary ready · ${cmd.points.length} talking points`,
+        body: ul.childElementCount ? [ul] : [],
+        actions: [
+          button('Open summary', 'primary', () => {
+            window.tap.emit(makeEvent('OPEN_SUMMARY', 'ui', {}))
+            removeToast(cmd.id)
+          }),
+          button('Later', 'ghost', () => removeToast(cmd.id))
+        ],
+        autoDismissMs: 30000
+      })
       break
     }
     case 'COUNTERS':

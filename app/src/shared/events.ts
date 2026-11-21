@@ -39,6 +39,9 @@ export type EventType =
   | 'MIC_SILENT_WHILE_SPEAKING'
   // D — UI
   | 'USER_CLICK'
+  | 'SETTINGS' // { optional_haptics, auto_summary } Settings page → main (the rest of the settings live in the UI)
+  | 'CALL_SUMMARY_REQUEST' // "Summarize the call" button (Meeting Summary panel)
+  | 'OPEN_SUMMARY' // overlay "Open" on the call-summary card → show the main window's Meeting Summary panel
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
 
 export interface TapEvent {
@@ -88,6 +91,22 @@ export type UiCommand =
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }
   | { type: 'COUNTERS'; aiCalls: number; costUsd: number; events: number; blocked: number }
+  /** A vibration is being sent now: the overlay plays its sound if "Sound with each vibration" is on (Settings). */
+  | { type: 'CUE'; waveform: Waveform }
+  /** End-of-call summary (B, call-summary.ts) → Meeting Summary panel; the overlay shows a short "ready" card. */
+  | {
+      type: 'CALL_SUMMARY'
+      id: string
+      points: string[]
+      questions_to_you: string[]
+      your_tasks: string[]
+      decisions: string[]
+      source: 'cloud' | 'template'
+      minutes: number
+      lines: number
+      auto: boolean
+    }
+  | { type: 'OPEN_SUMMARY' }
 
 export interface LogEntry {
   ts: number
