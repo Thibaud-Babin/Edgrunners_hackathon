@@ -20,6 +20,8 @@ Full analysis, build plans and sources: **[docs/project-ideas.md](docs/project-i
 
 **Recommendation:** Tap. Choose First Signs *instead* only if we want Scholé and can find a Deaf LSF-CH signer to check the signs.
 
+**Tap's extended design** (Nexthink "silent tech pain" detection, agent security, activity log and IT view): **[docs/tap-agent-design.md](docs/tap-agent-design.md)**.
+
 **To check on Saturday morning:**
 - Does a meeting tool already alert deaf users when they are addressed? (Ask the Logitech booth and a deaf or hard-of-hearing attendee.)
 - Can the Logitech mentors help us with the MX Master 4 haptics SDK?
