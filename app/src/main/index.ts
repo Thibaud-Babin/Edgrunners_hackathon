@@ -15,8 +15,6 @@ import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
 import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
 import { cleanText, MAX } from './agent/sanitize'
-import { WinMic } from './audio/win-mic'
-import { makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -66,15 +64,7 @@ function createWindows(): void {
   })
 }
 
-// B: Windows-level mic control (list, mute state, unmute, default). See audio/win-mic.ts.
-const winMic = new WinMic()
-const logLine = (kind: 'action' | 'error' | 'decision', text: string): void =>
-  sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind, text } })
-
 function sendUi(cmd: UiCommand): void {
-  // The user clicked "Switch to laptop mic": besides Tap's own capture (renderer), fix it in WINDOWS, so Meet hears it too:
-  // unmute that mic and make it the default. The executor only sends SWITCH_MIC after a user click (USER_ONLY_ACTIONS).
-  if (cmd.type === 'SWITCH_MIC') void winMic.useMic(cmd.prefer).then((r) => logLine(r.ok ? 'action' : 'error', r.text))
   // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
   if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION') {
     if (cmd.type === 'LOG_ENTRY') {
@@ -123,16 +113,7 @@ app.whenReady().then(() => {
       sendUi({ type: 'CAPTION', text, final: type === 'TRANSCRIPT_FINAL', speaker, highlight: findName(text, names)?.word })
     })
   }
-  app.on('before-quit', () => {
-    audio.stop() // closes recordings cleanly
-    winMic.stop()
-  })
-  // Windows mute watch: a mic muted in Windows (mute key, sound settings) is logged and published as MIC_MUTED.
-  winMic.watch((m) => {
-    const what = `${m.kind === 'headset' ? 'Headset' : 'Laptop'} mic "${m.name}"${m.default ? ' (the default mic)' : ''}`
-    logLine(m.muted ? 'error' : 'decision', m.muted ? `${what} is MUTED in Windows → nobody in the call can hear you` : `${what} unmuted`)
-    bus.publish(makeEvent('MIC_MUTED', 'mic', { name: m.name, kind: m.kind, muted: m.muted, default: m.default }))
-  })
+  app.on('before-quit', () => audio.stop()) // closes recordings cleanly
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
     // Dev text box: typed "speech" goes through the same pipeline as real STT output.
