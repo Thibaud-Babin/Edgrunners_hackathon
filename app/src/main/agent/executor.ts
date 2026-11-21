@@ -186,7 +186,7 @@ export class Executor {
         clearTimeout(timer)
         resolve(r)
       })
-      if (!this.bus.publish('executor', 'system', 'summary.request', { requestId, kind: 'away', fromTs, untilTs })) {
+      if (!this.bus.publish('executor', 'system', 'summary.request', { requestId, fromTs, untilTs })) {
         this.pending.delete(requestId)
         clearTimeout(timer)
         resolve(null)

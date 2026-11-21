@@ -9,7 +9,6 @@ import { z } from 'zod'
 import { LIMITS, LlmSummaryOutput, Summary } from './schemas.ts'
 import { cleanText, escapeTags, MAX } from './sanitize.ts'
 
-export type SummaryKind = 'recap' | 'away'
 export type FallbackReason = 'no_key' | 'empty' | 'short' | 'timeout' | 'error' | 'invalid' | 'breaker'
 
 export interface SummaryOutcome {
@@ -87,14 +86,14 @@ export class Llm {
     this.templateUntil = ts
   }
 
-  async summarise(transcript: string, kind: SummaryKind, userName: string): Promise<SummaryOutcome> {
+  async summarise(transcript: string, userName: string): Promise<SummaryOutcome> {
     const text = transcript.trim()
-    if (!text) return { summary: summaryOf(kind, '(nothing was said)', [], undefined, 'template'), costUsd: 0, usedLlm: false, fallback: 'empty' }
-    if (text.length < MIN_CHARS_FOR_AI) return templateSummary(text, kind, userName, 'short')
+    if (!text) return { summary: summaryOf('(nothing was said)', [], undefined, 'template'), costUsd: 0, usedLlm: false, fallback: 'empty' }
+    if (text.length < MIN_CHARS_FOR_AI) return templateSummary(text, userName, 'short')
     const client = this.stallNext ? HANGING : this.client
     this.stallNext = false
-    if (!client) return templateSummary(text, kind, userName, 'no_key')
-    if (Date.now() / 1000 < this.templateUntil) return templateSummary(text, kind, userName, 'breaker')
+    if (!client) return templateSummary(text, userName, 'no_key')
+    if (Date.now() / 1000 < this.templateUntil) return templateSummary(text, userName, 'breaker')
 
     const ctrl = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -116,16 +115,16 @@ export class Llm {
         { signal: ctrl.signal, timeout: this.timeoutMs, maxRetries: 0 }
       )
       const raw = await Promise.race([call, timeout])
-      if (raw === 'timeout') return templateSummary(text, kind, userName, 'timeout')
+      if (raw === 'timeout') return templateSummary(text, userName, 'timeout')
 
       const reply = ApiReply.safeParse(raw)
-      if (!reply.success) return templateSummary(text, kind, userName, 'invalid')
+      if (!reply.success) return templateSummary(text, userName, 'invalid')
       const costUsd = (reply.data.usage.input_tokens * PRICE_IN_PER_MTOK + reply.data.usage.output_tokens * PRICE_OUT_PER_MTOK) / 1e6
-      const out = parseSummary(reply.data.content.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join(''), kind)
-      if (!out) return { ...templateSummary(text, kind, userName, 'invalid'), costUsd }
+      const out = parseSummary(reply.data.content.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join(''))
+      if (!out) return { ...templateSummary(text, userName, 'invalid'), costUsd }
       return { summary: out, costUsd, usedLlm: true }
     } catch {
-      return templateSummary(text, kind, userName, ctrl.signal.aborted ? 'timeout' : 'error')
+      return templateSummary(text, userName, ctrl.signal.aborted ? 'timeout' : 'error')
     } finally {
       clearTimeout(timer)
     }
@@ -140,7 +139,7 @@ const HANGING: MessagesClient = {
 }
 
 /** Model text → validated Summary, or null. The model's own text is cleaned like any other untrusted text. */
-export function parseSummary(modelText: string, kind: SummaryKind): Summary | null {
+export function parseSummary(modelText: string): Summary | null {
   const start = modelText.indexOf('{')
   const end = modelText.lastIndexOf('}')
   if (start < 0 || end <= start) return null
@@ -155,7 +154,6 @@ export function parseSummary(modelText: string, kind: SummaryKind): Summary | nu
   const question = out.data.question && out.data.question.toLowerCase() !== 'none' ? out.data.question : undefined
   const s = Summary.safeParse(
     summaryOf(
-      kind,
       cleanText(out.data.text, LIMITS.awayText),
       out.data.topics.map((t) => cleanText(t, LIMITS.topic)).filter(Boolean),
       question ? cleanText(question, LIMITS.question) : undefined,
@@ -167,17 +165,16 @@ export function parseSummary(modelText: string, kind: SummaryKind): Summary | nu
 }
 
 /** Offline summary: the last 3 lines, plus the last line with a question mark. */
-export function templateSummary(transcript: string, kind: SummaryKind, userName: string, why: FallbackReason): SummaryOutcome {
+export function templateSummary(transcript: string, userName: string, why: FallbackReason): SummaryOutcome {
   const lines = transcript.split('\n').filter(Boolean)
   const q = [...lines].reverse().find((l) => l.includes('?'))
-  const max = kind === 'recap' ? LIMITS.recapText : LIMITS.awayText
   const askedYou = !!q && !!userName && q.toLowerCase().includes(userName.toLowerCase())
-  const summary = summaryOf(kind, clip(lines.slice(-3).join(' '), max), [], q ? clip(q, LIMITS.question) : undefined, 'template', askedYou)
+  const summary = summaryOf(clip(lines.slice(-3).join(' '), LIMITS.awayText), [], q ? clip(q, LIMITS.question) : undefined, 'template', askedYou)
   return { summary, costUsd: 0, usedLlm: false, fallback: why }
 }
 
-function summaryOf(kind: SummaryKind, text: string, topics: string[], question: string | undefined, source: 'cloud' | 'template', askedYou = false): Summary {
-  return { kind, text, askedYou, ...(question ? { question } : {}), topics, source }
+function summaryOf(text: string, topics: string[], question: string | undefined, source: 'cloud' | 'template', askedYou = false): Summary {
+  return { text, askedYou, ...(question ? { question } : {}), topics, source }
 }
 
 /** Keep the END of long text (the latest speech matters most), marked with an ellipsis. */

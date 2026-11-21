@@ -21,7 +21,7 @@ function setup() {
   const summary = (fallback?: 'timeout' | 'error') =>
     bus.publish('audio', fallback ? 'transcript' : 'llm', 'summary', {
       requestId: 'r',
-      summary: { kind: 'recap', text: 'x', askedYou: false, topics: [], source: fallback ? 'template' : 'cloud' },
+      summary: { text: 'x', askedYou: false, topics: [], source: fallback ? 'template' : 'cloud' },
       transcript: 'x',
       costUsd: 0,
       usedLlm: !fallback,

@@ -14,12 +14,10 @@ export type Provenance = (typeof PROVENANCES)[number]
 
 export const LIMITS = {
   transcriptChunk: MAX.transcriptChunk, // one source: what cleanText() caps to
-  recapText: 280,
   awayText: 400,
   question: 140,
   topic: 40,
   topics: 5,
-  label: 120,
   id: 64,
   cardTranscript: 20000
 } as const
@@ -32,7 +30,6 @@ const Ts = z.number().finite().nonnegative()
 /** The Audio agent's only output. No field can name an action. */
 export const Summary = z
   .object({
-    kind: z.enum(['recap', 'away']),
     text: z.string().max(LIMITS.awayText),
     askedYou: z.boolean(),
     question: z.string().min(1).max(LIMITS.question).optional(),
@@ -40,13 +37,9 @@ export const Summary = z
     source: z.enum(['cloud', 'template'])
   })
   .strict()
-  .refine((s) => s.kind === 'away' || s.text.length <= LIMITS.recapText, {
-    message: `recap text is over ${LIMITS.recapText} chars`,
-    path: ['text']
-  })
 export type Summary = z.infer<typeof Summary>
 
-/** What the LLM itself must return (kind and source are set by our code, never by the model). */
+/** What the LLM itself must return (`source` is set by our code, never by the model). */
 export const LlmSummaryOutput = z
   .object({
     text: z.string().max(LIMITS.awayText),
@@ -78,10 +71,10 @@ export const UserInput = z
   .strict()
 export type UserInput = z.infer<typeof UserInput>
 
-/** B's deterministic detectors (no LLM). Text is display-only. */
+/** B's deterministic detectors (no LLM) that the checkup uses. Text is display-only. */
 export const DetectorHit = z
   .object({
-    type: z.enum(['NAME_MENTIONED', 'QUESTION_TO_YOU', 'QUESTION_TO_GROUP', 'OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED']),
+    type: z.enum(['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED']),
     text: z.string().max(LIMITS.transcriptChunk)
   })
   .strict()
@@ -118,7 +111,6 @@ export const MicLevel = z.object({ rms: z.number().finite().nonnegative() }).str
 export const SummaryRequest = z
   .object({
     requestId: Id,
-    kind: z.enum(['recap', 'away']),
     fromTs: Ts,
     untilTs: Ts
   })

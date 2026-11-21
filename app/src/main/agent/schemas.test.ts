@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ActionRequest, EnvelopeBase, LlmSummaryOutput, Summary, VisionSignal } from './schemas.ts'
 
-const okSummary = { kind: 'recap', text: 'Release moves to Friday.', askedYou: true, question: 'OK with Friday?', topics: ['release'], source: 'cloud' }
+const okSummary = { text: 'Release moves to Friday.', askedYou: true, question: 'OK with Friday?', topics: ['release'], source: 'cloud' }
 const okEnvelope = { id: 'e1', ts: 1, from: 'audio', provenance: 'llm', kind: 'summary', payload: {} }
 
 test('accepts a valid summary', () => {
@@ -18,9 +18,8 @@ test('rejects extra fields everywhere', () => {
 })
 
 test('rejects over-long text', () => {
-  assert.ok(!Summary.safeParse({ ...okSummary, text: 'x'.repeat(281) }).success, 'recap > 280')
-  assert.ok(Summary.safeParse({ ...okSummary, kind: 'away', text: 'x'.repeat(400) }).success, 'away ≤ 400')
-  assert.ok(!Summary.safeParse({ ...okSummary, kind: 'away', text: 'x'.repeat(401) }).success, 'away > 400')
+  assert.ok(Summary.safeParse({ ...okSummary, text: 'x'.repeat(400) }).success, 'text ≤ 400')
+  assert.ok(!Summary.safeParse({ ...okSummary, text: 'x'.repeat(401) }).success, 'text > 400')
   assert.ok(!Summary.safeParse({ ...okSummary, question: 'q'.repeat(141) }).success)
   assert.ok(!Summary.safeParse({ ...okSummary, topics: ['a', 'b', 'c', 'd', 'e', 'f'] }).success)
   assert.ok(!Summary.safeParse({ ...okSummary, topics: ['t'.repeat(41)] }).success)

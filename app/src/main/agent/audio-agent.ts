@@ -13,7 +13,8 @@ import { LIMITS, type PayloadOf, RawTapEvent } from './schemas.ts'
 import { cleanText, looksLikeInstruction, MAX } from './sanitize.ts'
 
 const KEEP_S = 30 * 60 // keep 30 min of transcript
-const DETECTOR_EVENTS = ['NAME_MENTIONED', 'QUESTION_TO_YOU', 'QUESTION_TO_GROUP', 'OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED'] as const
+// Only the detector events an agent uses (the checkup). Name and question events are not needed anymore.
+const DETECTOR_EVENTS = ['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED'] as const
 
 const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
   timeout: 'AI took longer than 3 s → template summary (AI timeout)',
@@ -83,7 +84,7 @@ export class AudioAgent {
 
   private async onRequest(req: PayloadOf<'summary.request'>): Promise<void> {
     const text = this.textBetween(req.fromTs, req.untilTs)
-    const out = await this.llm.summarise(text, req.kind, this.userName)
+    const out = await this.llm.summarise(text, this.userName)
     // Every paid call is logged with its cost, including one whose reply was invalid.
     if (out.usedLlm || out.costUsd > 0) {
       const cost = out.costUsd.toFixed(5)
