@@ -32,6 +32,21 @@ export function headPose(m: number[]): HeadPose {
   // TODO(A): sanity-check signs by turning your head; compare with vladmandic/human src/face/angles.ts
 }
 
+/** Read by D's check-up screen (P0-5). A keeps it up to date from the vision loop. */
+export interface CameraHealth {
+  running: boolean
+  faceInFrame: boolean
+  frozen: boolean // TODO(A): compare consecutive frames on a 64×48 canvas
+  brightness: number | null // TODO(A): mean luma 0..255 from the same small canvas; < ~60 = too dark
+  fps: number
+}
+
+const health: CameraHealth = { running: false, faceInFrame: false, frozen: false, brightness: null, fps: 0 }
+
+export function cameraHealth(): CameraHealth {
+  return { ...health }
+}
+
 export type VisionListener = (info: { pose?: HeadPose; blend: Record<string, number>; face: boolean }) => void
 
 export async function startVision(video: HTMLVideoElement, onFrame?: VisionListener): Promise<() => void> {
@@ -56,6 +71,9 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
 
   let running = true
   let lastVideoTime = -1
+  health.running = true
+  let frames = 0
+  let fpsSince = performance.now()
   const loop = (): void => {
     if (!running) return
     if (video.currentTime !== lastVideoTime) {
@@ -63,6 +81,13 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       const t = performance.now()
       const res: FaceLandmarkerResult = landmarker.detectForVideo(video, t)
       const face = res.faceLandmarks.length > 0
+      health.faceInFrame = face
+      frames++
+      if (t - fpsSince >= 1000) {
+        health.fps = Math.round((frames * 1000) / (t - fpsSince))
+        frames = 0
+        fpsSince = t
+      }
       const blend: Record<string, number> = {}
       for (const c of res.faceBlendshapes[0]?.categories ?? []) blend[c.categoryName] = c.score
       const pose = res.facialTransformationMatrixes[0] ? headPose(res.facialTransformationMatrixes[0].data) : undefined
@@ -106,6 +131,7 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
 
   return () => {
     running = false
+    health.running = false
     landmarker.close()
     stream.getTracks().forEach((tr) => tr.stop())
   }

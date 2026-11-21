@@ -61,6 +61,8 @@ export type UiCommand =
     }
   | { type: 'SHOW_FIX'; id: string; problem: string; fix_label: string; action_id: AllowedAction }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
+  | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
+  | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
   | { type: 'DISMISS'; id: string }
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }

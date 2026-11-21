@@ -172,7 +172,8 @@ export class Agent {
     const a = action as AllowedAction
     switch (a) {
       case 'switch_input_device':
-        // TODO(B/D): the renderer switches its getUserMedia device; we just tell it.
+        // The main window restarts the mic on another device (renderer/src/main.ts → audio.ts).
+        this.ui({ type: 'SWITCH_MIC', prefer: 'laptop' })
         this.log('action', 'switch_input_device → laptop mic')
         void this.haptic(HAPTIC.done)
         break

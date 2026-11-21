@@ -2,7 +2,7 @@
 import type { EventType, Source } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { startCallAudio, startMic } from './audio'
-import { startVision } from './vision'
+import { cameraHealth, startVision } from './vision'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 
@@ -15,6 +15,7 @@ window.tap.onUi((cmd) => {
     li.textContent = `${time}  [${cmd.entry.kind}]  ${cmd.entry.text}${cmd.entry.costUsd ? `  ($${cmd.entry.costUsd.toFixed(5)})` : ''}`
     $('log').prepend(li)
   }
+  if (cmd.type === 'SWITCH_MIC') void switchMic(cmd.prefer)
   if (cmd.type === 'COUNTERS') {
     $('counters').textContent = `AI calls ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)} · events ${cmd.events} · blocked ${cmd.blocked} · no audio or video left this laptop`
   }
@@ -33,9 +34,24 @@ $('btn-camera').onclick = async () => {
     alert(`Camera failed: ${(err as Error).message}`)
   }
 }
+let stopMic: (() => void) | null = null
+let micDeviceId: string | undefined
+
+/** Restart the mic on another input device. TODO(B): better laptop/headset detection from labels. */
+async function switchMic(prefer: 'laptop' | 'headset'): Promise<void> {
+  const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default')
+  const isHeadset = (l: string): boolean => /headset|headphone|casque|bluetooth|airpods|usb/i.test(l)
+  const target = mics.find((d) => d.deviceId !== micDeviceId && (prefer === 'headset' ? isHeadset(d.label) : !isHeadset(d.label))) ?? mics.find((d) => d.deviceId !== micDeviceId)
+  if (!target) return
+  stopMic?.()
+  micDeviceId = target.deviceId
+  stopMic = await startMic(target.deviceId)
+  $('btn-mic').textContent = `Mic: ${target.label || 'other device'}`
+}
+
 $('btn-mic').onclick = async () => {
   try {
-    await startMic()
+    stopMic = await startMic()
     $('btn-mic').textContent = 'Mic on'
   } catch (err) {
     alert(`Mic failed: ${(err as Error).message}`)
@@ -55,7 +71,8 @@ $('btn-checkup').onclick = async () => {
   const devices = await navigator.mediaDevices.enumerateDevices()
   const mics = devices.filter((d) => d.kind === 'audioinput').map((d) => d.label || d.deviceId)
   const cams = devices.filter((d) => d.kind === 'videoinput').map((d) => d.label || d.deviceId)
-  $('checkup').innerHTML = `<b>Check-up (stub)</b><br>Mics: ${mics.join(', ') || 'none'}<br>Cameras: ${cams.join(', ') || 'none'}`
+  const cam = cameraHealth()
+  $('checkup').innerHTML = `<b>Check-up (stub)</b><br>Mics: ${mics.join(', ') || 'none'}<br>Cameras: ${cams.join(', ') || 'none'}<br>Camera running: ${cam.running} · face in frame: ${cam.faceInFrame} · frozen: ${cam.frozen} · ${cam.fps} fps`
 }
 
 // ---------- dev tools: fake any event ----------
