@@ -257,3 +257,11 @@ body.overlay .toast button { text-shadow: none; }
 #captions .cap .spk { color: #9cc3ff; margin-right: 6px; font-weight: 600; }
 #captions mark { background: #ffd23f; color: #000; border-radius: 3px; padding: 0 2px; }
 .toast.nudge .t-tile { background: var(--accent-soft); color: var(--accent); }
+
+/* Check-up: "Try the vibrations" (B) */
+.haptic-hint { margin: 0 0 12px; color: var(--text-2); font-size: 13px; }
+.haptic-tests { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.btn.haptic-test { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px; min-height: 88px; }
+.btn.haptic-test strong { font-size: 14px; }
+.btn.haptic-test span { color: var(--text-2); font-size: 12px; line-height: 1.35; }
+.btn.haptic-test em { margin-top: auto; color: var(--accent); font-style: normal; font-size: 12px; font-weight: 600; }

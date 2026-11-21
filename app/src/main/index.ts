@@ -16,7 +16,7 @@ import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
 import { cleanText, MAX } from './agent/sanitize'
 import { WinMic } from './audio/win-mic'
-import { makeEvent } from '../shared/events'
+import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -128,6 +128,18 @@ app.whenReady().then(() => {
   })
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
+    // Check-up "Try the vibrations": the user learns the 4 signals. Fires only a known pattern, decides nothing.
+    if (ev.type === 'HAPTIC_TEST' && ev.source === 'ui') {
+      const key = String(ev.data?.pattern ?? '')
+      const p = Object.hasOwn(HAPTIC_PATTERNS, key) ? HAPTIC_PATTERNS[key as keyof typeof HAPTIC_PATTERNS] : null
+      if (!p) return
+      void Promise.all(p.waveforms.map((w) => haptics.fire(w))).then((oks) => {
+        const ok = oks.every(Boolean)
+        console.log(`[haptic test] ${p.label}: ${p.waveforms.join(' + ')}${ok ? '' : ' (FAILED: is HapticWeb running?)'}`)
+        sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: ok ? 'action' : 'error', text: `Vibration test "${p.label}": ${p.waveforms.join(' + ')}${ok ? '' : ' failed (is HapticWeb running?)'}` } })
+      })
+      return
+    }
     // Dev text box: typed "speech" goes through the same pipeline as real STT output.
     if (ev.type === 'TRANSCRIPT_FINAL' && ev.source === 'call_audio' && ev.data?.dev) {
       audio.onText('call_audio', String(ev.data.text ?? ''), true)

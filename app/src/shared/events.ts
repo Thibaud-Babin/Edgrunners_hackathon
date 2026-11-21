@@ -39,6 +39,7 @@ export type EventType =
   | 'MIC_SILENT_WHILE_SPEAKING'
   // D — UI
   | 'USER_CLICK'
+  | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
 
 export interface TapEvent {
   type: EventType
@@ -134,7 +135,13 @@ export const WAVEFORMS = [
 ] as const
 export type Waveform = (typeof WAVEFORMS)[number]
 
-/** Tap's haptic vocabulary (PRD §1). */
+/**
+ * Tap's haptic vocabulary (PRD §1, Sat 22:30): FOUR signals, told apart by count and strength, not by texture
+ * (in the rehearsal nobody could tell the soft waveforms apart):
+ *   1 knock = your name / a question to you · 2 knocks = they're waiting for your answer
+ *   angry_alert (long, strong) = a problem with your setup · completed (short) = fixed
+ * groupQuestion and topic are OFF by default (too subtle, they compete with the 4); TAP_OPTIONAL_HAPTICS=1 turns them on.
+ */
 export const HAPTIC = {
   addressed: 'knock',
   groupQuestion: 'ringing',
@@ -144,6 +151,15 @@ export const HAPTIC = {
   waiting: 'knock', // fired twice: "knock knock, they're waiting for you"
   topic: 'damp_state_change'
 } as const satisfies Record<string, Waveform>
+
+/** The 4 signals as the user learns them (Check-up "Try the vibrations"). Played in order, 350 ms apart (haptics.ts). */
+export const HAPTIC_PATTERNS = {
+  name: { label: 'Your name', meaning: 'someone said your name or asked you', waveforms: [HAPTIC.addressed] },
+  waiting: { label: "They're waiting for you", meaning: 'a question to you, then silence', waveforms: [HAPTIC.waiting, HAPTIC.waiting] },
+  problem: { label: 'Problem', meaning: "your mic or camera has a problem, or they can't hear you", waveforms: [HAPTIC.problem] },
+  fixed: { label: 'Fixed', meaning: 'the fix you clicked worked', waveforms: [HAPTIC.done] }
+} as const satisfies Record<string, { label: string; meaning: string; waveforms: readonly Waveform[] }>
+export type HapticPattern = keyof typeof HAPTIC_PATTERNS
 
 /** IPC channel names shared by main, preload and renderer. */
 export const IPC = {
