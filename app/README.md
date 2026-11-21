@@ -25,6 +25,8 @@ npm run typecheck
 
 If you see `Error: Electron uninstall`: `node node_modules/electron/install.js`.
 
+**Camera sharing (Windows 11):** by default the demo laptop's Logitech LVNext camera allows one app at a time — Zoom/Meet/Windows Camera fail while Tap holds it. Enable **Settings → Bluetooth & devices → Cameras → LVNext Camera → Advanced camera options → "Allow multiple apps to use camera at the same time"**. Verified: Zoom + Tap both live at the same time (see `docs/team/A-vision.md`).
+
 Two windows open:
 - **Main window**: start camera / mic / call audio, check-up, **dev tools** (type what someone in the call says, fake any event), activity log + counters.
 - **Overlay**: transparent, always on top, on the right of the screen. Cards appear here, over Zoom/Meet/Teams. Clicks go through it except on cards.

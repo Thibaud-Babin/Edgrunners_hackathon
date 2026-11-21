@@ -2,13 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
     <title>Tap overlay</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body class="overlay">
     <div id="flash"></div>
-    <div id="cards"></div>
+    <div id="stack">
+      <div class="pill" id="pill">
+        <span class="logo">T</span>
+        <span>Tap</span>
+        <span class="wave"><i></i><i></i><i></i><i></i></span>
+        <span id="pill-status">Listening</span>
+        <span class="knock" id="pill-knock">🖱 knock</span>
+        <span class="sep"></span>
+        <span class="meta" id="pill-meta">📷 🎙</span>
+      </div>
+    </div>
+    <div id="toasts"></div>
     <div id="captions"></div>
     <script type="module" src="./src/overlay.ts"></script>
   </body>

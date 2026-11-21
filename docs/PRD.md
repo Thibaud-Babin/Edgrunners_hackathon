@@ -186,8 +186,8 @@ docs/                PRD, design, research
 | Eyebrow raise | `browInnerUp`/`browOuterUp` ≈ 0.3 above the user's neutral baseline, held 300–500 ms |
 | Nod / shake | two reversals of ±8–10° in pitch (nod) or yaw (shake) within ~1.2 s |
 | Tilt left/right | ±15° roll held 400 ms |
-| Looking away | yaw > 25–30° for > 2 s |
-| Mouth moving | high variance of `jawOpen` over ~1 s |
+| Looking away | abs(yaw) > 28 deg or abs(pitch) > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
+| Mouth moving | jawOpen std-dev over a 1 s window, only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg (at a big pitch the blendshape drifts); reset + emit false outside that range |
 
 All gestures: hysteresis + ~1 s cooldown; a 10 s neutral-face calibration at start (pattern inspired by Google Project Gameface's `gesture → action, threshold, hold` bindings). These thresholds are starting points from our research, not measured values.
 
@@ -358,7 +358,7 @@ Prepare a 30-second, 2-minute and per-sponsor 60-second version.
 | Haptics plugin issues / old firmware | Low–medium | Update Options+ Saturday morning; HapticWeb → own plugin → WebHID; visual flash |
 | HapticWeb needs DNS + a certificate download (venue Wi-Fi) | Medium | Hosts-file entry `127.0.0.1 local.jmw.nz`; first run at home; own plugin over plain localhost HTTP |
 | Licence contamination (GPL code copied) | Low | Copy only MIT/Apache/BSD; GPL repos read-only; Rule 30 table |
-| **Zoom/Meet and Tap can't both open the webcam** (depends on the camera and Windows) | Medium | Test in hour 1 with the real meeting app. Fallback: Tap opens the real camera and passes the video to Zoom through OBS Virtual Camera |
+| **Zoom/Meet and Tap can't both open the webcam** | **Confirmed by default on the demo laptop** (Logitech LVNext devkit: the RGB interface is single-consumer; the IR interface is a separate device and keeps working) | **Resolved:** Windows 11 → Settings → Bluetooth & devices → Cameras → LVNext Camera → Advanced camera options → **Allow multiple apps to use camera at the same time** (verified: Zoom + Tap both live; about 60 fps with Tap alone, 51 fps with Zoom/Meet running). Keep it in the demo checklist and re-check after Windows/driver updates. Fallbacks: Tap owns the camera and the call runs camera-off with a second laptop joining with video; or the call uses the IR/CPD camera; OBS Virtual Camera last. |
 | Laptop overload (Electron + MediaPipe + OBS) | Medium | Vision in a worker at reduced FPS; OBS only for P2; test on the demo laptop |
 | Can't detect "muted inside Zoom" | Certain | Detect what we can (device silence, wrong device, others saying they can't hear); say so honestly |
 | "Did you talk to users?" | High | Test with a deaf/HoH attendee; otherwise say next step is SGB-FSS |

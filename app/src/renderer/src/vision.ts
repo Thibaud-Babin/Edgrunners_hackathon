@@ -9,7 +9,10 @@ import type { EventType } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 
 // Starting thresholds from docs/PRD.md §4 "Gesture rules" — tune them during calibration.
-const AWAY_YAW_DEG = 28
+const AWAY_YAW_ENTER_DEG = 28
+const AWAY_YAW_EXIT_DEG = 18
+const AWAY_PITCH_ENTER_DEG = 22
+const AWAY_PITCH_EXIT_DEG = 14
 const AWAY_AFTER_MS = 2000
 const MOUTH_WINDOW_MS = 1000
 const MOUTH_STD_MIN = 0.06
@@ -92,8 +95,10 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       for (const c of res.faceBlendshapes[0]?.categories ?? []) blend[c.categoryName] = c.score
       const pose = res.facialTransformationMatrixes[0] ? headPose(res.facialTransformationMatrixes[0].data) : undefined
 
-      // Away = no face, or head turned far to the side, for > 2 s.
-      const lookingAway = !face || (pose !== undefined && Math.abs(pose.yaw) > AWAY_YAW_DEG)
+      // Away / back with hysteresis: yaw OR pitch (phone glance) or no face, held > 2 s.
+      const yawLimit = away ? AWAY_YAW_EXIT_DEG : AWAY_YAW_ENTER_DEG
+      const pitchLimit = away ? AWAY_PITCH_EXIT_DEG : AWAY_PITCH_ENTER_DEG
+      const lookingAway = !face || (pose !== undefined && (Math.abs(pose.yaw) > yawLimit || Math.abs(pose.pitch) > pitchLimit))
       if (lookingAway) {
         lookingAwaySince ??= t
         if (!away && t - lookingAwaySince > AWAY_AFTER_MS) {
@@ -110,7 +115,9 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       }
 
       // Mouth moving = jawOpen varies over the last second (talking, not just an open mouth).
-      if (face) {
+      // Only trust it at a usable head pose: at a big pitch/yaw the jawOpen blendshape drifts.
+      const poseOkForMouth = face && pose !== undefined && Math.abs(pose.yaw) < AWAY_YAW_ENTER_DEG && Math.abs(pose.pitch) < AWAY_PITCH_ENTER_DEG
+      if (poseOkForMouth) {
         jaw.push({ t, v: blend['jawOpen'] ?? 0 })
         while (jaw.length && t - jaw[0].t > MOUTH_WINDOW_MS) jaw.shift()
         const mean = jaw.reduce((s, x) => s + x.v, 0) / jaw.length
@@ -119,6 +126,12 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
         if (active !== mouthActive) {
           mouthActive = active
           emit('MOUTH_MOVING', { active })
+        }
+      } else {
+        jaw.length = 0
+        if (mouthActive) {
+          mouthActive = false
+          emit('MOUTH_MOVING', { active: false })
         }
       }
 
