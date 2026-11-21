@@ -19,7 +19,7 @@ You have full freedom on design, as long as you keep the two plugs below unchang
    | `SHOW_FIX` | overlay | problem + one big fix button |
    | `SHOW_REPLY` (P1) | overlay | "You answered: Yes" confirmation |
    | `FLASH` | overlay | screen-edge flash (fallback when the mouse can't vibrate) |
-   | `LOG_ENTRY`, `COUNTERS` | main window | activity panel + "AI calls · cost · no audio or video left this laptop" |
+   | `LOG_ENTRY`, `COUNTERS` | main window | activity panel + "AI calls · cost · video stays on this laptop" |
    | `SWITCH_MIC` | main window | already handled in `main.ts` (keep it working) |
 2. **Out:** user clicks → `window.tap.emit(makeEvent('USER_CLICK', 'ui', { action_id, args }))` with an `action_id` from `ALLOWED_ACTIONS`. Card buttons: `dismiss_card`, the fix's `action_id`.
 

@@ -53,6 +53,6 @@ Search the code for `TODO(A)`, `TODO(B)`, `TODO(C)`, `TODO(D)` to find your star
 ## Not done yet (by owner)
 
 - **A**: gestures, frozen camera, low light, calibration, Web Worker.
-- **B**: speech-to-text engine (sherpa-onnx local, Deepgram fallback), partial-result name detection, latency measurement.
+- **B**: speech-to-text engine (Deepgram live, local sherpa-onnx fallback), partial-result name detection, latency measurement.
 - **C**: gesture → reply actions, real device switch, own C# haptics plugin, pricing constants.
 - **D**: check-up screen, IT view (P1), card design, packaging for the demo laptop.
