@@ -13,6 +13,7 @@ import type { Haptics } from '../haptics.ts'
 import { AudioAgent } from './audio-agent.ts'
 import { Executor } from './executor.ts'
 import type { Llm } from './llm.ts'
+import type { Role } from './permissions.ts'
 import { cleanText, MAX } from './sanitize.ts'
 import { startVisionIntake } from './vision-intake.ts'
 
@@ -29,7 +30,7 @@ export interface Reporter {
 export class Agent {
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
 
-  constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string) {
+  constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string, role: Role) {
     const push = (): void => ui({ type: 'COUNTERS', ...this.counters })
     const log = (kind: LogEntry['kind'], text: string, costUsd?: number): void => ui({ type: 'LOG_ENTRY', entry: { ts: now(), kind, text, costUsd } })
     const report: Reporter = {
@@ -51,7 +52,7 @@ export class Agent {
     bus.onInvalid = report.invalid
     new AudioAgent(events, bus, llm, userName, report)
     startVisionIntake(events, bus, report)
-    new Executor(events, bus, ui, haptics, report)
+    new Executor(events, bus, ui, haptics, report, role)
 
     // Readable event log for judges (Monitor takes this over in step 4).
     events.on('*', (e: TapEvent) => {

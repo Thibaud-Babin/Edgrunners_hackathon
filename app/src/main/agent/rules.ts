@@ -118,7 +118,16 @@ function onUser(d: Decision, u: UserInput): void {
   if (!name) return
   d.log.push({ kind: 'decision', text: `gesture recognised: ${name}` })
   d.actions.push({ action: 'send_haptic', waveform: HAPTIC.gestureSeen, why: `${name} seen` })
-  // TODO(C, P1-1): map nod → "Yes" / shake → "No" / eyebrow → confirm, through the gate.
+  // P1-1: nod → "Yes", shake → "No". T2 (speaks for the user): the gate decides by role.
+  // The eyebrow raise confirms a waiting action; the executor handles that before the rules run.
+  const reply = REPLIES[u.input]
+  if (reply) d.actions.push({ action: 'post_chat_reply', text: reply, why: `${capitalise(name)} seen` })
+}
+
+const REPLIES: Partial<Record<UserInput['input'], string>> = { nod: 'Yes', shake: 'No' }
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 /** The user clicked a button in Tap's UI. Only allowlisted actions exist. */

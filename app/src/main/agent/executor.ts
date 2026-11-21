@@ -1,15 +1,15 @@
 /**
  * OWNER: C. Agent 3, the Executor: rules → gate → act. No LLM.
  * It is the only agent that changes anything the user sees, hears or feels.
- * Gate (in order): schema/allowlist → provenance. Speech and AI output can never trigger an action.
+ * Gate (in order): schema/allowlist → provenance → role × tier. Speech and AI output can never trigger an action.
  */
 import type { TapEvent, UiCommand, Waveform } from '../../shared/events.ts'
-import { now } from '../../shared/events.ts'
+import { HAPTIC, now } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
-import { ACTION_TIER } from './permissions.ts'
+import { ACTION_TIER, permission, type Role, type Tier, TIER_VERB } from './permissions.ts'
 import { decide, initialState, type RulesState } from './rules.ts'
-import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent } from './schemas.ts'
+import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent, type UserInput } from './schemas.ts'
 import { cleanText } from './sanitize.ts'
 
 /** What the executor needs from haptics.ts (an interface, so tests can fake it). */
@@ -18,23 +18,48 @@ export interface HapticsPort {
 }
 
 type SummaryResult = PayloadOf<'summary'>
-type Gate = { ok: true; req: ActionRequest } | { ok: false; reason: string }
+/**
+ * run     → do it now.          confirm → ask the user first (confirm card; eyebrow raise or click).
+ * deny    → only suggest, log why.   block → refused outright (invalid, or the wrong provenance).
+ */
+export type Verdict =
+  | { verdict: 'run' | 'confirm' | 'deny'; req: ActionRequest; tier: Tier }
+  | { verdict: 'block'; reason: string }
+
+/** What started an action: the input itself when it came from the user. */
+export type Trigger = UserInput['input'] | null
 
 const SUMMARY_WAIT_MS = 5000 // the LLM itself gives up after 3 s; this only guards against a lost reply
+const CONFIRM_TTL_S = 15
 
 /**
- * Pure gate: may an action requested by an input of this provenance run?
- *   transcript, llm      → never.
- *   detector, vision, system → T0 (notify the user) only.
- *   user                 → any tier (roles are checked after this, in step 3).
+ * Pure gate. In order:
+ *   1. schema + allowlist: unknown or malformed actions are blocked.
+ *   2. provenance: transcript / llm → never; detector / vision / system → T0 only; T1+ needs a user input.
+ *   3. role × tier (permissions.ts). A click on a card that names the action is an explicit confirmation.
  */
-export function gate(req: unknown, provenance: Provenance): Gate {
+export function gate(req: unknown, provenance: Provenance, role: Role, trigger: Trigger): Verdict {
   const parsed = ActionRequest.safeParse(req)
-  if (!parsed.success) return { ok: false, reason: 'not a valid, allowlisted action' }
+  if (!parsed.success) return { verdict: 'block', reason: 'not a valid, allowlisted action' }
   const tier = ACTION_TIER[parsed.data.action]
-  if (provenance === 'transcript' || provenance === 'llm') return { ok: false, reason: "speech and AI output can't trigger actions" }
-  if (provenance !== 'user' && tier > 0) return { ok: false, reason: `T${tier} needs your own click or gesture` }
-  return { ok: true, req: parsed.data }
+  if (provenance === 'transcript' || provenance === 'llm') return { verdict: 'block', reason: "speech and AI output can't trigger actions" }
+  if (tier > 0 && (provenance !== 'user' || trigger === null)) return { verdict: 'block', reason: `T${tier} needs your own click or gesture` }
+  const p = permission(role, tier)
+  if (p === 'deny') return { verdict: 'deny', req: parsed.data, tier }
+  if (p === 'confirm' && trigger !== 'click') return { verdict: 'confirm', req: parsed.data, tier }
+  return { verdict: 'run', req: parsed.data, tier }
+}
+
+/** Plain words for the log: what the action would do. */
+export function describe(a: ActionRequest): string {
+  switch (a.action) {
+    case 'post_chat_reply':
+      return `reply "${a.text}"`
+    case 'switch_input_device':
+      return `switch to the ${a.prefer} mic`
+    default:
+      return a.action.replace(/_/g, ' ')
+  }
 }
 
 export class Executor {
@@ -46,8 +71,12 @@ export class Executor {
   private ui: (cmd: UiCommand) => void
   private haptics: HapticsPort
   private report: Reporter
+  private role: Role
+  /** At most one action waiting for the user's OK. */
+  private awaiting: { req: ActionRequest; tier: Tier; cardId: string; until: number } | null = null
 
-  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter) {
+  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter, role: Role) {
+    this.role = role
     this.bus = bus
     this.ui = ui
     this.haptics = haptics
@@ -78,24 +107,57 @@ export class Executor {
   }
 
   private handle(env: Envelope<unknown>): void {
+    const trigger: Trigger = env.kind === 'user' ? (env.payload as UserInput).input : null
+    if (env.kind === 'user' && this.confirms(env.payload as UserInput)) return
     const d = decide(this.state, env, now())
     this.state = d.state
     for (const l of d.log) this.report.log(l.kind, l.text)
     for (const b of d.blocked) this.report.blocked(b)
-    void this.run(d.actions, env.provenance)
+    void this.run(d.actions, env.provenance, trigger)
   }
 
   /** Actions from one decision run in order (e.g. the knock finishes before the recap starts). */
-  private async run(actions: unknown[], provenance: Provenance): Promise<void> {
+  private async run(actions: unknown[], provenance: Provenance, trigger: Trigger): Promise<void> {
     for (const a of actions) {
-      const g = gate(a, provenance)
-      if (!g.ok) {
+      const g = gate(a, provenance, this.role, trigger)
+      if (g.verdict === 'block') {
         const name = (a as { action?: unknown })?.action
         this.report.blocked(`${typeof name === 'string' ? name : 'action'} blocked (${g.reason})`)
-        continue
+      } else if (g.verdict === 'deny') {
+        this.report.blocked(`${g.req.why} → ${describe(g.req)} suggested, not done (as ${this.role}, Tap can't ${TIER_VERB[g.tier]}, T${g.tier})`)
+      } else if (g.verdict === 'confirm') {
+        this.askConfirm(g.req, g.tier)
+      } else {
+        await this.perform(g.req)
       }
-      await this.perform(g.req)
     }
+  }
+
+  /** Show a confirm card (SHOW_FIX reused: no contract change). The user's eyebrow raise or click confirms. */
+  private askConfirm(req: ActionRequest, tier: Tier): void {
+    const cardId = this.cardId()
+    if (this.awaiting) this.ui({ type: 'DISMISS', id: this.awaiting.cardId })
+    this.awaiting = { req, tier, cardId, until: now() + CONFIRM_TTL_S }
+    this.ui({ type: 'SHOW_FIX', id: cardId, problem: `Confirm: ${describe(req)}?`, fix_label: 'Confirm (or raise your eyebrows)', action_id: req.action })
+    this.report.log('decision', `${req.why} → ${describe(req)} waiting for your OK (as ${this.role}, Tap asks before it can ${TIER_VERB[tier]}, T${tier}): raise your eyebrows or click`)
+  }
+
+  /** True if this user input confirmed the waiting action (and it was run). */
+  private confirms(u: UserInput): boolean {
+    const w = this.awaiting
+    if (!w) return false
+    if (now() > w.until) {
+      this.awaiting = null
+      this.report.log('decision', `${describe(w.req)} not confirmed within ${CONFIRM_TTL_S} s → dropped`)
+      return false
+    }
+    const byClick = u.input === 'click' && u.actionId === w.req.action
+    if (!byClick && u.input !== 'brow_raise') return false
+    this.awaiting = null
+    this.ui({ type: 'DISMISS', id: w.cardId })
+    this.report.log('decision', `${byClick ? 'Click' : 'Eyebrow raise'} seen → ${describe(w.req)} confirmed (T${w.tier})`)
+    void this.perform(w.req)
+    return true
   }
 
   private async perform(a: ActionRequest): Promise<void> {
@@ -143,7 +205,10 @@ export class Executor {
         return
       }
       case 'post_chat_reply':
-        this.report.log('action', `post_chat_reply "${a.text}" (not implemented yet)`)
+        // P1: D shows the reply; posting into the call's chat is not wired yet.
+        this.ui({ type: 'SHOW_REPLY', id: this.cardId(), text: a.text })
+        this.report.log('action', `reply "${a.text}" sent`)
+        void this.perform({ action: 'send_haptic', waveform: HAPTIC.done, why: 'reply sent' })
         return
     }
   }
