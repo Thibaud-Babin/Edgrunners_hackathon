@@ -52,7 +52,7 @@ function layoutOrbit(): void {
     const y = RADIUS * Math.sin(rad)
     const depth = (Math.sin(rad) + 1) / 2 // 1 = front (bottom of the orbit)
     const sel = i === selected
-    n.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${sel ? 1.4 : 1})`
+    n.style.transform = `translate(-50%, -34px) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${sel ? 1.4 : 1})`
     n.style.opacity = sel ? '1' : (0.45 + 0.55 * depth).toFixed(2)
     n.style.zIndex = sel ? '30' : String(Math.round(depth * 20))
   })
