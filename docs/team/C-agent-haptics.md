@@ -2,7 +2,7 @@
 
 **Mission:** Tap's brain. When the webcam sees you stop paying attention, Tap recaps **only what was said in the call from that moment until you are back**. A checkup agent makes sure every device works (camera, mic, call audio, AI). C also **owns the end-to-end integration**.
 
-**Changed (Sun):** Tap is no longer an accessibility tool. Dropped: name-said knock, gesture replies (nod/shake), confirm cards, user roles. Haptics come later. The UI is D's: C only sends the recap card and log lines.
+**Changed (Sun):** Tap is no longer an accessibility tool. Dropped: gesture replies (nod/shake), confirm cards, user roles. The UI is D's: C sends cards (recap, away, nudge, fix) and log lines. B's detector reactions (name knock, nudge, fixes) are back in §6.
 
 ---
 
@@ -118,16 +118,27 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 ## 6. What you receive / send
 
 - **Receive:** A's vision events, B's transcript and detector events, D's clicks.
-- **Send to UI (D renders them):** `SHOW_AWAY_SUMMARY` (the recap), `SHOW_NUDGE`, `DISMISS`, `LOG_ENTRY`, `COUNTERS`. Live captions (`CAPTION`) go straight from `index.ts`, cleaned with `sanitize.ts`.
+- **Send to UI (D renders them):** `SHOW_AWAY_SUMMARY`, `SHOW_RECAP`, `SHOW_NUDGE`, `SHOW_FIX`, `SWITCH_MIC` (only after the user's click), `DISMISS`, `FLASH`, `LOG_ENTRY`, `COUNTERS`. Live captions (`CAPTION`) go straight from `index.ts`, cleaned with `sanitize.ts`.
 
-**B's update 2 (Sat evening), moved into the agents:**
-- `WAITING_FOR_YOU` → rules → nudge card + two knocks (T0, through the gate).
-- `TOPIC_MENTIONED` → soft haptic.
-- Speaker labels → the audio agent adds "Speaker N:" to transcript lines once 2+ voices were heard (labels are cleaned).
-- `MIC_QUALITY` → checkup: device problem when too quiet, clipping or noisy; logged once when back to ok.
-- `STT_USAGE` → checkup adds the speech-to-text cost to the cost counter.
-- `INSTRUCTION_LIKE_SPEECH` → appears in the event log; the audio agent's own flag still logs "ignored".
-- B's knock-speed log belonged to the dropped name-said recap and was not moved.
+**B's detector events → reactions** (rules in `rules.ts`; every action passes the executor's gate; detectors may only notify):
+
+| # | Event | Reaction |
+|---|---|---|
+| F1 | `NAME_MENTIONED` | knock at once, once per sentence (repeats within 4 s ignored) |
+| F2 | same, while paying attention | recap card of the last 10 s with the question to you, shown when the sentence ends (next final line, or 4 s) |
+| F3 | same, while away ≥ 2 s | "while you were away" card at once, no need to look back; the away period restarts there, so looking back later recaps only the rest |
+| F4 | `WAITING_FOR_YOU` | nudge card "They're waiting for your answer" + two knocks |
+| F5 | `NAME_MENTIONED.latency_s` | log "Knock X s after your name was said" |
+| F6 | `QUESTION_TO_GROUP` | ringing |
+| F7 | `OTHERS_CANT_HEAR` | fix card "Switch to laptop mic" + angry_alert; only the user's click switches the mic (gate: `USER_ONLY_ACTIONS`) |
+| F8 | `TOPIC_MENTIONED` | damp_state_change |
+| F9 | `MIC_QUALITY` bad > 10 s | fix card "Switch to laptop mic"; if still bad 10 s after the user switched, a card with what else to try (unmute, move closer, headset) |
+| F10 | `STT_USAGE` | speech-to-text cost added to the cost counter (checkup) |
+| F11 | `speaker` on transcripts | "Speaker N:" prefix once 2+ voices were heard |
+
+- The end of a sentence is read from transcript lines, but it only releases a card already decided (and gate-checked) when the name arrived: speech still never triggers anything.
+- `MIC_QUALITY` is also logged by the checkup as a device problem; `INSTRUCTION_LIKE_SPEECH` appears in the event log, and the audio agent's own flag logs "ignored".
+- The spam guard counts cards, not haptics (a reaction is one card plus up to two knocks).
 - **Contract TODO:** `show_nudge` is not in `ALLOWED_ACTIONS` in `events.ts`; the agents allow it internally (`AGENT_ACTIONS` in `schemas.ts`) until a `contract:` PR adds it.
 
 **Open contract items (connect when the others' code lands):**

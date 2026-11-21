@@ -9,18 +9,21 @@ import { now } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
 import type { FallbackReason, Llm } from './llm.ts'
-import { LIMITS, type PayloadOf, RawTapEvent } from './schemas.ts'
+import { DETECTOR_TYPES, type DetectorHit, LIMITS, type PayloadOf, RawTapEvent } from './schemas.ts'
 import { cleanText, looksLikeInstruction, MAX } from './sanitize.ts'
 
 const KEEP_S = 30 * 60 // keep 30 min of transcript
-// Only the detector events an agent uses: checkup (can't hear, video frozen) and executor (waiting for you, topic).
-const DETECTOR_EVENTS = ['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED', 'WAITING_FOR_YOU', 'TOPIC_MENTIONED'] as const
+// B's detector events the agents use (rules and checkup).
+const DETECTOR_EVENTS = DETECTOR_TYPES
 // Which data field holds the display text of each detector event (B's contract, events.ts).
 const DETECTOR_TEXT: Record<(typeof DETECTOR_EVENTS)[number], string> = {
+  NAME_MENTIONED: 'text',
+  QUESTION_TO_GROUP: 'text',
   OTHERS_CANT_HEAR: 'text',
   VIDEO_FROZEN_REPORTED: 'text',
   WAITING_FOR_YOU: 'question',
-  TOPIC_MENTIONED: 'topic'
+  TOPIC_MENTIONED: 'topic',
+  MIC_QUALITY: 'level'
 }
 
 const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
@@ -78,7 +81,15 @@ export class AudioAgent {
   private onDetector(e: TapEvent, type: (typeof DETECTOR_EVENTS)[number] & EventType): void {
     const raw = this.parse(e)
     if (!raw) return
-    this.bus.publish('detector', 'detector', 'detector', { type, text: cleanText(raw.data?.[DETECTOR_TEXT[type]], MAX.transcriptChunk) })
+    const hit: DetectorHit = { type, text: cleanText(raw.data?.[DETECTOR_TEXT[type]], MAX.transcriptChunk) }
+    if (type === 'NAME_MENTIONED') {
+      // Only fields that pass as the right type are kept: the bus schema rejects the rest anyway.
+      const d = raw.data ?? {}
+      if (typeof d.partial === 'boolean') hit.partial = d.partial
+      if (typeof d.latency_s === 'number' && d.latency_s >= 0 && d.latency_s <= 60) hit.latencyS = d.latency_s
+      if (d.latency_ref === 'name_word' || d.latency_ref === 'sentence_start') hit.latencyRef = d.latency_ref
+    }
+    this.bus.publish('detector', 'detector', 'detector', hit)
   }
 
   private onMicLevel(e: TapEvent): void {

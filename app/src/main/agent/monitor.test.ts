@@ -154,3 +154,10 @@ test("B's STT_USAGE: speech-to-text cost (running total per engine) is added to 
   u(0.009)
   assert.ok(Math.abs(cost - 0.009) < 1e-9)
 })
+
+test('spam guard counts cards, not haptics (a card plus its knocks is one reaction)', () => {
+  const { bus, calls } = setup()
+  for (let i = 0; i < 12; i++) bus.publish('executor', 'system', 'action.result', { action: 'send_haptic', ok: true })
+  for (let i = 0; i < 5; i++) bus.publish('executor', 'system', 'action.result', { action: 'show_recap', ok: true })
+  assert.deepEqual(calls, [])
+})

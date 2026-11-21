@@ -256,14 +256,16 @@ export class Monitor {
         )
       }
     }
-    // Spam guard: more than 5 actions in 10 s (e.g. vision flapping away/back) → pause automatic actions 5 s.
-    // This also caps paid AI calls, since every recap may call the AI.
+    // Spam guard: more than 5 cards in 10 s (e.g. vision flapping away/back) → pause automatic actions 5 s.
+    // This also caps paid AI calls, since every recap may call the AI. Haptics don't count: most reactions add one
+    // or two knocks to their card, and failing haptics have their own breaker.
+    if (r.action === 'send_haptic') return
     this.recentActions = [...this.recentActions.filter((x) => t - x < SPAM_WINDOW_S), t]
     if (this.recentActions.length > SPAM_MAX_ACTIONS && t >= this.pausedUntil) {
       this.pausedUntil = t + SPAM_PAUSE_S
       this.recentActions = []
       this.controls?.executor.pause(this.pausedUntil)
-      this.log('error', `Spam guard: more than ${SPAM_MAX_ACTIONS} actions in ${SPAM_WINDOW_S} s → executor paused ${SPAM_PAUSE_S} s`)
+      this.log('error', `Spam guard: more than ${SPAM_MAX_ACTIONS} cards in ${SPAM_WINDOW_S} s → automatic actions paused ${SPAM_PAUSE_S} s`)
     }
   }
 

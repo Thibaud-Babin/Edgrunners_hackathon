@@ -72,14 +72,29 @@ export const UserInput = z
   .strict()
 export type UserInput = z.infer<typeof UserInput>
 
+export const DETECTOR_TYPES = [
+  'NAME_MENTIONED',
+  'QUESTION_TO_GROUP',
+  'WAITING_FOR_YOU',
+  'TOPIC_MENTIONED',
+  'OTHERS_CANT_HEAR',
+  'VIDEO_FROZEN_REPORTED',
+  'MIC_QUALITY'
+] as const
+
 /**
  * B's deterministic detectors (no LLM). Text is display-only.
- * WAITING_FOR_YOU: `text` is the question asked to the user. TOPIC_MENTIONED: `text` is the topic word.
+ * `text`: the sentence; for WAITING_FOR_YOU the question to the user, TOPIC_MENTIONED the topic word,
+ * MIC_QUALITY the level (ok / too_quiet / clipping / noisy).
+ * NAME_MENTIONED also: `partial` (heard before the sentence ended) and B's knock latency.
  */
 export const DetectorHit = z
   .object({
-    type: z.enum(['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED', 'WAITING_FOR_YOU', 'TOPIC_MENTIONED']),
-    text: z.string().max(LIMITS.transcriptChunk)
+    type: z.enum(DETECTOR_TYPES),
+    text: z.string().max(LIMITS.transcriptChunk),
+    partial: z.boolean().optional(),
+    latencyS: z.number().finite().nonnegative().max(60).optional(),
+    latencyRef: z.enum(['name_word', 'sentence_start']).optional()
   })
   .strict()
 export type DetectorHit = z.infer<typeof DetectorHit>
@@ -94,12 +109,28 @@ export const ActionRequest = z.discriminatedUnion('action', [
     .object({
       action: z.literal('show_away_summary'),
       fromTs: Ts, // attention lost
-      untilTs: Ts, // attention back
+      untilTs: Ts, // attention back, or when the name was said
+      trigger: z.enum(['looked_back', 'name']),
+      waitSentenceEnd: z.boolean(), // the name was heard mid-sentence: show the card when the sentence ends
       why: Why
     })
     .strict(),
+  // Name said while paying attention: recap of the last few seconds, incl. the question to the user.
+  z.object({ action: z.literal('show_recap'), fromTs: Ts, waitSentenceEnd: z.boolean(), why: Why }).strict(),
   // "They're waiting for your answer" (B's WAITING_FOR_YOU): a nudge card, display only.
   z.object({ action: z.literal('show_nudge'), question: z.string().max(LIMITS.question), why: Why }).strict(),
+  // A problem card with one button. Only the user's click on the button runs `fixAction`.
+  z
+    .object({
+      action: z.literal('show_fix'),
+      problem: z.string().max(LIMITS.question * 2),
+      fixLabel: z.string().max(60),
+      fixAction: z.enum(['switch_input_device', 'dismiss_card']),
+      why: Why
+    })
+    .strict(),
+  // Changes the user's own device: the gate allows it only from the user's own click.
+  z.object({ action: z.literal('switch_input_device'), prefer: z.enum(['laptop', 'headset']), why: Why }).strict(),
   z.object({ action: z.literal('send_haptic'), waveform: z.enum(WAVEFORMS), why: Why }).strict(),
   z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict()
 ])

@@ -1,7 +1,7 @@
 /**
  * OWNER: C. Agent 3, the Executor: rules → gate → act. No LLM.
  * It is the only agent that changes anything the user sees, hears or feels.
- * Gate (in order): schema/allowlist → provenance. Speech and AI output can never trigger an action.
+ * Gate (in order): schema/allowlist → provenance → user-only actions. Speech and AI output never trigger an action.
  */
 import type { TapEvent, UiCommand, Waveform } from '../../shared/events.ts'
 import { now } from '../../shared/events.ts'
@@ -23,11 +23,10 @@ const SUMMARY_WAIT_MS = 5000 // the LLM itself gives up after 3 s; this only gua
 // shortcut: slices by when B published each line, plus this grace for the STT delay; switch to B's start/end
 // timestamps when that contract change lands (docs/team/C-agent-haptics.md §6).
 export const STT_GRACE_MS = 1500
+export const SENTENCE_END_MAX_MS = 4000 // name heard mid-sentence: wait at most this long for the sentence to end
 
 /**
  * Which inputs may start an action. Policy as data, in one place, deterministic: never decided by an LLM.
- * Every action today only notifies the user (T0). An action that changes the user's devices or speaks for them
- * would need a `user` trigger and a role check added here.
  */
 export const MAY_TRIGGER: Record<Provenance, boolean> = {
   user: true,
@@ -38,11 +37,16 @@ export const MAY_TRIGGER: Record<Provenance, boolean> = {
   llm: false // AI output is display-only
 }
 
-/** Pure gate: (1) schema + allowlist, (2) provenance. */
+/** Actions that change the user's own setup: only the user's own click may start them, never a detector. */
+export const USER_ONLY_ACTIONS: readonly ActionRequest['action'][] = ['switch_input_device']
+
+/** Pure gate: (1) schema + allowlist, (2) provenance, (3) user-only actions. */
 export function gate(req: unknown, provenance: Provenance): Verdict {
   const parsed = ActionRequest.safeParse(req)
   if (!parsed.success) return { verdict: 'block', reason: 'not a valid, allowlisted action', category: 'allowlist' }
   if (!MAY_TRIGGER[provenance]) return { verdict: 'block', reason: "speech and AI output can't trigger actions", category: 'provenance' }
+  if (USER_ONLY_ACTIONS.includes(parsed.data.action) && provenance !== 'user')
+    return { verdict: 'block', reason: 'only your own click can change your devices', category: 'provenance' }
   return { verdict: 'run', req: parsed.data }
 }
 
@@ -51,6 +55,9 @@ export class Executor {
   private cardSeq = 0
   private reqSeq = 0
   private pending = new Map<string, (r: SummaryResult | null) => void>()
+  /** When the last final transcript line arrived, and who waits for the next one (end of a sentence). */
+  private lastLineAt = 0
+  private lineWaiters: (() => void)[] = []
   private bus: AgentBus
   private ui: (cmd: UiCommand) => void
   private haptics: HapticsPort
@@ -67,6 +74,12 @@ export class Executor {
     bus.on('vision', (e) => this.handle(e))
     bus.on('detector', (e) => this.handle(e))
     bus.on('user', (e) => this.handle(e))
+    bus.on('mic', (e) => this.handle(e)) // the clock for the rules' mic-quality timer
+    // A transcript line only marks the end of a sentence: it never reaches the rules and never triggers anything.
+    bus.on('transcript', () => {
+      this.lastLineAt = now()
+      for (const w of this.lineWaiters.splice(0)) w()
+    })
     bus.on('summary', (e) => {
       const done = this.pending.get(e.payload.requestId)
       this.pending.delete(e.payload.requestId)
@@ -88,15 +101,16 @@ export class Executor {
   }
 
   private handle(env: Envelope<unknown>): void {
-    const d = decide(this.state, env, now())
+    const decidedAt = now()
+    const d = decide(this.state, env, decidedAt)
     this.state = d.state
     for (const l of d.log) this.report.log(l.kind, l.text)
     for (const b of d.blocked) this.report.blocked(b, 'allowlist')
-    void this.run(d.actions, env.provenance)
+    void this.run(d.actions, env.provenance, decidedAt)
   }
 
-  /** Actions from one decision run in order. */
-  private async run(actions: unknown[], provenance: Provenance): Promise<void> {
+  /** Actions from one decision run in order (e.g. the knock first, then the card). */
+  private async run(actions: unknown[], provenance: Provenance, decidedAt: number): Promise<void> {
     for (const a of actions) {
       const g = gate(a, provenance)
       if (g.verdict === 'block') {
@@ -106,7 +120,7 @@ export class Executor {
         // Spam guard pauses automation only. The user's own click always goes through.
         this.report.blocked(`${g.req.action} skipped (executor paused by the spam guard)`, 'paused')
       } else {
-        await this.perform(g.req)
+        await this.perform(g.req, decidedAt)
       }
     }
   }
@@ -123,25 +137,27 @@ export class Executor {
     this.hapticsDisabled = true
   }
 
-  private async perform(a: ActionRequest): Promise<void> {
+  private async perform(a: ActionRequest, decidedAt: number): Promise<void> {
     let ok = true
     try {
-      ok = await this.act(a)
+      ok = await this.act(a, decidedAt)
     } finally {
       this.bus.publish('executor', 'system', 'action.result', { action: a.action, ok })
     }
   }
 
   /** Does the action; returns false if it failed (only haptics can fail today). */
-  private async act(a: ActionRequest): Promise<boolean> {
+  private async act(a: ActionRequest, decidedAt: number): Promise<boolean> {
     switch (a.action) {
       case 'show_away_summary': {
-        await sleep(STT_GRACE_MS) // the last words before "back" are still in the STT
+        if (a.waitSentenceEnd) await this.sentenceEnd(decidedAt)
+        else if (a.trigger === 'looked_back') await sleep(STT_GRACE_MS) // the last words before "back" are still in the STT
         const r = await this.summary(a.fromTs, now())
         if (!r) return true
         const seconds = Math.round(a.untilTs - a.fromTs)
+        const seen = a.trigger === 'name' ? `Your name was said after ${seconds} s away` : `Looked back after ${seconds} s away`
         if (!r.transcript) {
-          this.report.log('decision', `Looked back after ${seconds} s away → no recap (nothing was said)`)
+          this.report.log('decision', `${seen} → no recap (nothing was said)`)
           return true
         }
         this.ui({
@@ -149,17 +165,38 @@ export class Executor {
           id: this.cardId(),
           away_from: a.fromTs,
           until: a.untilTs,
-          trigger: 'looked_back',
+          trigger: a.trigger,
           summary: r.summary.text,
           question_to_you: r.summary.question,
           transcript: r.transcript
         })
-        this.report.log('action', `Looked back after ${seconds} s away → recap of those ${seconds} s shown (${r.summary.source} summary)`)
+        this.report.log('action', `${seen} → "while you were away" card with those ${seconds} s (${r.summary.source} summary)`)
+        return true
+      }
+      case 'show_recap': {
+        if (a.waitSentenceEnd) await this.sentenceEnd(decidedAt)
+        const r = await this.summary(a.fromTs, now())
+        if (!r) return true
+        if (!r.transcript) {
+          this.report.log('decision', 'Your name was said → no recap (no transcript yet)')
+          return true
+        }
+        this.ui({ type: 'SHOW_RECAP', id: this.cardId(), transcript: r.transcript, summary: r.summary.text, question: r.summary.question })
+        this.report.log('action', `Your name was said → recap card shown (${r.summary.source} summary${r.summary.question ? ', with the question to you' : ''})`)
         return true
       }
       case 'show_nudge':
         this.ui({ type: 'SHOW_NUDGE', id: this.cardId(), text: "They're waiting for your answer", ...(a.question ? { question: a.question } : {}) })
         this.report.log('action', `A question to you, then silence → nudge shown ("They're waiting for your answer")`)
+        return true
+      case 'show_fix':
+        this.ui({ type: 'SHOW_FIX', id: this.cardId(), problem: a.problem, fix_label: a.fixLabel, action_id: a.fixAction })
+        this.report.log('action', `${capitalise(a.why)} → fix card shown ("${a.fixLabel}"; nothing changes until you click)`)
+        return true
+      case 'switch_input_device':
+        // The main window restarts the mic on another device (renderer/src/main.ts → audio.ts).
+        this.ui({ type: 'SWITCH_MIC', prefer: a.prefer })
+        this.report.log('action', `You clicked the fix → switched to the ${a.prefer} mic`)
         return true
       case 'dismiss_card':
         this.ui({ type: 'DISMISS', id: a.cardId })
@@ -176,6 +213,22 @@ export class Executor {
         return ok
       }
     }
+  }
+
+  /**
+   * The end of the sentence that held the user's name: the next final transcript line after `since`, or
+   * SENTENCE_END_MAX_MS. Resolves at once if that line already arrived (e.g. while the knock was being sent).
+   */
+  private sentenceEnd(since: number): Promise<void> {
+    if (this.lastLineAt > since) return Promise.resolve()
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, SENTENCE_END_MAX_MS)
+      this.lineWaiters.push(done)
+      function done(): void {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
   }
 
   /** Ask the Audio agent for a summary of [fromTs, untilTs] over the bus and wait for the matching reply. */
@@ -206,4 +259,8 @@ export class Executor {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }

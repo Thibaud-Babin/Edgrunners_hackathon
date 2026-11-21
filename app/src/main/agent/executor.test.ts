@@ -8,7 +8,7 @@ import { Llm } from './llm.ts'
 import { PROVENANCES } from './schemas.ts'
 import { startVisionIntake } from './vision-intake.ts'
 
-const RECAP = { action: 'show_away_summary', fromTs: 1, untilTs: 2, why: 'test' }
+const RECAP = { action: 'show_away_summary', fromTs: 1, untilTs: 2, trigger: 'looked_back', waitSentenceEnd: false, why: 'test' }
 const HAPTIC = { action: 'send_haptic', waveform: 'knock', why: 'test' }
 
 // ---------- pure gate ----------
@@ -83,7 +83,7 @@ test('away → back: the recap covers only what was said while away', async (t) 
   assert.match(card.transcript, /transcribed late/)
   assert.doesNotMatch(card.transcript, /Before|After/)
   assert.equal(card.question_to_you, 'Thibaud, are you OK with Friday?')
-  assert.ok(r.logs.some((l) => l.startsWith('Looked back after 20 s away → recap of those 20 s shown')))
+  assert.ok(r.logs.some((l) => l.startsWith('Looked back after 20 s away → "while you were away" card with those 20 s')))
 })
 
 test('a glance under 2 s shows nothing', async (t) => {
@@ -146,4 +146,43 @@ test("B's WAITING_FOR_YOU shows a nudge with the question; detector provenance i
   const nudge = r.ui.find((c) => c.type === 'SHOW_NUDGE')
   assert.ok(nudge && nudge.type === 'SHOW_NUDGE')
   assert.equal(nudge.question, 'Thibaud, are you OK with Friday?')
+})
+
+test('F7: a detector can show the fix card but can never switch the mic itself', () => {
+  assert.equal(gate({ action: 'switch_input_device', prefer: 'laptop', why: 'x' }, 'detector').verdict, 'block')
+  assert.equal(gate({ action: 'switch_input_device', prefer: 'laptop', why: 'x' }, 'user').verdict, 'run')
+  assert.equal(gate({ action: 'show_fix', problem: 'p', fixLabel: 'Switch to laptop mic', fixAction: 'switch_input_device', why: 'x' }, 'detector').verdict, 'run')
+})
+
+test('F1/F2 chain: name heard mid-sentence → knock at once, recap card only when the sentence ends', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = rig()
+  r.say('The release moves to Friday because tests are late.', T0 - 5)
+  r.detect('NAME_MENTIONED', { text: 'So Thibaud', partial: true, latency_s: 0.9, latency_ref: 'name_word' })
+  await r.flush()
+  assert.ok(r.logs.includes('send_haptic knock'))
+  assert.ok(r.logs.includes('Knock 0.9 s after your name was said'))
+  assert.equal(r.ui.filter((c) => c.type === 'SHOW_RECAP').length, 0, 'no card before the sentence ends')
+  await r.wait(1)
+  r.say('So Thibaud, are you OK with Friday?', T0 + 1)
+  await r.flush()
+  const recap = r.ui.find((c) => c.type === 'SHOW_RECAP')
+  assert.ok(recap && recap.type === 'SHOW_RECAP')
+  assert.equal(recap.question, 'So Thibaud, are you OK with Friday?')
+  assert.match(recap.transcript, /release moves to Friday/)
+})
+
+test('F3 chain: name while away → "while you were away" card without looking back', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = rig()
+  r.cam('USER_AWAY')
+  await r.wait(15)
+  r.say('Budget approved, Sara sends the numbers tonight.', T0 + 5)
+  r.say('Thibaud, can you check them?', T0 + 14)
+  r.detect('NAME_MENTIONED', { text: 'Thibaud, can you check them?', partial: false })
+  await r.flush()
+  const card = r.cards()[0]
+  assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY')
+  assert.equal(card.trigger, 'name')
+  assert.match(card.transcript, /Budget approved/)
 })

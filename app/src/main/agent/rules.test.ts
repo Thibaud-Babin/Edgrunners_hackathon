@@ -29,7 +29,9 @@ function play(steps: [Envelope<unknown>, number][]) {
 
 test('away then back → one recap of exactly that window', () => {
   const r = play([[away(100), 100], [back(130), 130]])
-  assert.deepEqual(r.actions, [{ action: 'show_away_summary', fromTs: 100, untilTs: 130, why: 'you looked back after 30 s away' }])
+  assert.deepEqual(r.actions, [
+    { action: 'show_away_summary', fromTs: 100, untilTs: 130, trigger: 'looked_back', waitSentenceEnd: false, why: 'you looked back after 30 s away' }
+  ])
 })
 
 test('a glance under 2 s is ignored, with a log line', () => {
@@ -64,7 +66,7 @@ test('clicks: dismiss works, unknown actions are blocked', () => {
   assert.deepEqual(r.blocked, ['action "delete_everything" is not on the allowlist'])
 })
 
-test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → soft haptic; device reports → nothing here", () => {
+test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → soft haptic; OTHERS_CANT_HEAR → fix card + alert", () => {
   const det = (type: string, text: string) => env('detector', { type, text }, 1, 'detector')
   const r = play([
     [det('WAITING_FOR_YOU', 'Thibaud, are you OK with Friday?'), 1],
@@ -73,7 +75,59 @@ test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → soft
   ])
   assert.deepEqual(
     r.actions.map((a) => (a as { action: string }).action),
-    ['show_nudge', 'send_haptic', 'send_haptic', 'send_haptic']
+    ['show_nudge', 'send_haptic', 'send_haptic', 'send_haptic', 'show_fix', 'send_haptic']
   )
   assert.equal((r.actions[0] as { question: string }).question, 'Thibaud, are you OK with Friday?')
+})
+
+// ---------- B's detector events (F1-F9) ----------
+
+const det = (type: string, extra: Record<string, unknown> = {}, ts = 1) => env('detector', { type, text: 'So Thibaud, OK with Friday?', ...extra }, ts, 'detector')
+const kinds = (r: { actions: unknown[] }) => r.actions.map((a) => (a as { action: string; waveform?: string }).action + ((a as { waveform?: string }).waveform ? `:${(a as { waveform?: string }).waveform}` : ''))
+
+test('F1/F2: name while paying attention → knock now + recap of the last 10 s, waiting for the sentence end if partial', () => {
+  const r = play([[det('NAME_MENTIONED', { partial: true }, 200), 200]])
+  assert.deepEqual(kinds(r), ['send_haptic:knock', 'show_recap'])
+  assert.deepEqual(r.actions[1], { action: 'show_recap', fromTs: 190, waitSentenceEnd: true, why: 'your name was said' })
+})
+
+test('F1: one knock per sentence (repeats within 4 s are ignored)', () => {
+  const r = play([[det('NAME_MENTIONED', {}, 200), 200], [det('NAME_MENTIONED', {}, 201), 201], [det('NAME_MENTIONED', {}, 206), 206]])
+  assert.equal(kinds(r).filter((k) => k === 'send_haptic:knock').length, 2)
+})
+
+test('F3: name while away → knock + "while you were away" card now; looking back later recaps only what came after', () => {
+  const r = play([[away(100), 100], [det('NAME_MENTIONED', {}, 130), 130], [back(150), 150]])
+  assert.deepEqual(kinds(r), ['send_haptic:knock', 'show_away_summary', 'show_away_summary'])
+  const [, byName, byBack] = r.actions as { fromTs: number; untilTs: number; trigger: string }[]
+  assert.deepEqual([byName!.fromTs, byName!.untilTs, byName!.trigger], [100, 130, 'name'])
+  assert.deepEqual([byBack!.fromTs, byBack!.untilTs, byBack!.trigger], [130, 150, 'looked_back'])
+})
+
+test('F5: B\'s knock latency is logged', () => {
+  const r = play([[det('NAME_MENTIONED', { latencyS: 1.4, latencyRef: 'name_word' }), 1]])
+  assert.ok(r.log.includes('Knock 1.4 s after your name was said'))
+})
+
+test('F6: question to the group → ringing', () => {
+  assert.deepEqual(kinds(play([[det('QUESTION_TO_GROUP'), 1]])), ['send_haptic:ringing'])
+})
+
+test('F7: only the user\'s click switches the mic', () => {
+  const click = env('user', { input: 'click', actionId: 'switch_input_device' }, 1, 'user')
+  assert.deepEqual(kinds(play([[click, 1]])), ['switch_input_device', 'send_haptic:completed'])
+})
+
+test('F9: bad mic > 10 s → "switch to laptop mic" card; still bad 10 s after the switch → "what else to try" card; ok resets', () => {
+  const q = (level: string, ts: number): [Envelope<unknown>, number] => [env('detector', { type: 'MIC_QUALITY', text: level }, ts, 'detector'), ts]
+  const tick = (ts: number): [Envelope<unknown>, number] => [env('mic', { rms: 0.1 }, ts, 'detector'), ts]
+  const click: [Envelope<unknown>, number] = [env('user', { input: 'click', actionId: 'switch_input_device' }, 115, 'user'), 115]
+  const r = play([q('noisy', 100), tick(105), tick(111), tick(112), click, tick(120), tick(126), tick(127), q('ok', 130), q('noisy', 131)])
+  const fixes = r.actions.filter((a) => (a as { action: string }).action === 'show_fix') as { fixAction: string; problem: string }[]
+  assert.equal(fixes.length, 2)
+  assert.equal(fixes[0]!.fixAction, 'switch_input_device')
+  assert.match(fixes[0]!.problem, /noisy for over 10 s/)
+  assert.equal(fixes[1]!.fixAction, 'dismiss_card')
+  assert.match(fixes[1]!.problem, /still noisy after switching/)
+  assert.ok(r.log.includes('Mic quality ok after the switch → fix worked'))
 })
