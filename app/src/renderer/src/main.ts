@@ -1,6 +1,6 @@
 /** OWNER: D. Main window: check-up, activity log, IT view, dev tools. */
 import type { EventType, LogEntry, Source, UiCommand } from '../../shared/events'
-import { makeEvent } from '../../shared/events'
+import { HAPTIC_PATTERNS, makeEvent } from '../../shared/events'
 import { startCallAudio, startMic } from './audio'
 import { cameraHealth, startVision } from './vision'
 import { el } from './ui/dom'
@@ -561,4 +561,12 @@ for (const [label, type, source, data] of FAKES) {
   const b = el('button', 'btn small', label)
   b.onclick = () => window.tap.emit(makeEvent(type, source, data))
   $('fake-buttons').append(b)
+}
+
+// ---------- Check-up: "Try the vibrations" (the 4 signals Tap uses; main fires them, nothing else happens) ----------
+for (const [key, p] of Object.entries(HAPTIC_PATTERNS)) {
+  const b = el('button', 'btn haptic-test')
+  b.append(el('strong', '', p.label), el('span', '', p.meaning), el('em', '', p.waveforms.length === 2 ? 'knock · knock' : p.waveforms[0].replace('_', ' ')))
+  b.onclick = () => window.tap.emit(makeEvent('HAPTIC_TEST', 'ui', { pattern: key }))
+  $('haptic-tests').append(b)
 }

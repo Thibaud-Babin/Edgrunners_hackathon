@@ -16,40 +16,6 @@ const pill = document.getElementById('pill')!
 const pillStatus = document.getElementById('pill-status')!
 const pillMeta = document.getElementById('pill-meta')!
 
-// Live captions strip (bottom of the overlay). Renderer from B's version, restyled.
-const captions = document.getElementById('captions')!
-const finalLines: HTMLElement[] = []
-let partialLine: HTMLElement | null = null
-
-/** One caption line; the user's name (highlight) is wrapped in <mark>. Text only, never innerHTML. */
-function captionLine(text: string, speaker?: string, highlight?: string): HTMLElement {
-  const line = el('div', 'caption-line')
-  if (speaker) line.append(el('span', 'caption-speaker', `${speaker}: `))
-  const i = highlight ? text.toLowerCase().indexOf(highlight.toLowerCase()) : -1
-  if (i < 0 || !highlight) line.append(document.createTextNode(text))
-  else {
-    const mark = document.createElement('mark')
-    mark.textContent = text.slice(i, i + highlight.length)
-    line.append(document.createTextNode(text.slice(0, i)), mark, document.createTextNode(text.slice(i + highlight.length)))
-  }
-  return line
-}
-
-function showCaption(text: string, final: boolean, speaker?: string, highlight?: string): void {
-  const line = captionLine(text, speaker, highlight)
-  partialLine?.remove()
-  partialLine = null
-  if (final) {
-    finalLines.push(line)
-    captions.append(line)
-    while (finalLines.length > 3) finalLines.shift()?.remove() // keep the last 3 sentences
-  } else {
-    line.classList.add('partial')
-    partialLine = line
-    captions.append(line)
-  }
-}
-
 const REPLY_MS = 3000
 const MAX_TOASTS = 3
 const DEDUPE_MS = 8000
@@ -244,6 +210,26 @@ function knock(label: string): void {
   knockTimer = setTimeout(() => pill.classList.remove('knocking'), 1500)
 }
 
+// ---------- live captions: last 3 lines; a partial line is replaced until it becomes final ----------
+const captions = document.getElementById('captions')!
+const MAX_CAPTIONS = 3
+let partialLine: HTMLElement | null = null
+
+function caption(text: string, final: boolean, speaker?: string, highlight?: string): void {
+  const line = partialLine ?? el('div', 'caption-line')
+  line.replaceChildren()
+  line.className = final ? 'caption-line' : 'caption-line partial'
+  if (speaker) line.append(el('span', 'caption-speaker', `${speaker}: `))
+  // textContent only (transcript is untrusted); highlight the name with <mark>
+  const i = highlight ? text.toLowerCase().indexOf(highlight.toLowerCase()) : -1
+  if (highlight && i >= 0) {
+    line.append(document.createTextNode(text.slice(0, i)), el('mark', '', text.slice(i, i + highlight.length)), document.createTextNode(text.slice(i + highlight.length)))
+  } else line.append(document.createTextNode(text))
+  if (!partialLine) captions.append(line)
+  partialLine = final ? null : line
+  while (captions.children.length > MAX_CAPTIONS) captions.firstElementChild?.remove()
+}
+
 function checkIcon(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', '0 0 24 24')
@@ -290,7 +276,13 @@ window.tap.onUi((cmd: UiCommand) => {
             click(cmd.action_id)
             removeToast(cmd.id)
           }),
-          button('Not now', 'ghost', () => userDismiss(cmd.id))
+          // Optional second button from the agent (e.g. "I'm muted on purpose"), else "Not now".
+          cmd.alt_label && cmd.alt_action_id
+            ? button(cmd.alt_label, 'ghost', () => {
+                click(cmd.alt_action_id!)
+                removeToast(cmd.id)
+              })
+            : button('Not now', 'ghost', () => userDismiss(cmd.id))
         ]
       })
       break
@@ -331,7 +323,7 @@ window.tap.onUi((cmd: UiCommand) => {
       })
       break
     case 'CAPTION':
-      showCaption(cmd.text, cmd.final, cmd.speaker, cmd.highlight)
+      caption(cmd.text, cmd.final, cmd.speaker, cmd.highlight)
       break
     case 'DISMISS':
       removeToast(cmd.id)

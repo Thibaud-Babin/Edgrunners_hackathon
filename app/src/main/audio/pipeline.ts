@@ -159,11 +159,11 @@ export class AudioPipeline {
     private stt: SttFactory | null
   ) {}
 
-  // TEMP audio check — prints once per second per source (set TAP_DEBUG_AUDIO=0 in .env to silence)
+  // Audio level check — prints once per second per source, only with TAP_DEBUG_LEVELS=1 (it flooded the terminal)
   private stats = new Map<Source, { bytes: number; peak: number; since: number }>()
 
   pushPcm(source: Source, pcm: Int16Array): void {
-    if (process.env.TAP_DEBUG_AUDIO !== '0') {
+    if (process.env.TAP_DEBUG_LEVELS === '1') {
       const s = this.stats.get(source) ?? { bytes: 0, peak: 0, since: Date.now() }
       s.bytes += pcm.byteLength
       for (const v of pcm) s.peak = Math.max(s.peak, Math.abs(v))

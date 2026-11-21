@@ -254,7 +254,7 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 body.overlay .pill, body.overlay .toast { text-shadow: var(--card-text-shadow); border-color: var(--glass-border); }
 body.overlay .toast button { text-shadow: none; }
 
-/* live captions strip (B's command, restyled: glass like the toasts) */
+/* Live captions: full-width in the overlay, with the notification rail raised above them. */
 #captions { position: fixed; z-index: 10; left: 12px; right: 12px; bottom: 12px; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 5px; pointer-events: none; }
 #captions:empty { display: none; }
 #captions:not(:empty) { max-height: 120px; overflow: hidden; }
@@ -276,3 +276,12 @@ body.overlay .toast button { text-shadow: none; }
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast.out, .pill .wave i, .pill.knocking .knock, .check-anim path, .timer, #flash.on { animation: none; }
 }
+.toast.nudge .t-tile { background: var(--accent-soft); color: var(--accent); }
+
+/* Check-up: "Try the vibrations" (B) */
+.haptic-hint { margin: 0 0 12px; color: var(--text-2); font-size: 13px; }
+.haptic-tests { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.btn.haptic-test { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px; min-height: 88px; }
+.btn.haptic-test strong { font-size: 14px; }
+.btn.haptic-test span { color: var(--text-2); font-size: 12px; line-height: 1.35; }
+.btn.haptic-test em { margin-top: auto; color: var(--accent); font-style: normal; font-size: 12px; font-weight: 600; }

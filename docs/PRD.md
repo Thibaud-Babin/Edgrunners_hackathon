@@ -57,7 +57,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 | P0-4 | As anyone, I want to know when I'm talking but my mic sends nothing | Mouth moving (`jawOpen` activity) + mic level ≈ 0 for ≥ 2 s → `MIC_SILENT_WHILE_SPEAKING` → `angry_alert` haptic + card "Your mic sends nothing" | A, B |
 | P0-5 | As anyone, I want a 10-second pre-call check | Checks camera frames arrive and aren't frozen, face in frame, lighting OK, mic level present, right input device; shows pass/fail per item with a fix hint. *Note: we can see that the mic device sends silence, not that the user is muted inside Zoom.* | A, D |
 | P0-6 | As a user, I want to see what the agent did | Simple activity panel listing every event, decision, AI call (with cost) and action, newest first; live counter "AI calls · cost · video stays on this laptop" | C, D |
-| P0-7 | As a team, we need Logitech haptics working | At least 4 waveforms (`knock`, `ringing`, `angry_alert`, `subtle_collision`) fired from our backend on the MX Master 4 | C |
+| P0-7 | As a team, we need Logitech haptics working | **4 signals** the user tells apart without looking (count and strength, not texture): **1 knock** = your name, **2 knocks** = they're waiting for you, **angry_alert** = a problem with your setup, **completed** = fixed. Learned in 10 s with Check-up → "Try the vibrations". Group-question and topic vibrations are off by default (`TAP_OPTIONAL_HAPTICS=1`) | C |
 
 ### P1 — should have (≈6 h)
 
@@ -186,10 +186,12 @@ docs/                PRD, design, research
 | Eyebrow raise | `browInnerUp`/`browOuterUp` ≈ 0.3 above the user's neutral baseline, held 300–500 ms |
 | Nod / shake | two reversals of ±8–10° in pitch (nod) or yaw (shake) within ~1.2 s |
 | Tilt left/right | ±15° roll held 400 ms |
-| Looking away | yaw > 25–30° for > 2 s |
-| Mouth moving | high variance of `jawOpen` over ~1 s |
+| Looking away | abs(yaw) > 28 deg or abs(pitch) > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
+| Mouth moving | jawOpen std-dev over a 1 s window, only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg (at a big pitch the blendshape drifts); reset + emit false outside that range; debounced 300 ms on / 800 ms off |
+| Frozen camera | <= 3 of the 3072 pixels of a 64x48 frame change for > 3 s (a real camera always has sensor noise) |
+| Lighting | too dark: mean luma <= 60 held 0.8 s (clears at >= 80); too bright: mean luma >= 200 held 0.8 s (clears at <= 180); validated on a labelled 8-image set (4 dark / 4 light) |
 
-All gestures: hysteresis + ~1 s cooldown; a 10 s neutral-face calibration at start (pattern inspired by Google Project Gameface's `gesture → action, threshold, hold` bindings). These thresholds are starting points from our research, not measured values.
+All gestures: hysteresis + ~1 s cooldown; a 10 s neutral-face calibration at start (pattern inspired by Google Project Gameface's `gesture → action, threshold, hold` bindings). Gesture thresholds are starting points from our research, not measured values; lighting thresholds were validated on a labelled 8-image set (not committed).
 
 ## 5. Logitech integration
 
@@ -277,6 +279,9 @@ Links not shown were not confirmed by the research; look them up before relying 
 | Face tracking | `@mediapipe/tasks-vision`; `vladmandic/human` angles | Apache-2.0 / MIT | All gesture logic, calibration, events |
 | Haptics plugin | Logitech `HapticsPlugin` sample | (check) | Localhost listener, event mapping |
 | Mic meter | webrtc/samples | BSD-3 | Silence-while-speaking detector |
+| Message validation | `zod` | MIT | Envelope, Summary and VisionSignal schemas; validation at every agent boundary |
+| AI recap | `@anthropic-ai/sdk` (Claude Haiku, testing) | MIT | Prompt, JSON validation, 3 s timeout, template fallback, cost logging |
+| Agents, sanitiser, gate, checkup | — | — | Built by us: four-agent bus, text sanitiser, provenance/allowlist gate, checkup agent |
 | | | | |
 
 ## 7. Agent and security (kept minimal)
@@ -355,7 +360,7 @@ Prepare a 30-second, 2-minute and per-sponsor 60-second version.
 | Haptics plugin issues / old firmware | Low–medium | Update Options+ Saturday morning; HapticWeb → own plugin → WebHID; visual flash |
 | HapticWeb needs DNS + a certificate download (venue Wi-Fi) | Medium | Hosts-file entry `127.0.0.1 local.jmw.nz`; first run at home; own plugin over plain localhost HTTP |
 | Licence contamination (GPL code copied) | Low | Copy only MIT/Apache/BSD; GPL repos read-only; Rule 30 table |
-| **Zoom/Meet and Tap can't both open the webcam** (depends on the camera and Windows) | Medium | Test in hour 1 with the real meeting app. Fallback: Tap opens the real camera and passes the video to Zoom through OBS Virtual Camera |
+| **Zoom/Meet and Tap can't both open the webcam** | **Confirmed by default on the demo laptop** (Logitech LVNext devkit: the RGB interface is single-consumer; the IR interface is a separate device and keeps working) | **Resolved:** Windows 11 → Settings → Bluetooth & devices → Cameras → LVNext Camera → Advanced camera options → **Allow multiple apps to use camera at the same time** (verified: Zoom + Tap both live; about 60 fps with Tap alone, 51 fps with Zoom/Meet running). Keep it in the demo checklist and re-check after Windows/driver updates. Fallbacks: Tap owns the camera and the call runs camera-off with a second laptop joining with video; or the call uses the IR/CPD camera; OBS Virtual Camera last. |
 | Laptop overload (Electron + MediaPipe + OBS) | Medium | Vision in a worker at reduced FPS; OBS only for P2; test on the demo laptop |
 | Can't detect "muted inside Zoom" | Certain | Detect what we can (device silence, wrong device, others saying they can't hear); say so honestly |
 | "Did you talk to users?" | High | Test with a deaf/HoH attendee; otherwise say next step is SGB-FSS |

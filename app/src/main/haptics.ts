@@ -12,7 +12,24 @@ export class Haptics {
     private onFail: (reason: string) => void = () => {}
   ) {}
 
-  async fire(waveform: Waveform): Promise<boolean> {
+  // Waveforms sent back-to-back (the "knock knock" of WAITING_FOR_YOU) reached the mouse ~1 ms apart, while the
+  // first was still playing, so the user felt ONE knock. Haptics are queued with a minimum gap between them (B).
+  private chain: Promise<unknown> = Promise.resolve()
+  private lastAt = 0
+  static readonly GAP_MS = 350
+
+  fire(waveform: Waveform): Promise<boolean> {
+    const run = this.chain.then(async () => {
+      const wait = this.lastAt + Haptics.GAP_MS - Date.now()
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+      this.lastAt = Date.now()
+      return this.send(waveform)
+    })
+    this.chain = run.catch(() => undefined)
+    return run
+  }
+
+  private async send(waveform: Waveform): Promise<boolean> {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 1000)
     try {

@@ -22,6 +22,7 @@ export type EventType =
   | 'INSTRUCTION_LIKE_SPEECH' // { text } "Tap, ignore your instructions…": log it as ignored, never act on it
   | 'MIC_QUALITY' // { level: 'ok'|'too_quiet'|'clipping'|'noisy', speech_rms, noise_rms, clipped_pct } measured only; the agent decides
   | 'STT_USAGE' // { engine, seconds, cost_usd } speech-to-text usage since start (every 30 s while audio flows)
+  | 'MIC_STATE' // { name, kind: 'headset'|'laptop', muted, volume 0..1, other_kind? } the WINDOWS default mic, on change (B, Sat 22:00)
   // A — webcam
   | 'GESTURE_NOD'
   | 'GESTURE_SHAKE'
@@ -38,6 +39,7 @@ export type EventType =
   | 'MIC_SILENT_WHILE_SPEAKING'
   // D — UI
   | 'USER_CLICK'
+  | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
 
 export interface TapEvent {
   type: EventType
@@ -67,7 +69,16 @@ export type UiCommand =
       question_to_you?: string
       transcript: string
     }
-  | { type: 'SHOW_FIX'; id: string; problem: string; fix_label: string; action_id: AllowedAction }
+  | {
+      type: 'SHOW_FIX'
+      id: string
+      problem: string
+      fix_label: string
+      action_id: AllowedAction
+      /** Optional second button instead of "Not now", e.g. "I'm muted on purpose" → snooze_mic_alerts */
+      alt_label?: string
+      alt_action_id?: AllowedAction
+    }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
@@ -91,6 +102,8 @@ export const ALLOWED_ACTIONS = [
   'show_away_summary',
   'show_fix',
   'switch_input_device',
+  'fix_mic', // the mic fix the card names: unmute / switch to the mic that works / raise the volume (Windows level)
+  'snooze_mic_alerts', // "I'm muted on purpose": no mute alerts until you unmute (max 10 min)
   'post_chat_reply',
   'speak_reply',
   'send_haptic',
@@ -122,7 +135,13 @@ export const WAVEFORMS = [
 ] as const
 export type Waveform = (typeof WAVEFORMS)[number]
 
-/** Tap's haptic vocabulary (PRD §1). */
+/**
+ * Tap's haptic vocabulary (PRD §1, Sat 22:30): FOUR signals, told apart by count and strength, not by texture
+ * (in the rehearsal nobody could tell the soft waveforms apart):
+ *   1 knock = your name / a question to you · 2 knocks = they're waiting for your answer
+ *   angry_alert (long, strong) = a problem with your setup · completed (short) = fixed
+ * groupQuestion and topic are OFF by default (too subtle, they compete with the 4); TAP_OPTIONAL_HAPTICS=1 turns them on.
+ */
 export const HAPTIC = {
   addressed: 'knock',
   groupQuestion: 'ringing',
@@ -132,6 +151,15 @@ export const HAPTIC = {
   waiting: 'knock', // fired twice: "knock knock, they're waiting for you"
   topic: 'damp_state_change'
 } as const satisfies Record<string, Waveform>
+
+/** The 4 signals as the user learns them (Check-up "Try the vibrations"). Played in order, 350 ms apart (haptics.ts). */
+export const HAPTIC_PATTERNS = {
+  name: { label: 'Your name', meaning: 'someone said your name or asked you', waveforms: [HAPTIC.addressed] },
+  waiting: { label: "They're waiting for you", meaning: 'a question to you, then silence', waveforms: [HAPTIC.waiting, HAPTIC.waiting] },
+  problem: { label: 'Problem', meaning: "your mic or camera has a problem, or they can't hear you", waveforms: [HAPTIC.problem] },
+  fixed: { label: 'Fixed', meaning: 'the fix you clicked worked', waveforms: [HAPTIC.done] }
+} as const satisfies Record<string, { label: string; meaning: string; waveforms: readonly Waveform[] }>
+export type HapticPattern = keyof typeof HAPTIC_PATTERNS
 
 /** IPC channel names shared by main, preload and renderer. */
 export const IPC = {

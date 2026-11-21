@@ -1,18 +1,37 @@
 /**
  * OWNER: A. Webcam → MediaPipe Face Landmarker → events.
  * Runs on the laptop (wasm + model served locally, see scripts/setup-models.mjs).
- * Done here: USER_AWAY / USER_BACK, MOUTH_MOVING, FACE_OUT_OF_FRAME.
- * TODO(A): move into a Web Worker if the UI stutters; gestures (P1-1); CAMERA_FROZEN; LOW_LIGHT; calibration.
+ * Done here: USER_AWAY / USER_BACK (yaw + pitch), MOUTH_MOVING, FACE_OUT_OF_FRAME,
+ * CAMERA_FROZEN, LOW_LIGHT and the live cameraHealth() readout for D's check-up.
+ * TODO(A): gestures + neutral-face calibration (P1-1); Web Worker only if the UI stutters.
  */
 import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from '@mediapipe/tasks-vision'
 import type { EventType } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
+import { countChangedPixels, createFrameHealth, meanLuma } from './vision/health'
 
 // Starting thresholds from docs/PRD.md §4 "Gesture rules" — tune them during calibration.
-const AWAY_YAW_DEG = 28
+const AWAY_YAW_ENTER_DEG = 28
+const AWAY_YAW_EXIT_DEG = 18
+const AWAY_PITCH_ENTER_DEG = 22
+const AWAY_PITCH_EXIT_DEG = 14
 const AWAY_AFTER_MS = 2000
 const MOUTH_WINDOW_MS = 1000
 const MOUTH_STD_MIN = 0.06
+const MOUTH_ON_MS = 300 // debounce: raw active must hold this long (B's request)
+const MOUTH_OFF_MS = 800 // debounce: raw inactive must hold this long
+
+// Camera health (P0-5): a 64x48 frame sample every 250 ms, independent of the landmarker.
+const HEALTH_SAMPLE_MS = 250
+const HEALTH_W = 64
+const HEALTH_H = 48
+const FROZEN_AFTER_MS = 3000
+const FROZEN_MAX_CHANGED_PIXELS = 3 // of 64x48 = 3072: real sensor noise always changes more
+const LOW_LIGHT_ENTER = 60 // mean luma 0..255 (labelled dark test images: 10.9-31.5)
+const LOW_LIGHT_EXIT = 80
+const TOO_BRIGHT_ENTER = 200 // labelled light test images: 202.3-206.8
+const TOO_BRIGHT_EXIT = 180
+const LIGHTING_HOLD_MS = 800
 
 export interface HeadPose {
   yaw: number
@@ -36,12 +55,13 @@ export function headPose(m: number[]): HeadPose {
 export interface CameraHealth {
   running: boolean
   faceInFrame: boolean
-  frozen: boolean // TODO(A): compare consecutive frames on a 64×48 canvas
-  brightness: number | null // TODO(A): mean luma 0..255 from the same small canvas; < ~60 = too dark
-  fps: number
+  frozen: boolean // no changed pixels on the 64x48 canvas for > 3 s
+  brightness: number | null // mean luma 0..255; null before the first frame
+  tooBright: boolean // mean luma >= 200 for 0.8 s; cleared below 180
+  fps: number // 0 when the landmarker stopped receiving frames
 }
 
-const health: CameraHealth = { running: false, faceInFrame: false, frozen: false, brightness: null, fps: 0 }
+const health: CameraHealth = { running: false, faceInFrame: false, frozen: false, brightness: null, tooBright: false, fps: 0 }
 
 export function cameraHealth(): CameraHealth {
   return { ...health }
@@ -49,8 +69,29 @@ export function cameraHealth(): CameraHealth {
 
 export type VisionListener = (info: { pose?: HeadPose; blend: Record<string, number>; face: boolean }) => void
 
+/** Infrared (Windows Hello), presence-detection ("CPD") and virtual cameras: black-and-white or not a real picture. */
+const NOT_A_COLOUR_CAMERA = /\b(ir|infrared|hello|cpd|virtual|obs|lvnext)\b/i
+
+/**
+ * Opens the webcam, avoiding infrared / Windows Hello cameras. Laptops often list the IR camera first, and the
+ * default pick then gives a black-and-white image. Labels are only known after a first permission, so: open the
+ * default, and if it is an IR/virtual camera, reopen the first colour camera instead.
+ */
+async function openColourCamera(): Promise<MediaStream> {
+  const size = { width: 640, height: 480 }
+  let stream = await navigator.mediaDevices.getUserMedia({ video: size })
+  const label = stream.getVideoTracks()[0]?.label ?? ''
+  if (!NOT_A_COLOUR_CAMERA.test(label)) return stream
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && !NOT_A_COLOUR_CAMERA.test(d.label))
+  if (!cams.length) return stream // nothing better: keep what we have
+  stream.getTracks().forEach((t) => t.stop())
+  stream = await navigator.mediaDevices.getUserMedia({ video: { ...size, deviceId: { exact: cams[0].deviceId } } })
+  console.info(`[vision] skipped "${label}", using "${cams[0].label}"`)
+  return stream
+}
+
 export async function startVision(video: HTMLVideoElement, onFrame?: VisionListener): Promise<() => void> {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+  const stream = await openColourCamera()
   video.srcObject = stream
   await video.play()
 
@@ -66,19 +107,64 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
   let away = false
   let lookingAwaySince: number | null = null
   let mouthActive = false
+  let mouthPending: boolean | null = null
+  let mouthPendingSince = 0
   const jaw: Array<{ t: number; v: number }> = []
   const emit = (type: EventType, data?: Record<string, unknown>): void => window.tap.emit(makeEvent(type, 'webcam', data))
 
   let running = true
   let lastVideoTime = -1
+  let lastLandmarkAt = 0
   health.running = true
+  health.faceInFrame = false
+  health.frozen = false
+  health.brightness = null
+  health.tooBright = false
+  health.fps = 0
   let frames = 0
   let fpsSince = performance.now()
+
+  const frameHealth = createFrameHealth({
+    frozenAfterMs: FROZEN_AFTER_MS,
+    maxChangedPixels: FROZEN_MAX_CHANGED_PIXELS,
+    lowLightEnter: LOW_LIGHT_ENTER,
+    lowLightExit: LOW_LIGHT_EXIT,
+    tooBrightEnter: TOO_BRIGHT_ENTER,
+    tooBrightExit: TOO_BRIGHT_EXIT,
+    lightingHoldMs: LIGHTING_HOLD_MS
+  })
+
+  // Own timer, so a stalled camera (no new frames) is still detected as frozen.
+  const canvas = document.createElement('canvas')
+  canvas.width = HEALTH_W
+  canvas.height = HEALTH_H
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  let previousFrame: Uint8ClampedArray | null = null
+
+  const sampleHealth = (): void => {
+    if (!running || !ctx || video.readyState < 2) return
+    const t = performance.now()
+    ctx.drawImage(video, 0, 0, HEALTH_W, HEALTH_H)
+    const frame = ctx.getImageData(0, 0, HEALTH_W, HEALTH_H).data
+    const brightness = meanLuma(frame)
+    const changed = previousFrame ? countChangedPixels(previousFrame, frame) : Number.MAX_SAFE_INTEGER
+    previousFrame = frame
+
+    const update = frameHealth.sample(t, changed, brightness)
+    health.brightness = Math.round(brightness)
+    health.frozen = update.frozen
+    health.tooBright = update.tooBright
+    if (update.lowLightChanged && update.lowLight) emit('LOW_LIGHT', { brightness: Math.round(brightness) })
+    if (update.frozenChanged && update.frozen) emit('CAMERA_FROZEN')
+    if (t - lastLandmarkAt > 1200) health.fps = 0
+  }
+  const healthTimer = window.setInterval(sampleHealth, HEALTH_SAMPLE_MS)
   const loop = (): void => {
     if (!running) return
     if (video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime
       const t = performance.now()
+      lastLandmarkAt = t
       const res: FaceLandmarkerResult = landmarker.detectForVideo(video, t)
       const face = res.faceLandmarks.length > 0
       health.faceInFrame = face
@@ -92,8 +178,10 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       for (const c of res.faceBlendshapes[0]?.categories ?? []) blend[c.categoryName] = c.score
       const pose = res.facialTransformationMatrixes[0] ? headPose(res.facialTransformationMatrixes[0].data) : undefined
 
-      // Away = no face, or head turned far to the side, for > 2 s.
-      const lookingAway = !face || (pose !== undefined && Math.abs(pose.yaw) > AWAY_YAW_DEG)
+      // Away / back with hysteresis: yaw OR pitch (phone glance) or no face, held > 2 s.
+      const yawLimit = away ? AWAY_YAW_EXIT_DEG : AWAY_YAW_ENTER_DEG
+      const pitchLimit = away ? AWAY_PITCH_EXIT_DEG : AWAY_PITCH_ENTER_DEG
+      const lookingAway = !face || (pose !== undefined && (Math.abs(pose.yaw) > yawLimit || Math.abs(pose.pitch) > pitchLimit))
       if (lookingAway) {
         lookingAwaySince ??= t
         if (!away && t - lookingAwaySince > AWAY_AFTER_MS) {
@@ -110,15 +198,35 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       }
 
       // Mouth moving = jawOpen varies over the last second (talking, not just an open mouth).
-      if (face) {
+      // Only trust it at a usable head pose: at a big pitch/yaw the jawOpen blendshape drifts.
+      const poseOkForMouth = face && pose !== undefined && Math.abs(pose.yaw) < AWAY_YAW_ENTER_DEG && Math.abs(pose.pitch) < AWAY_PITCH_ENTER_DEG
+      if (poseOkForMouth) {
         jaw.push({ t, v: blend['jawOpen'] ?? 0 })
         while (jaw.length && t - jaw[0].t > MOUTH_WINDOW_MS) jaw.shift()
         const mean = jaw.reduce((s, x) => s + x.v, 0) / jaw.length
         const std = Math.sqrt(jaw.reduce((s, x) => s + (x.v - mean) ** 2, 0) / jaw.length)
-        const active = std > MOUTH_STD_MIN
-        if (active !== mouthActive) {
-          mouthActive = active
-          emit('MOUTH_MOVING', { active })
+        const rawActive = std > MOUTH_STD_MIN
+
+        // B's request (real call): debounce the flaps - 300 ms to turn on, 800 ms to turn off.
+        if (rawActive === mouthActive) {
+          mouthPending = null
+        } else {
+          if (mouthPending !== rawActive) {
+            mouthPending = rawActive
+            mouthPendingSince = t
+          }
+          if (t - mouthPendingSince >= (rawActive ? MOUTH_ON_MS : MOUTH_OFF_MS)) {
+            mouthActive = rawActive
+            mouthPending = null
+            emit('MOUTH_MOVING', { active: mouthActive })
+          }
+        }
+      } else {
+        jaw.length = 0
+        mouthPending = null
+        if (mouthActive) {
+          mouthActive = false
+          emit('MOUTH_MOVING', { active: false })
         }
       }
 
@@ -129,10 +237,39 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
   }
   requestAnimationFrame(loop)
 
+  const track = stream.getVideoTracks()[0]
+  if (track) {
+    // Camera unplugged, stopped by the OS, or grabbed by another app.
+    track.onended = () => {
+      health.running = false
+    }
+    track.onmute = () => {
+      health.running = false
+    }
+    track.onunmute = () => {
+      if (running) health.running = true
+    }
+  }
+
   return () => {
     running = false
     health.running = false
-    landmarker.close()
+    health.faceInFrame = false
+    health.frozen = false
+    health.brightness = null
+    health.tooBright = false
+    health.fps = 0
+    window.clearInterval(healthTimer)
+    if (track) {
+      track.onended = null
+      track.onmute = null
+      track.onunmute = null
+    }
+    try {
+      landmarker.close()
+    } catch {
+      // already closed
+    }
     stream.getTracks().forEach((tr) => tr.stop())
   }
 }

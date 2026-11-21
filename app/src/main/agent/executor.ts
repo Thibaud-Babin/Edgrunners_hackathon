@@ -1,0 +1,294 @@
+/**
+ * OWNER: C. Agent 3, the Executor: rules → gate → act. No LLM.
+ * It is the only agent that changes anything the user sees, hears or feels.
+ * Gate (in order): schema/allowlist → provenance → user-only actions. Speech and AI output never trigger an action.
+ */
+import type { TapEvent, UiCommand, Waveform } from '../../shared/events.ts'
+import { now } from '../../shared/events.ts'
+import type { AgentBus, EventBus } from '../bus.ts'
+import type { Reporter } from './agent.ts'
+import { decide, initialState, type RulesState } from './rules.ts'
+import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent } from './schemas.ts'
+import { cleanText } from './sanitize.ts'
+
+/** What the executor needs from haptics.ts (an interface, so tests can fake it). */
+export interface HapticsPort {
+  fire(w: Waveform): Promise<boolean>
+}
+
+/**
+ * The user's own microphone at the Windows level (B's audio/win-mic.ts), so Meet hears the fix too.
+ * `fix` does it AND checks it worked; `text` says what happened, for the log.
+ */
+export interface MicPort {
+  fix(fix: 'unmute' | 'switch' | 'volume', mic: 'laptop' | 'headset'): Promise<{ ok: boolean; text: string }>
+}
+
+type SummaryResult = PayloadOf<'summary'>
+export type Verdict = { verdict: 'run'; req: ActionRequest } | { verdict: 'block'; reason: string; category: 'allowlist' | 'provenance' }
+
+const SUMMARY_WAIT_MS = 5000 // the LLM itself gives up after 3 s; this only guards against a lost reply
+// shortcut: slices by when B published each line, plus this grace for the STT delay; switch to B's start/end
+// timestamps when that contract change lands (docs/team/C-agent-haptics.md §6).
+export const STT_GRACE_MS = 1500
+export const SENTENCE_END_MAX_MS = 4000 // name heard mid-sentence: wait at most this long for the sentence to end
+
+/**
+ * Which inputs may start an action. Policy as data, in one place, deterministic: never decided by an LLM.
+ */
+export const MAY_TRIGGER: Record<Provenance, boolean> = {
+  user: true,
+  vision: true,
+  detector: true,
+  system: true,
+  transcript: false, // speech is quoted data, never a command
+  llm: false // AI output is display-only
+}
+
+/** Actions that change the user's own setup: only the user's own click may start them, never a detector. */
+export const USER_ONLY_ACTIONS: readonly ActionRequest['action'][] = ['switch_input_device', 'fix_mic']
+
+/** Pure gate: (1) schema + allowlist, (2) provenance, (3) user-only actions. */
+export function gate(req: unknown, provenance: Provenance): Verdict {
+  const parsed = ActionRequest.safeParse(req)
+  if (!parsed.success) return { verdict: 'block', reason: 'not a valid, allowlisted action', category: 'allowlist' }
+  if (!MAY_TRIGGER[provenance]) return { verdict: 'block', reason: "speech and AI output can't trigger actions", category: 'provenance' }
+  if (USER_ONLY_ACTIONS.includes(parsed.data.action) && provenance !== 'user')
+    return { verdict: 'block', reason: 'only your own click can change your devices', category: 'provenance' }
+  return { verdict: 'run', req: parsed.data }
+}
+
+export class Executor {
+  private state: RulesState = initialState()
+  private cardSeq = 0
+  private reqSeq = 0
+  private pending = new Map<string, (r: SummaryResult | null) => void>()
+  /** When the last final transcript line arrived, and who waits for the next one (end of a sentence). */
+  private lastLineAt = 0
+  private lineWaiters: (() => void)[] = []
+  private bus: AgentBus
+  private ui: (cmd: UiCommand) => void
+  private haptics: HapticsPort
+  private report: Reporter
+  private pausedUntil = 0
+  private hapticsDisabled = false
+  private mic: MicPort | null
+
+  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter, mic: MicPort | null = null) {
+    this.mic = mic
+    this.bus = bus
+    this.ui = ui
+    this.haptics = haptics
+    this.report = report
+    events.on('USER_CLICK', (e) => this.onClick(e))
+    bus.on('vision', (e) => this.handle(e))
+    bus.on('detector', (e) => this.handle(e))
+    bus.on('user', (e) => this.handle(e))
+    bus.on('mic', (e) => this.handle(e)) // the clock for the rules' mic-quality timer
+    // A transcript line only marks the end of a sentence: it never reaches the rules and never triggers anything.
+    bus.on('transcript', () => {
+      this.lastLineAt = now()
+      for (const w of this.lineWaiters.splice(0)) w()
+    })
+    bus.on('summary', (e) => {
+      const done = this.pending.get(e.payload.requestId)
+      this.pending.delete(e.payload.requestId)
+      done?.(e.payload)
+    })
+  }
+
+  /** Intake for D's clicks: the user's own deliberate input. */
+  private onClick(e: TapEvent): void {
+    const raw = RawTapEvent.safeParse(e)
+    if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('USER_CLICK with a bad shape or source')
+    const args = raw.data.data?.args
+    const cardId = args && typeof args === 'object' ? (args as Record<string, unknown>).id : undefined
+    this.bus.publish('user', 'user', 'user', {
+      input: 'click',
+      actionId: cleanText(raw.data.data?.action_id, 64),
+      ...(typeof cardId === 'string' ? { cardId: cleanText(cardId, 64) } : {})
+    })
+  }
+
+  private handle(env: Envelope<unknown>): void {
+    const decidedAt = now()
+    const d = decide(this.state, env, decidedAt)
+    this.state = d.state
+    for (const l of d.log) this.report.log(l.kind, l.text)
+    for (const b of d.blocked) this.report.blocked(b, 'allowlist')
+    void this.run(d.actions, env.provenance, decidedAt)
+  }
+
+  /** Actions from one decision run in order (e.g. the knock first, then the card). */
+  private async run(actions: unknown[], provenance: Provenance, decidedAt: number): Promise<void> {
+    for (const a of actions) {
+      const g = gate(a, provenance)
+      if (g.verdict === 'block') {
+        const name = (a as { action?: unknown })?.action
+        this.report.blocked(`${typeof name === 'string' ? name : 'action'} blocked (${g.reason})`, g.category)
+      } else if (provenance !== 'user' && now() < this.pausedUntil) {
+        // Spam guard pauses automation only. The user's own click always goes through.
+        this.report.blocked(`${g.req.action} skipped (executor paused by the spam guard)`, 'paused')
+      } else {
+        await this.perform(g.req, decidedAt)
+      }
+    }
+  }
+
+  // ---------- safety levers, pulled only by the Monitor ----------
+
+  /** Spam guard: skip automatic (non-user) actions until `untilTs`. */
+  pause(untilTs: number): void {
+    this.pausedUntil = untilTs
+  }
+
+  /** Haptics breaker: stop calling HapticWeb, flash the screen instead. */
+  hapticsOff(): void {
+    this.hapticsDisabled = true
+  }
+
+  private async perform(a: ActionRequest, decidedAt: number): Promise<void> {
+    let ok = true
+    try {
+      ok = await this.act(a, decidedAt)
+    } finally {
+      this.bus.publish('executor', 'system', 'action.result', { action: a.action, ok })
+    }
+  }
+
+  /** Does the action; returns false if it failed (only haptics can fail today). */
+  private async act(a: ActionRequest, decidedAt: number): Promise<boolean> {
+    switch (a.action) {
+      case 'show_away_summary': {
+        if (a.waitSentenceEnd) await this.sentenceEnd(decidedAt)
+        else if (a.trigger === 'looked_back') await sleep(STT_GRACE_MS) // the last words before "back" are still in the STT
+        const r = await this.summary(a.fromTs, now())
+        if (!r) return true
+        const seconds = Math.round(a.untilTs - a.fromTs)
+        const seen = a.trigger === 'name' ? `Your name was said after ${seconds} s away` : `Looked back after ${seconds} s away`
+        if (!r.transcript) {
+          this.report.log('decision', `${seen} → no recap (nothing was said)`)
+          return true
+        }
+        this.ui({
+          type: 'SHOW_AWAY_SUMMARY',
+          id: this.cardId(),
+          away_from: a.fromTs,
+          until: a.untilTs,
+          trigger: a.trigger,
+          summary: r.summary.text,
+          question_to_you: r.summary.question,
+          transcript: r.transcript
+        })
+        this.report.log('action', `${seen} → "while you were away" card with those ${seconds} s (${r.summary.source} summary)`)
+        return true
+      }
+      case 'show_recap': {
+        if (a.waitSentenceEnd) await this.sentenceEnd(decidedAt)
+        const r = await this.summary(a.fromTs, now())
+        if (!r) return true
+        if (!r.transcript) {
+          this.report.log('decision', 'Your name was said → no recap (no transcript yet)')
+          return true
+        }
+        this.ui({ type: 'SHOW_RECAP', id: this.cardId(), transcript: r.transcript, summary: r.summary.text, question: r.summary.question })
+        this.report.log('action', `Your name was said → recap card shown (${r.summary.source} summary${r.summary.question ? ', with the question to you' : ''})`)
+        return true
+      }
+      case 'show_nudge':
+        this.ui({ type: 'SHOW_NUDGE', id: this.cardId(), text: "They're waiting for your answer", ...(a.question ? { question: a.question } : {}) })
+        this.report.log('action', `A question to you, then silence → nudge shown ("They're waiting for your answer")`)
+        return true
+      case 'show_fix':
+        this.ui({
+          type: 'SHOW_FIX',
+          id: this.cardId(),
+          problem: a.problem,
+          fix_label: a.fixLabel,
+          action_id: a.fixAction,
+          ...(a.altLabel && a.altAction ? { alt_label: a.altLabel, alt_action_id: a.altAction } : {})
+        })
+        this.report.log('action', `${capitalise(a.why)} → fix card shown ("${a.fixLabel}"; nothing changes until you click)`)
+        return true
+      case 'switch_input_device':
+        // The main window restarts the mic on another device (renderer/src/main.ts → audio.ts).
+        this.ui({ type: 'SWITCH_MIC', prefer: a.prefer })
+        this.report.log('action', `You clicked the fix → switched to the ${a.prefer} mic`)
+        return true
+      case 'fix_mic': {
+        // Windows-level fix (B's MicPort): unmute / make the working mic the default / raise the volume, then check.
+        if (!this.mic) {
+          this.report.log('error', 'Mic fix needs Windows mic control, not available here')
+          return false
+        }
+        const r = await this.mic.fix(a.fix, a.mic)
+        this.report.log(r.ok ? 'action' : 'error', `You clicked the fix → ${r.text}`)
+        if (r.ok && a.fix === 'switch') this.ui({ type: 'SWITCH_MIC', prefer: a.mic }) // Tap's own capture follows
+        return r.ok
+      }
+      case 'dismiss_card':
+        this.ui({ type: 'DISMISS', id: a.cardId })
+        return true
+      case 'send_haptic': {
+        if (this.hapticsDisabled) {
+          this.ui({ type: 'FLASH', reason: a.waveform })
+          this.report.log('action', `send_haptic ${a.waveform} skipped (haptics breaker open) → screen flash`)
+          return true
+        }
+        const ok = await this.haptics.fire(a.waveform)
+        this.report.log('action', `send_haptic ${a.waveform}${ok ? '' : ' (failed → screen flash)'}`)
+        if (!ok) this.ui({ type: 'FLASH', reason: a.waveform })
+        return ok
+      }
+    }
+  }
+
+  /**
+   * The end of the sentence that held the user's name: the next final transcript line after `since`, or
+   * SENTENCE_END_MAX_MS. Resolves at once if that line already arrived (e.g. while the knock was being sent).
+   */
+  private sentenceEnd(since: number): Promise<void> {
+    if (this.lastLineAt > since) return Promise.resolve()
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, SENTENCE_END_MAX_MS)
+      this.lineWaiters.push(done)
+      function done(): void {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
+  }
+
+  /** Ask the Audio agent for a summary of [fromTs, untilTs] over the bus and wait for the matching reply. */
+  private summary(fromTs: number, untilTs: number): Promise<SummaryResult | null> {
+    const requestId = `sum-${++this.reqSeq}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.pending.delete(requestId)) return
+        this.report.log('error', 'No recap summary arrived in time → card skipped')
+        resolve(null)
+      }, SUMMARY_WAIT_MS)
+      this.pending.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      if (!this.bus.publish('executor', 'system', 'summary.request', { requestId, fromTs, untilTs })) {
+        this.pending.delete(requestId)
+        clearTimeout(timer)
+        resolve(null)
+      }
+    })
+  }
+
+  private cardId(): string {
+    return `card-${++this.cardSeq}`
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}

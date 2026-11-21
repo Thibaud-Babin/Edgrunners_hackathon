@@ -3,7 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
 import { IPC } from '../shared/events'
@@ -12,8 +12,11 @@ import { Haptics } from './haptics'
 import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
 import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
-import { runMock } from './mock'
+import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
+import { cleanText, MAX } from './agent/sanitize'
+import { WinMic } from './audio/win-mic'
+import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -88,7 +91,13 @@ app.whenReady().then(() => {
 
   const bus = new EventBus()
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
-  new Agent(bus, sendUi, haptics, new Llm(), names[0])
+  const llm = new Llm()
+  // B: Windows-level mic (state for the mic doctor, and the fixes a card names). Only a click runs a fix.
+  const winMic = new WinMic()
+  new Agent(bus, sendUi, haptics, llm, names[0], winMic.available ? winMic : null)
+  // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
+  // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
+  if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
   // Speech engine status → activity panel. Lines from startup are replayed once the window has loaded.
   const sttStatus: string[] = []
   onSttStatus((text) => {
@@ -102,14 +111,35 @@ app.whenReady().then(() => {
   for (const type of ['TRANSCRIPT_PARTIAL', 'TRANSCRIPT_FINAL'] as const) {
     bus.on(type, (e) => {
       if (e.source !== 'call_audio') return
-      const text = String(e.data?.text ?? '')
-      const speaker = e.data?.speaker ? String(e.data.speaker) : undefined
+      // Captions skip the agents, so they are cleaned here (sanitize.ts rule: all incoming text is cleaned).
+      const text = cleanText(e.data?.text, MAX.transcriptChunk)
+      const speaker = cleanText(e.data?.speaker, MAX.speakerName) || undefined
       sendUi({ type: 'CAPTION', text, final: type === 'TRANSCRIPT_FINAL', speaker, highlight: findName(text, names)?.word })
     })
   }
-  app.on('before-quit', () => audio.stop()) // closes recordings cleanly
+  app.on('before-quit', () => {
+    audio.stop() // closes recordings cleanly
+    winMic.stop()
+  })
+  // The Windows default mic, on every change → MIC_STATE (the agent's mic doctor uses it).
+  winMic.watch((m) => {
+    console.log(`[mic] default: ${m.kind} "${m.name}"${m.muted ? ' MUTED' : ''}, volume ${Math.round(m.volume * 100)} %${m.otherKind ? `, other mic: ${m.otherKind}` : ''}`)
+    bus.publish(makeEvent('MIC_STATE', 'mic', { name: m.name, kind: m.kind, muted: m.muted, volume: m.volume, ...(m.otherKind ? { other_kind: m.otherKind } : {}) }))
+  })
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
+    // Check-up "Try the vibrations": the user learns the 4 signals. Fires only a known pattern, decides nothing.
+    if (ev.type === 'HAPTIC_TEST' && ev.source === 'ui') {
+      const key = String(ev.data?.pattern ?? '')
+      const p = Object.hasOwn(HAPTIC_PATTERNS, key) ? HAPTIC_PATTERNS[key as keyof typeof HAPTIC_PATTERNS] : null
+      if (!p) return
+      void Promise.all(p.waveforms.map((w) => haptics.fire(w))).then((oks) => {
+        const ok = oks.every(Boolean)
+        console.log(`[haptic test] ${p.label}: ${p.waveforms.join(' + ')}${ok ? '' : ' (FAILED: is HapticWeb running?)'}`)
+        sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: ok ? 'action' : 'error', text: `Vibration test "${p.label}": ${p.waveforms.join(' + ')}${ok ? '' : ' failed (is HapticWeb running?)'}` } })
+      })
+      return
+    }
     // Dev text box: typed "speech" goes through the same pipeline as real STT output.
     if (ev.type === 'TRANSCRIPT_FINAL' && ev.source === 'call_audio' && ev.data?.dev) {
       audio.onText('call_audio', String(ev.data.text ?? ''), true)
@@ -148,8 +178,9 @@ app.whenReady().then(() => {
   }
 
   if (process.argv.includes('--mock')) {
-    const file = join(app.getAppPath(), '..', 'demo', 'mock-events.json')
-    mainWin?.webContents.once('did-finish-load', () => runMock(file, bus, audio))
+    const root = join(app.getAppPath(), '..')
+    const file = resolve(root, process.env.TAP_MOCK_FILE || join('demo', 'mock-events.json'))
+    mainWin?.webContents.once('did-finish-load', () => runMock(file, bus, audio, () => llm.stallNextCall()))
   }
 })
 
