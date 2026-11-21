@@ -79,6 +79,7 @@ app.whenReady().then(() => {
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
   new Agent(bus, sendUi, haptics, new Llm(), names[0])
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
+  app.on('before-quit', () => audio.stop()) // closes recordings cleanly
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
     // Dev text box: typed "speech" goes through the same pipeline as real STT output.

@@ -25,6 +25,7 @@ export class Agent {
   private transcript: Line[] = []
   private awayFrom: number | null = null
   private lastMicLoud = now()
+  private lastMicLevelAt = 0 // when we last got a MIC_LEVEL: no mic monitoring → no mic-silent alert
   private mouthActive = false
   private lastMicAlert = 0
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
@@ -137,6 +138,7 @@ export class Agent {
   /** P0-4: mouth moving + mic silent for ≥ 2 s. */
   private onMicLevel(e: TapEvent): void {
     const rms = Number(e.data?.rms ?? 0)
+    this.lastMicLevelAt = e.ts
     if (rms > MIC_SILENT_RMS) this.lastMicLoud = e.ts
     this.checkMicSilent()
   }
@@ -148,6 +150,7 @@ export class Agent {
 
   private checkMicSilent(): void {
     const t = now()
+    if (t - this.lastMicLevelAt > 1.5) return // mic not monitored ("Start mic" not clicked): we know nothing
     if (!this.mouthActive || t - this.lastMicLoud < MIC_SILENT_AFTER_S || t - this.lastMicAlert < MIC_ALERT_COOLDOWN_S) return
     this.lastMicAlert = t
     this.log('decision', 'mouth moving but mic sends nothing → MIC_SILENT_WHILE_SPEAKING')

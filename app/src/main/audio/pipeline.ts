@@ -12,6 +12,7 @@ import { makeEvent } from '../../shared/events'
 import type { EventBus } from '../bus'
 import { findName, findTrouble, isQuestion } from '../detectors/text'
 import { createSherpaEngine, loadSherpa } from './sherpa'
+import { Recorder } from './recorder'
 
 export interface SttEngine {
   /** feed 16 kHz mono Int16 PCM */
@@ -46,6 +47,7 @@ export function createStt(kind: string): SttFactory | null {
 export class AudioPipeline {
   private engines = new Map<Source, SttEngine>()
   private nameFiredThisSentence = false
+  private recorder = process.env.TAP_RECORD === '1' ? new Recorder() : null
 
   constructor(
     private bus: EventBus,
@@ -69,6 +71,8 @@ export class AudioPipeline {
       }
       this.stats.set(source, s)
     }
+
+    this.recorder?.push(source, pcm)
 
     if (!this.stt) return
     let engine = this.engines.get(source)
@@ -111,6 +115,7 @@ export class AudioPipeline {
 
   stop(): void {
     for (const e of this.engines.values()) e.stop()
+    this.recorder?.close()
     this.engines.clear()
   }
 }
