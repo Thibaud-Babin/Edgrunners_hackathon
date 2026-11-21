@@ -88,6 +88,18 @@ export function findName(text: string, variants: string[], threshold = 0.8): Nam
  * of a question), the sentence speaks to "you", and the word sounds like the name's ending (French "-o" sound).
  * Needs punctuated transcripts (Parakeet / Deepgram). Expect some false alerts on other "-o" names (Leo, Bruno).
  */
+/**
+ * Is this sentence spoken TO someone? (question mark, "you/your", a question word, or the name opens the sentence.)
+ * Used to drop name hits in sentences that merely sound like the name ("let's talk about the tibo by the window").
+ */
+export function addressesSomeone(rawText: string, nameWord: string): boolean {
+  const t = normalise(rawText)
+  if (rawText.includes('?')) return true
+  if (/\b(you|your|youre|you're|what|how|why|when|where|who|which|can|could|would|should|will|think)\b/.test(t)) return true
+  const first = t.replace(/^(so|and|ok|okay|hey|hi|well|then|yes|right)\s+/, '').split(' ')[0]
+  return first === nameWord || t.split(' ')[0] === nameWord
+}
+
 const COMMON_O_WORDS = new Set(['so', 'no', 'oh', 'ok', 'hello', 'also', 'two', 'too', 'to', 'do', 'go', 'who', 'yo', 'bravo', 'ago', 'though', 'although', 'photo', 'video', 'demo', 'memo', 'radio', 'audio', 'info', 'logo', 'hmm', 'ohno'])
 
 export function findAddressed(rawText: string, variants: string[]): NameHit | null {

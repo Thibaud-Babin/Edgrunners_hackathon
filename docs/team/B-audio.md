@@ -4,6 +4,20 @@
 
 This is the **riskiest part** of the project. Do the risk spike first, decide fallbacks fast, and ask for help early (C and D can help after 19:00).
 
+## Decision (Sat 21 Nov, 18:00): Deepgram for the live demo ✅
+Real 2-min Meet call recorded with `TAP_RECORD=1`, compared with `scripts/stt-compare.mts`:
+
+| Engine | Sentences | Names (of 7) | False alerts | Notes |
+|---|---|---|---|---|
+| sherpa zipformer (old default) | gibberish | 0 | 0 | trained on audiobooks, fails on call audio |
+| Parakeet TDT 0.6B v2 (local) + context rule | ✓ | 5 | 0 | best local option, ~0.8 s per sentence |
+| **Deepgram nova-3 + keyterms (live in Tap)** | ✓ | **6** | **0** | knock fires on the partial, before the sentence ends |
+
+- Use `TAP_STT=deepgram` + `DEEPGRAM_API_KEY` in `app/.env`. Without a key it falls back to local sherpa.
+- A name only counts when the sentence speaks to someone (`addressesSomeone`), which removes "talk about the table → tibo".
+- `findAddressed` catches mangled names used to address someone ("hey bo, are you still here?").
+- TODO: wire Parakeet + Silero VAD as the local `TAP_STT=parakeet` fallback (no internet at the venue).
+
 ## Status (Sat 21 Nov, pre-hackathon spike) ✅
 - **Capture:** Electron loopback works on Thibaud's laptop (~32 kB/s, level follows the sound).
 - **Local STT:** sherpa-onnx streaming Zipformer (English, int8) — `npm run setup-stt`, `TAP_STT=sherpa`. ~7× faster than real time, model loads in ~5.5 s at startup.

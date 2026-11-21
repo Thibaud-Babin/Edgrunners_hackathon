@@ -10,9 +10,10 @@
 import type { Source } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import type { EventBus } from '../bus'
-import { findName, findTrouble, isQuestion } from '../detectors/text'
+import { addressesSomeone, findAddressed, findName, findTrouble, isQuestion } from '../detectors/text'
 import { createSherpaEngine, loadSherpa } from './sherpa'
 import { Recorder } from './recorder'
+import { createDeepgramEngine, deepgramAvailable } from './deepgram'
 
 export interface SttEngine {
   /** feed 16 kHz mono Int16 PCM */
@@ -39,6 +40,11 @@ export function createStt(kind: string): SttFactory | null {
       console.error('[stt] sherpa-onnx failed to load — falling back to the dev text box only:', err)
       return null
     }
+  }
+  if (kind === 'deepgram') {
+    if (deepgramAvailable()) return createDeepgramEngine
+    console.error('[stt] TAP_STT=deepgram but DEEPGRAM_API_KEY is missing in app/.env — falling back to local sherpa')
+    return createStt('sherpa')
   }
   console.warn(`[stt] engine "${kind}" not implemented yet — use the dev text box or --mock`)
   return null
@@ -93,7 +99,12 @@ export class AudioPipeline {
 
     // Name: checked on PARTIAL results too, so the knock comes while the sentence is still being said.
     // Fires once per sentence (reset on the final result).
-    const name = findName(text, this.names)
+    // The name only counts when the sentence speaks TO someone (question, "you", or the name opens the sentence):
+    // removes "let's talk about the [table→tibo]" false alerts. On the final result, also try the vocative
+    // rule for names the transcriber mangled ("hey bo, are you still here?").
+    let name = findName(text, this.names)
+    if (name && !addressesSomeone(text, name.word)) name = null
+    if (!name && final) name = findAddressed(text, this.names)
     if (name && !this.nameFiredThisSentence) {
       this.nameFiredThisSentence = true
       if (process.env.TAP_DEBUG_AUDIO !== '0') console.log(`[stt ${Date.now()}] NAME_MENTIONED (${final ? 'final' : 'partial'}) "${name.word}" in: ${text}`)

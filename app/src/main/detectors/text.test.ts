@@ -1,7 +1,7 @@
 // Run with: npm test   (Node's built-in test runner, no extra deps)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findAddressed, findName, findTrouble, isQuestion } from './text.ts'
+import { addressesSomeone, findAddressed, findName, findTrouble, isQuestion } from './text.ts'
 
 const NAMES = ['Thibaud', 'Thibault', 'Tibo']
 
@@ -48,4 +48,12 @@ test('context rule: mangled name used to address someone (real Parakeet output, 
   assert.equal(findAddressed('marc, can you send it?', NAMES), null)
   assert.equal(findAddressed('so, are you coming?', NAMES), null)
   assert.equal(findAddressed('yes, i can hear you.', NAMES), null)
+})
+
+test('name only counts when the sentence speaks to someone (real Deepgram output, 2026-11-21)', () => {
+  assert.ok(!addressesSomeone("let's let's talk about the tibo by the window for the demo booth", 'tibo')) // "table"
+  assert.ok(addressesSomeone('and what about thibault', 'thibault'))
+  assert.ok(addressesSomeone('tibo, could you check the numbers before monday', 'tibo'))
+  assert.ok(addressesSomeone('thibault, we need your opinion on the design', 'thibault'))
+  assert.ok(addressesSomeone('Thibaud. Thibaud!', 'thibaud'))
 })
