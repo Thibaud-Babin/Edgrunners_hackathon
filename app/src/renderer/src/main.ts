@@ -30,13 +30,16 @@ interface OrbNode {
   color: string
   desc: string
   rel: string[]
+  action?: 'captions' | 'summary'
 }
 const ORBIT: OrbNode[] = [
   { page: 'check', icon: '✓', name: 'Check-up', color: 'rgba(52, 211, 153, 0.9)', desc: 'Camera, mic and playback test before the call.', rel: ['activity'] },
   { page: 'activity', icon: '≡', name: 'Activity', color: 'rgba(96, 165, 250, 0.9)', desc: 'Everything Tap saw, decided and did — plus cost.', rel: ['check', 'it', 'dev'] },
   { page: 'it', icon: '▦', name: 'IT view', color: 'rgba(251, 191, 36, 0.9)', desc: 'Team impact metrics — simulated data.', rel: ['activity'] },
   { page: 'dev', icon: '⚙', name: 'Dev tools', color: 'rgba(192, 132, 252, 0.9)', desc: 'Replay fake meeting events for the demo.', rel: ['activity'] },
-  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Theme and display.', rel: [] }
+  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Theme and display.', rel: [] },
+  { page: 'captions', icon: '', name: 'Live Captions', color: 'rgba(34, 211, 238, 0.88)', desc: 'Show or hide live captions without stopping transcription.', rel: ['activity'], action: 'captions' },
+  { page: 'summary', icon: '', name: 'Meeting Summary', color: 'rgba(167, 139, 250, 0.9)', desc: 'Open the real recaps collected during this meeting.', rel: ['activity'], action: 'summary' }
 ]
 const RADIUS = 220
 const nodeEls = Array.from(document.querySelectorAll<HTMLElement>('.orbit-node'))
@@ -129,7 +132,7 @@ function showHub(): void {
 // Mini-graph: round page-jump buttons appended to each page header, in each node's color.
 for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
   const mini = el('div', 'mini-graph')
-  for (const o of ORBIT.filter((x) => x.page !== 'settings')) {
+  for (const o of ORBIT.filter((x) => !x.action && x.page !== 'settings')) {
     const b = el('button', '', o.icon)
     b.dataset.page = o.page
     b.title = o.name
@@ -141,9 +144,118 @@ for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
   right.append(mini)
 }
 
+const CAPTIONS_KEY = 'tap:captions-enabled'
+const captionsNode = $('node-captions')
+const captionsBadge = $('badge-captions')
+
+function captionsEnabled(): boolean {
+  try {
+    return localStorage.getItem(CAPTIONS_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function showCaptionState(enabled: boolean): void {
+  captionsNode.classList.toggle('state-on', enabled)
+  captionsNode.setAttribute('aria-pressed', String(enabled))
+  captionsBadge.textContent = enabled ? 'ON' : 'OFF'
+}
+
+function toggleCaptions(): void {
+  const enabled = !captionsEnabled()
+  try { localStorage.setItem(CAPTIONS_KEY, String(enabled)) } catch { /* renderer storage unavailable */ }
+  showCaptionState(enabled)
+}
+
+interface MeetingSummaryItem {
+  id: string
+  title: string
+  summary: string
+  transcript: string
+  question?: string
+  receivedAt: number
+}
+
+const summaryPanel = $('meeting-summary')
+const summaryBackdrop = $('summary-backdrop')
+const summaryNode = $('node-summary')
+const summaryBadge = $('badge-summary')
+const meetingSummaries: MeetingSummaryItem[] = []
+
+function renderMeetingSummaries(): void {
+  summaryBadge.textContent = meetingSummaries.length ? `${meetingSummaries.length} recap${meetingSummaries.length === 1 ? '' : 's'}` : 'empty'
+  if (!meetingSummaries.length) {
+    const empty = el('div', 'summary-empty')
+    empty.append(el('strong', '', 'No summary yet'), el('span', '', 'Tap will show real meeting recaps here when they become available.'))
+    $('summary-content').replaceChildren(empty)
+    return
+  }
+  $('summary-content').replaceChildren(
+    ...meetingSummaries.map((item) => {
+      const article = el('article', 'summary-entry')
+      const meta = el('div', 'summary-entry-meta')
+      meta.append(el('strong', '', item.title), el('span', '', new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })))
+      article.append(meta)
+      if (item.question) article.append(el('p', 'summary-entry-question', item.question))
+      if (item.summary) article.append(el('p', 'summary-entry-text', item.summary))
+      if (item.transcript) {
+        const details = document.createElement('details')
+        details.append(el('summary', '', 'View transcript'), el('pre', 'summary-transcript', item.transcript))
+        article.append(details)
+      }
+      return article
+    })
+  )
+}
+
+function rememberMeetingSummary(item: MeetingSummaryItem): void {
+  const existing = meetingSummaries.findIndex((summary) => summary.id === item.id)
+  if (existing >= 0) meetingSummaries.splice(existing, 1)
+  meetingSummaries.unshift(item)
+  meetingSummaries.length = Math.min(meetingSummaries.length, 20)
+  renderMeetingSummaries()
+}
+
+function setSummaryOpen(open: boolean): void {
+  summaryPanel.classList.toggle('open', open)
+  summaryBackdrop.classList.toggle('open', open)
+  summaryPanel.setAttribute('aria-hidden', String(!open))
+  summaryBackdrop.setAttribute('aria-hidden', String(!open))
+  summaryNode.classList.toggle('state-on', open)
+  summaryNode.setAttribute('aria-expanded', String(open))
+  if (open) $<HTMLButtonElement>('summary-close').focus()
+  else if (selected >= 0 && ORBIT[selected]?.action === 'summary') {
+    selected = -1
+    layoutOrbit()
+    startRot()
+  }
+}
+
+showCaptionState(captionsEnabled())
+renderMeetingSummaries()
+$('summary-close').onclick = () => setSummaryOpen(false)
+
 nodeEls.forEach((n, i) => {
   n.onclick = (e) => {
     e.stopPropagation()
+    const action = ORBIT[i].action
+    if (action === 'captions') {
+      toggleCaptions()
+      return
+    }
+    if (action === 'summary') {
+      const opening = !summaryPanel.classList.contains('open')
+      if (opening) {
+        selected = i
+        stopRot()
+        const target = 270 - i * STEP
+        rot += ((((target - rot) % 360) + 540) % 360) - 180
+        layoutOrbit()
+      }
+      setSummaryOpen(opening)
+      return
+    }
     if (selected === i) {
       clearSelection()
       startRot()
@@ -172,6 +284,10 @@ $('op-open').onclick = () => {
 document.querySelectorAll<HTMLElement>('.back-hub').forEach((b) => (b.onclick = showHub))
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  if (summaryPanel.classList.contains('open')) {
+    setSummaryOpen(false)
+    return
+  }
   if (hub.classList.contains('hidden')) showHub()
   else if (selected >= 0) {
     clearSelection()
@@ -449,6 +565,26 @@ window.tap.onUi((cmd: UiCommand) => {
     $('raw-log').textContent = seen.join('\n')
   }
   switch (cmd.type) {
+    case 'SHOW_RECAP':
+      rememberMeetingSummary({
+        id: cmd.id,
+        title: 'You were addressed',
+        summary: cmd.summary,
+        transcript: cmd.transcript,
+        ...(cmd.question ? { question: cmd.question } : {}),
+        receivedAt: Date.now()
+      })
+      break
+    case 'SHOW_AWAY_SUMMARY':
+      rememberMeetingSummary({
+        id: cmd.id,
+        title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
+        summary: cmd.summary,
+        transcript: cmd.transcript,
+        ...(cmd.question_to_you ? { question: cmd.question_to_you } : {}),
+        receivedAt: Date.now()
+      })
+      break
     case 'LOG_ENTRY':
       addLog(cmd.entry)
       break
