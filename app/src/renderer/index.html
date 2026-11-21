@@ -53,6 +53,7 @@
             <div class="cam-box">
               <video id="video" muted playsinline></video>
               <div class="cam-empty" id="cam-empty">Camera off</div>
+              <div class="face-frame" id="face-frame"></div>
               <span class="cam-badge" id="cam-badge">off</span>
             </div>
             <pre class="vision-info" id="vision-info"></pre>
@@ -67,6 +68,7 @@
             <div class="score">
               <span class="score-num" id="score-num">–</span>
               <div class="score-bar"><i id="score-bar"></i></div>
+              <button class="btn" id="btn-checkup-again">Run again</button>
             </div>
             <ul class="checks" id="checks"></ul>
           </div>
@@ -109,13 +111,11 @@
           <div class="head-left">
             <button class="btn ghost back-hub">← Graph</button>
             <div>
-              <h2>IT view</h2>
+              <h2>IT view <span class="sim">SIMULATED DATA</span></h2>
               <p id="it-sub">Meeting problems across the company.</p>
             </div>
           </div>
-          <div class="head-right">
-            <span class="sim">SIMULATED DATA</span>
-          </div>
+          <div class="head-right"></div>
         </div>
         <div class="tiles" id="it-tiles"></div>
         <div class="grid-2">

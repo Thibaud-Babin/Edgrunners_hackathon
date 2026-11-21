@@ -119,10 +119,11 @@ async function startCamera(): Promise<void> {
     $('vision-info').textContent = face
       ? `yaw ${pose?.yaw.toFixed(0)}°  pitch ${pose?.pitch.toFixed(0)}°  roll ${pose?.roll.toFixed(0)}°  jawOpen ${(blend['jawOpen'] ?? 0).toFixed(2)}  browInnerUp ${(blend['browInnerUp'] ?? 0).toFixed(2)}`
       : 'no face'
+    $('face-frame').style.display = face ? 'block' : 'none'
   })
   camStarted = true
   $('cam-empty').style.display = 'none'
-  $('cam-badge').textContent = 'live'
+  $('cam-badge').textContent = '● Live'
   $('btn-camera').textContent = 'Camera on'
 }
 
@@ -300,7 +301,7 @@ $('btn-checkup').onclick = async () => {
     void refresh().then(() => {
       if (!micErr && micPeak <= MIC_PASS) {
         rows.mic.set('bad', 'no sound heard in 10 s', 'Wrong input selected? Try the laptop mic:')
-        const fix = el('button', 'btn small', 'Use laptop mic')
+        const fix = el('button', 'btn primary small', 'Use laptop mic')
         fix.onclick = () => window.tap.emit(makeEvent('USER_CLICK', 'ui', { action_id: 'switch_input_device', args: {} }))
         rows.mic.mid.append(fix)
       }
@@ -316,6 +317,7 @@ $('btn-checkup').onclick = async () => {
   }, CHECK_MS)
   btn.textContent = 'Checking…'
 }
+$('btn-checkup-again').onclick = () => $('btn-checkup').click()
 
 // ---------- activity log + counters (from the agent) ----------
 const ICONS: Record<LogEntry['kind'], string> = { event: '👁', decision: '⚖', llm: '✦', action: '⚡', blocked: '⛔', error: '⚠' }
