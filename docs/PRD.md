@@ -187,9 +187,11 @@ docs/                PRD, design, research
 | Nod / shake | two reversals of ±8–10° in pitch (nod) or yaw (shake) within ~1.2 s |
 | Tilt left/right | ±15° roll held 400 ms |
 | Looking away | abs(yaw) > 28 deg or abs(pitch) > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
-| Mouth moving | jawOpen std-dev over a 1 s window, only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg (at a big pitch the blendshape drifts); reset + emit false outside that range |
+| Mouth moving | jawOpen std-dev over a 1 s window, only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg (at a big pitch the blendshape drifts); reset + emit false outside that range; debounced 300 ms on / 800 ms off |
+| Frozen camera | <= 3 of the 3072 pixels of a 64x48 frame change for > 3 s (a real camera always has sensor noise) |
+| Lighting | too dark: mean luma <= 60 held 0.8 s (clears at >= 80); too bright: mean luma >= 200 held 0.8 s (clears at <= 180); validated on a labelled 8-image set (4 dark / 4 light) |
 
-All gestures: hysteresis + ~1 s cooldown; a 10 s neutral-face calibration at start (pattern inspired by Google Project Gameface's `gesture → action, threshold, hold` bindings). These thresholds are starting points from our research, not measured values.
+All gestures: hysteresis + ~1 s cooldown; a 10 s neutral-face calibration at start (pattern inspired by Google Project Gameface's `gesture → action, threshold, hold` bindings). Gesture thresholds are starting points from our research, not measured values; lighting thresholds were validated on a labelled 8-image set (not committed).
 
 ## 5. Logitech integration
 

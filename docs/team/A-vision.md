@@ -14,15 +14,15 @@
 |---|---|---|
 | `USER_AWAY` | `{ reason: 'turned_away' \| 'no_face' }` | yaw > 28 deg or pitch > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
 | `USER_BACK` | — | face back towards the screen |
-| `MOUTH_MOVING` | `{ active: boolean }` | only when it changes; only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg; forced false outside that range |
+| `MOUTH_MOVING` | `{ active: boolean }` | only when it changes; only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg; forced false outside that range; debounced 300 ms on / 800 ms off (B's request) |
 | `FACE_OUT_OF_FRAME` | — | no face detected — **baseline: only emitted together with `USER_AWAY` (reason `no_face`)** |
-| `CAMERA_FROZEN` | — | frames identical for > 3 s — **not implemented in the baseline** |
-| `LOW_LIGHT` | `{ brightness }` | mean brightness too low — **not implemented in the baseline** |
+| `CAMERA_FROZEN` | - | <= 3 of the 3072 pixels of a 64x48 frame changed for > 3 s |
+| `LOW_LIGHT` | `{ brightness }` | mean luma < 60 for 0.8 s (clears above 80) |
 | `GESTURE_NOD` / `_SHAKE` / `_BROW_RAISE` / `_TILT_LEFT` / `_TILT_RIGHT` (P1) | `{ confidence }` | once per gesture, then ~1 s cooldown |
 
-You also keep **`cameraHealth()`** (in `vision.ts`) up to date: `{ running, faceInFrame, frozen, brightness, fps }`. **D's check-up screen reads it**, so don't rename its fields.
+You also keep **`cameraHealth()`** (in `vision.ts`) up to date: `{ running, faceInFrame, frozen, brightness, tooBright, fps }`. **D's check-up screen reads it**, so don't rename its fields.
 
-> **Baseline today:** `frozen` is always `false` and `brightness` is always `null` — the frozen-frame and low-light detectors are **not implemented** (they are parked, with the other vision hardening, in a local stash). D's check-up must not present those two as "pass".
+> **Camera health method (implemented):** mean luma (0.299R + 0.587G + 0.114B) on a 64x48 frame every 250 ms. Too dark <= 60 (clears >= 80), too bright >= 200 (clears <= 180), each held 0.8 s; frozen when <= 3 of 3072 pixels change for 3 s. Thresholds validated on a labelled 8-image set (4 dark, 4 light; not committed; means 10.9-31.5 and 202.3-206.8, also asserted in health.test.ts). Bright sets cameraHealth().tooBright (no event; contract unchanged).
 
 Who uses your events: C's agent (away summary P0-3, mic-silent P0-4, gestures P1-1), D's check-up (P0-5).
 
@@ -35,15 +35,15 @@ Who uses your events: C's agent (away summary P0-3, mic-silent P0-4, gestures P1
 **Camera sharing (the Block-2 answer):** out of the box the RGB interface is **single-consumer** — Zoom/Meet/Windows Camera fail while Tap holds it, and the IR interface keeps working because it is a separate USB interface. **Fixed** with Windows 11 → Settings → Bluetooth & devices → Cameras → **LVNext Camera** → Advanced camera options → **"Allow multiple apps to use camera at the same time"**. Verified: Zoom + Tap live at the same time. Keep this setting on the demo laptop and re-check after Windows/driver updates.
 If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a second laptop joins with video), (2) the call uses the IR or CPD camera, (3) OBS Virtual Camera as last resort (not installed — avoid).
 
-**Demo consequence:** the current (baseline) away detector only watches **yaw** — rehearse PRD §10 step 2 by turning the head **sideways** (not just glancing down) until `USER_AWAY` fires.
+**Demo consequence:** the away detector watches **yaw AND pitch**, so the phone glance triggers it. Rehearse PRD section 10 step 2 (look down at the phone) and confirm `USER_AWAY` within ~2 s.
 
 ## Tasks, in order
 | When | Task | Done when |
 |---|---|---|
 | Sat 12:00–13:00 | `npm install`, `npm run dev`, click **Start camera**. Turn your head left/right/up/down and check the yaw/pitch/roll readout has sensible signs (fix `headPose()` if not). | Readout moves the right way |
 | 13:00-15:00 **spike** (done) | 1) Measure FPS (`cameraHealth().fps`) on the demo laptop **while Zoom/Meet runs**: **about 60 fps with Tap alone, 51 fps with Zoom/Meet running** - more than 3x the 15 fps gate. 2) **Critical test: can Zoom and Tap use the webcam at the same time?** - **done**: RGB is single-consumer by default, fixed by the Windows 11 multi-app camera setting (verified: Zoom + Tap live together). | FPS >= 15 (verified under Zoom/Meet load) and camera-sharing answer known (done) |
-| 15:00–19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). Tune `MOUTH_MOVING` so talking = active, smiling/yawning ≠ active. | 10 tries, ≥ 8 correct, no flicker |
-| 20:00–02:00 | Camera health: `frozen` (compare consecutive frames on a 64×48 canvas), `brightness` (mean luma of the same canvas), `faceInFrame`. Emit `CAMERA_FROZEN` / `LOW_LIGHT`. Add a 10 s neutral-face calibration (store baseline blendshapes). | D's check-up shows real values |
+| 15:00-19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). `MOUTH_MOVING` is debounced (300 ms on / 800 ms off); tune so talking = active, smiling/yawning does not (yawns/laughs accepted). | 10 tries, >= 8 correct, no flicker |
+| 20:00-02:00 | Camera health: frozen (64x48 canvas diff), brightness, tooBright, faceInFrame, `CAMERA_FROZEN` / `LOW_LIGHT` - **done** (`vision/health.ts`). Next: 10 s neutral-face calibration (needed by P1 gestures). | D's check-up shows real values |
 | 02:00–09:00 (P1) | Gestures: nod = two pitch reversals of ±8–10° within ~1.2 s; shake = same on yaw; brow raise = `browInnerUp` ≈ +0.3 over baseline held 300–500 ms; tilt = ±15° roll held 400 ms. Cooldown ~1 s. | 8/10 correct per gesture after calibration |
 | If UI stutters | Move the landmarker into a Web Worker. | UI smooth |
 
@@ -55,6 +55,8 @@ If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a s
 - Head-pose signs depend on the matrix layout (column-major 4×4). Verify physically; compare with `vladmandic/human` `src/face/angles.ts` (MIT).
 - Emit events **on change**, not every frame (the log and the agent will drown).
 - Lighting at the venue differs from home: re-test on Saturday evening in the demo room.
+- Frozen detection assumes real sensor noise: a perfectly static virtual camera looks frozen after 3 s. Do not test with an OBS test pattern and call it a bug.
+- Lighting thresholds were validated on the labelled 8-image set; re-check the venue light before the demo.
 - Looking down at a phone/keyboard: yaw alone misses it; the pitch rule (> 22 deg) catches it. `jawOpen` drifts at large pitch, so `MOUTH_MOVING` is gated to abs(yaw) < 28 deg and abs(pitch) < 22 deg and forced false outside.
 - Research notes with thresholds and repos: `docs/research/build/face_gestures_and_glue.md`.
 
