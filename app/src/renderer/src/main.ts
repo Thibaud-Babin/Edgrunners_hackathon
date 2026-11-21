@@ -64,8 +64,17 @@ function drawEdges(): void {
   const c = $('core-disc').getBoundingClientRect()
   const cx = c.left - hr.left + c.width / 2
   const cy = c.top - hr.top + c.height / 2
+  const coreR = c.width / 2 + 6 // stop a few px outside the disc
+  const nodeR = 40 // node disc radius + gap
   for (const n of nodes) {
     const d = n.querySelector('.disc')!.getBoundingClientRect()
+    const nx = d.left - hr.left + d.width / 2
+    const ny = d.top - hr.top + d.height / 2
+    const dx = nx - cx
+    const dy = ny - cy
+    const len = Math.hypot(dx, dy) || 1
+    const ux = dx / len
+    const uy = dy / len
     let l = lines.get(n)
     if (!l) {
       l = document.createElementNS('http://www.w3.org/2000/svg', 'line')
@@ -73,10 +82,10 @@ function drawEdges(): void {
       edges.append(l)
       lines.set(n, l)
     }
-    l.setAttribute('x1', String(cx))
-    l.setAttribute('y1', String(cy))
-    l.setAttribute('x2', String(d.left - hr.left + d.width / 2))
-    l.setAttribute('y2', String(d.top - hr.top + d.height / 2))
+    l.setAttribute('x1', String(cx + ux * coreR))
+    l.setAttribute('y1', String(cy + uy * coreR))
+    l.setAttribute('x2', String(nx - ux * nodeR))
+    l.setAttribute('y2', String(ny - uy * nodeR))
   }
 }
 for (const n of nodes) {
@@ -98,6 +107,7 @@ function setListening(): void {
   const b = $('core-badge')
   b.textContent = '● listening'
   b.classList.add('on')
+  $('hub-note').textContent = "Tap is listening in the background. Minimize this window (don't close it) and start your call — notifications will pop up when needed."
 }
 
 // ---------- senses ----------

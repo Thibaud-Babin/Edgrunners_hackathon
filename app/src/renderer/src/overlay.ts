@@ -105,7 +105,8 @@ let awayTimer: ReturnType<typeof setInterval> | undefined
 let knockTimer: ReturnType<typeof setTimeout> | undefined
 
 function setAway(on: boolean): void {
-  awaySince = on ? (awaySince ?? Date.now()) : null
+  if (on === (awaySince !== null)) return // already in this state, keep counting
+  awaySince = on ? Date.now() : null
   pill.classList.toggle('away', on)
   clearInterval(awayTimer)
   if (!on) {
@@ -115,10 +116,11 @@ function setAway(on: boolean): void {
   }
   pillStatus.className = 'away-timer'
   const tick = (): void => {
-    pillStatus.textContent = `away · catching up ${fmtDuration((Date.now() - (awaySince ?? Date.now())) / 1000)}`
+    const s = Math.max(0, Math.floor((Date.now() - (awaySince ?? Date.now())) / 1000))
+    pillStatus.textContent = `away · catching up ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
   }
   tick()
-  awayTimer = setInterval(tick, 500)
+  awayTimer = setInterval(tick, 250)
 }
 
 function knock(label: string): void {
