@@ -42,7 +42,23 @@ export class AudioPipeline {
     private stt: SttFactory | null
   ) {}
 
+  // TEMP audio check — prints once per second per source (set TAP_DEBUG_AUDIO=0 in .env to silence)
+  private stats = new Map<Source, { bytes: number; peak: number; since: number }>()
+
   pushPcm(source: Source, pcm: Int16Array): void {
+    if (process.env.TAP_DEBUG_AUDIO !== '0') {
+      const s = this.stats.get(source) ?? { bytes: 0, peak: 0, since: Date.now() }
+      s.bytes += pcm.byteLength
+      for (const v of pcm) s.peak = Math.max(s.peak, Math.abs(v))
+      if (Date.now() - s.since >= 1000) {
+        console.log(`[audio] ${source}: ${s.bytes} B/s, peak ${s.peak}`)
+        s.bytes = 0
+        s.peak = 0
+        s.since = Date.now()
+      }
+      this.stats.set(source, s)
+    }
+
     if (!this.stt) return
     let engine = this.engines.get(source)
     if (!engine) {

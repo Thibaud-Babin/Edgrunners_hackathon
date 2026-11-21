@@ -97,6 +97,13 @@ app.whenReady().then(() => {
 
   createWindows()
 
+  // Dev test: `npm run dev -- --autostart-call` clicks "Start call audio" by itself (for B's capture test).
+  if (process.argv.includes('--autostart-call')) {
+    mainWin?.webContents.once('did-finish-load', () => {
+      void mainWin?.webContents.executeJavaScript("document.getElementById('btn-call').click()", true)
+    })
+  }
+
   if (process.argv.includes('--mock')) {
     const file = join(app.getAppPath(), '..', 'demo', 'mock-events.json')
     mainWin?.webContents.once('did-finish-load', () => runMock(file, bus, audio))
