@@ -59,9 +59,12 @@ body.main { background: var(--bg); height: 100vh; overflow: hidden; position: re
 .orbit-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 14px; }
 .o-glow { position: absolute; left: 50%; top: 34px; transform: translate(-50%, -50%); width: 96px; height: 96px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--c) 45%, transparent), transparent 70%); opacity: 0.55; pointer-events: none; transition: opacity 0.2s; }
 .o-disc { position: relative; width: 56px; height: 56px; border-radius: 50%; background: color-mix(in srgb, var(--c) 22%, transparent); border: 2px solid color-mix(in srgb, var(--c) 70%, transparent); display: grid; place-items: center; font-size: 22px; color: var(--text); transition: transform 0.15s, box-shadow 0.15s; }
+.o-disc svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .orbit-node:hover .o-disc { transform: scale(1.12); box-shadow: 0 0 26px color-mix(in srgb, var(--c) 60%, transparent); }
 .orbit-node:hover .o-glow { opacity: 1; }
 .orbit-node.sel .o-disc { box-shadow: 0 0 30px color-mix(in srgb, var(--c) 70%, transparent); }
+.orbit-node.state-on .o-disc { border-color: var(--c); box-shadow: 0 0 24px color-mix(in srgb, var(--c) 55%, transparent); }
+.orbit-node.state-on .o-badge { border-color: color-mix(in srgb, var(--c) 55%, transparent); color: color-mix(in srgb, var(--c) 80%, var(--text)); }
 .orbit-node.rel .o-disc { animation: relpulse 1.1s ease-in-out infinite; }
 @keyframes relpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); } 50% { box-shadow: 0 0 0 12px transparent; } }
 .o-name { font-weight: 600; font-size: 13px; color: var(--text); }
@@ -75,10 +78,36 @@ body.main { background: var(--bg); height: 100vh; overflow: hidden; position: re
 .op-chip { padding: 3px 10px; border-radius: 999px; font-size: 11px; border: 1px solid color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--text); }
 .op-chip:hover { background: color-mix(in srgb, var(--c) 35%, transparent); }
 #op-open { width: 100%; }
+
+/* Session summary drawer: populated only from real recap commands. */
+.summary-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(4, 7, 14, 0.42); opacity: 0; pointer-events: none; transition: opacity 0.22s ease; }
+.summary-backdrop.open { opacity: 1; pointer-events: none; }
+.meeting-summary { position: fixed; z-index: 90; top: 16px; right: 16px; bottom: 16px; width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(167, 139, 250, 0.45); border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, transparent); box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5); backdrop-filter: blur(22px); transform: translateX(calc(100% + 32px)); opacity: 0; pointer-events: none; transition: transform 0.28s ease, opacity 0.2s ease; }
+.meeting-summary.open { transform: none; opacity: 1; pointer-events: auto; }
+.summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 16px; border-bottom: 1px solid var(--line); }
+.summary-head h2 { margin: 2px 0 0; font-size: 22px; }
+.summary-kicker { color: rgba(196, 181, 253, 0.95); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.summary-close { width: 34px; height: 34px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--panel-2); color: var(--text-2); font-size: 23px; line-height: 1; }
+.summary-close:hover { border-color: rgba(167, 139, 250, 0.8); color: var(--text); }
+.summary-close:focus-visible { outline: 2px solid rgba(167, 139, 250, 0.9); outline-offset: 2px; }
+.summary-content { min-height: 0; flex: 1; overflow-y: auto; padding: 16px 20px 24px; scrollbar-color: rgba(167, 139, 250, 0.55) transparent; }
+.summary-empty { min-height: 220px; display: grid; place-content: center; gap: 7px; padding: 24px; border: 1px dashed color-mix(in srgb, rgba(167, 139, 250, 0.9) 45%, transparent); border-radius: 12px; text-align: center; color: var(--text-2); }
+.summary-empty strong { color: var(--text); font-size: 16px; }
+.summary-entry { padding: 15px 0 17px; border-bottom: 1px solid var(--line); }
+.summary-entry:first-child { padding-top: 0; }
+.summary-entry:last-child { border-bottom: 0; }
+.summary-entry-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--text-2); font-size: 11px; }
+.summary-entry-meta strong { color: rgba(196, 181, 253, 0.95); font-size: 12px; }
+.summary-entry-question { margin: 0 0 9px; padding: 9px 11px; border-left: 3px solid rgba(167, 139, 250, 0.9); border-radius: 0 8px 8px 0; background: rgba(167, 139, 250, 0.1); font-size: 15px; font-weight: 650; line-height: 1.4; }
+.summary-entry-text { margin: 0; color: var(--text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.summary-entry details { margin-top: 10px; color: var(--text-2); font-size: 12px; }
+.summary-entry summary { cursor: pointer; }
+.summary-transcript { margin: 8px 0 0; padding: 10px; max-height: 180px; overflow-y: auto; border-radius: 8px; background: var(--inset); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) {
   .core-disc::before, .core-disc::after { display: none; animation: none; }
   .orbit-node { transition: none; }
   .orbit-node.rel .o-disc { animation: none; }
+  .meeting-summary, .summary-backdrop { transition: none; }
 }
 .head-left { display: flex; align-items: center; gap: 14px; }
 .head-right { display: flex; align-items: center; gap: 14px; }
@@ -256,6 +285,7 @@ body.overlay .toast button { text-shadow: none; }
 
 /* Live captions: full-width in the overlay, with the notification rail raised above them. */
 #captions { position: fixed; z-index: 10; left: 12px; right: 12px; bottom: 12px; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 5px; pointer-events: none; }
+#captions[hidden] { display: none; }
 #captions:empty { display: none; }
 #captions:not(:empty) { max-height: 120px; overflow: hidden; }
 #captions:not(:empty) ~ #toasts { bottom: 138px; }

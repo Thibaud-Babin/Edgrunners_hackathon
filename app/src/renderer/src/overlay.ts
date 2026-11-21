@@ -212,10 +212,39 @@ function knock(label: string): void {
 
 // ---------- live captions: last 3 lines; a partial line is replaced until it becomes final ----------
 const captions = document.getElementById('captions')!
+const CAPTIONS_KEY = 'tap:captions-enabled'
 const MAX_CAPTIONS = 3
 let partialLine: HTMLElement | null = null
+let captionsVisible = true
+
+function readCaptionsEnabled(): boolean {
+  try {
+    return localStorage.getItem(CAPTIONS_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function syncCaptionPreference(): void {
+  const enabled = readCaptionsEnabled()
+  if (enabled === captionsVisible) return
+  captionsVisible = enabled
+  captions.toggleAttribute('hidden', !enabled)
+  if (!enabled) {
+    captions.replaceChildren()
+    partialLine = null
+  }
+}
+
+captionsVisible = readCaptionsEnabled()
+captions.toggleAttribute('hidden', !captionsVisible)
+window.addEventListener('storage', (event) => {
+  if (event.key === CAPTIONS_KEY) syncCaptionPreference()
+})
+setInterval(syncCaptionPreference, 250)
 
 function caption(text: string, final: boolean, speaker?: string, highlight?: string): void {
+  if (!captionsVisible) return
   const line = partialLine ?? el('div', 'caption-line')
   line.replaceChildren()
   line.className = final ? 'caption-line' : 'caption-line partial'
