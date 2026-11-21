@@ -32,14 +32,24 @@ export class Llm {
     try {
       const msg = await this.client.messages.create({
         model: this.model,
-        max_tokens: 200,
+        // Haiku 5.5 thinks by default and thinking counts toward max_tokens: with 200 tokens it sometimes thought
+        // and never answered (empty card). A 3-line summary doesn't need it, and it's faster without.
+        max_tokens: 400,
+        thinking: { type: 'disabled' },
         system: SYSTEM,
         messages: [{ role: 'user', content: `The user's name is ${userName}.\n<transcript>\n${transcript}\n</transcript>` }]
       })
       const text = msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
-      const summary = /SUMMARY:\s*(.*)/i.exec(text)?.[1]?.trim() || text.trim()
-      const q = /QUESTION:\s*(.*)/i.exec(text)?.[1]?.trim()
+      // Labels may be followed by a newline or markdown (**SUMMARY:**); the summary may span several lines.
+      const clean = text.replace(/\*\*/g, '')
+      const summary = (/SUMMARY:\s*([\s\S]*?)(?=\n\s*QUESTION:|$)/i.exec(clean)?.[1] ?? clean).trim()
+      const q = /QUESTION:\s*(.*)/i.exec(clean)?.[1]?.trim()
       const costUsd = (msg.usage.input_tokens * PRICE_IN_PER_MTOK + msg.usage.output_tokens * PRICE_OUT_PER_MTOK) / 1e6
+      if (!summary) {
+        // Seen once on the first (cold) call: empty answer. Never show an empty card.
+        console.warn(`[llm] empty summary (stop_reason ${msg.stop_reason}) → template`)
+        return { ...templateSummary(transcript), costUsd, usedLlm: true }
+      }
       return { summary, question: q && q.toLowerCase() !== 'none' ? q : undefined, costUsd, usedLlm: true }
     } catch (err) {
       console.error('[llm] failed, using template', err)

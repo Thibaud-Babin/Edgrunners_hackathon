@@ -211,6 +211,7 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 .t-body { display: flex; gap: 10px; padding: 6px 12px 8px; }
 .t-tile { flex: none; width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 20px; background: var(--accent-soft); color: var(--accent); }
 .toast.fix .t-tile { background: rgba(255, 93, 93, 0.25); color: var(--bad); }
+.toast.nudge .t-tile { background: rgba(245, 181, 71, 0.25); color: var(--warn); }
 .toast.reply .t-tile { background: rgba(60, 207, 142, 0.25); color: var(--ok); }
 .t-content { min-width: 0; }
 .t-title { font-weight: 600; font-size: 14px; }
@@ -249,3 +250,13 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 /* overlay glass: see-through cards over the call, text kept readable */
 body.overlay .pill, body.overlay .toast { text-shadow: var(--card-text-shadow); border-color: var(--glass-border); }
 body.overlay .toast button { text-shadow: none; }
+
+/* live captions strip (B's command, restyled: glass like the toasts) */
+#captions { position: fixed; left: 12px; right: 12px; bottom: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; pointer-events: none; }
+#captions:empty { display: none; }
+#captions:not(:empty) { max-height: 120px; overflow: hidden; }
+#captions:not(:empty) ~ #toasts { bottom: 138px; }
+.caption-line { background: var(--card); border: 1px solid var(--glass-border); color: var(--text); text-shadow: var(--card-text-shadow); padding: 6px 10px; border-radius: 8px; font-size: 15px; line-height: 1.35; }
+.caption-line.partial { opacity: 0.7; }
+.caption-speaker { color: var(--accent); font-weight: 600; }
+.caption-line mark { background: var(--warn); color: #000; border-radius: 3px; padding: 0 2px; text-shadow: none; }

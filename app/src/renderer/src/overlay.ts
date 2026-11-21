@@ -16,6 +16,40 @@ const pill = document.getElementById('pill')!
 const pillStatus = document.getElementById('pill-status')!
 const pillMeta = document.getElementById('pill-meta')!
 
+// Live captions strip (bottom of the overlay). Renderer from B's version, restyled.
+const captions = document.getElementById('captions')!
+const finalLines: HTMLElement[] = []
+let partialLine: HTMLElement | null = null
+
+/** One caption line; the user's name (highlight) is wrapped in <mark>. Text only, never innerHTML. */
+function captionLine(text: string, speaker?: string, highlight?: string): HTMLElement {
+  const line = el('div', 'caption-line')
+  if (speaker) line.append(el('span', 'caption-speaker', `${speaker}: `))
+  const i = highlight ? text.toLowerCase().indexOf(highlight.toLowerCase()) : -1
+  if (i < 0 || !highlight) line.append(document.createTextNode(text))
+  else {
+    const mark = document.createElement('mark')
+    mark.textContent = text.slice(i, i + highlight.length)
+    line.append(document.createTextNode(text.slice(0, i)), mark, document.createTextNode(text.slice(i + highlight.length)))
+  }
+  return line
+}
+
+function showCaption(text: string, final: boolean, speaker?: string, highlight?: string): void {
+  const line = captionLine(text, speaker, highlight)
+  partialLine?.remove()
+  partialLine = null
+  if (final) {
+    finalLines.push(line)
+    captions.append(line)
+    while (finalLines.length > 3) finalLines.shift()?.remove() // keep the last 3 sentences
+  } else {
+    line.classList.add('partial')
+    partialLine = line
+    captions.append(line)
+  }
+}
+
 const REPLY_MS = 3000
 const MAX_TOASTS = 3
 
@@ -39,7 +73,7 @@ function userDismiss(id: string): void {
 
 interface ToastOpts {
   id: string
-  kind: 'hero' | 'recap' | 'fix' | 'reply'
+  kind: 'hero' | 'recap' | 'fix' | 'nudge' | 'reply'
   icon: string | SVGSVGElement
   title: string
   body: HTMLElement[]
@@ -175,7 +209,7 @@ window.tap.onUi((cmd: UiCommand) => {
         kind: 'hero',
         icon: cmd.trigger === 'name' ? '🔔' : '👋',
         title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
-        body: [...(q ? [question(q)] : []), points(cmd.summary, q), transcript('Full transcript', cmd.transcript, q), ...(q ? [gestureHint()] : [])],
+        body: [...(q ? [question(q)] : []), ...(cmd.summary ? [points(cmd.summary, q)] : []), ...(cmd.transcript ? [transcript('Full transcript', cmd.transcript, q)] : []), ...(q ? [gestureHint()] : [])],
         actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
       })
       break
@@ -186,7 +220,7 @@ window.tap.onUi((cmd: UiCommand) => {
         kind: 'recap',
         icon: '🔔',
         title: 'You were addressed',
-        body: [...(cmd.question ? [question(cmd.question)] : []), points(cmd.summary, cmd.question), transcript('Last 10 seconds', cmd.transcript, cmd.question), ...(cmd.question ? [gestureHint()] : [])],
+        body: [...(cmd.question ? [question(cmd.question)] : []), ...(cmd.summary ? [points(cmd.summary, cmd.question)] : []), ...(cmd.transcript ? [transcript('Last 10 seconds', cmd.transcript, cmd.question)] : []), ...(cmd.question ? [gestureHint()] : [])],
         actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
       })
       break
@@ -206,6 +240,17 @@ window.tap.onUi((cmd: UiCommand) => {
         ]
       })
       break
+    case 'SHOW_NUDGE':
+      addToast({
+        id: cmd.id,
+        kind: 'nudge',
+        icon: '❗',
+        title: cmd.text,
+        body: cmd.question ? [question(cmd.question)] : [],
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id))]
+      })
+      setTimeout(() => removeToast(cmd.id), 12000)
+      break
     case 'SHOW_REPLY': {
       const id = `reply-${Date.now()}`
       const toast = addToast({ id, kind: 'reply', icon: checkIcon(), title: 'You answered', body: [el('div', 'reply-text', cmd.text)], closable: false })
@@ -215,6 +260,27 @@ window.tap.onUi((cmd: UiCommand) => {
       setTimeout(() => removeToast(id), REPLY_MS)
       break
     }
+    case 'SHOW_REPLIES':
+      addToast({
+        id: cmd.id,
+        kind: 'recap',
+        icon: '💬',
+        title: 'Quick replies',
+        body: cmd.question ? [question(cmd.question)] : [],
+        actions: [
+          ...cmd.replies.slice(0, 3).map((r) =>
+            button(r, 'primary', () => {
+              click('speak_reply', { text: r })
+              removeToast(cmd.id)
+            })
+          ),
+          button('Dismiss', 'ghost', () => userDismiss(cmd.id))
+        ]
+      })
+      break
+    case 'CAPTION':
+      showCaption(cmd.text, cmd.final, cmd.speaker, cmd.highlight)
+      break
     case 'DISMISS':
       removeToast(cmd.id)
       break
@@ -232,7 +298,9 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     }
     case 'COUNTERS':
-      pillMeta.textContent = `📷 🎙 · AI ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)}`
+      pillMeta.textContent = `📷 🎙 · AI ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
       break
+    default:
+      break // unknown / future command: ignore, never crash
   }
 })

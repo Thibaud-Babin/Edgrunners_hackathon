@@ -2,6 +2,8 @@
 
 **Mission:** Tap's eyes. From the webcam, tell the rest of the app when the user looks away and back, when their mouth moves, whether the camera is healthy, and (P1) which face gesture they made.
 
+> 📣 **Update from B (Sat 17:45):** `MOUTH_MOVING` flapped constantly on a real call. Please debounce it (≈300 ms on, ≈800 ms off). The mic-silent alert now only fires while "Start mic" is on. Details: [team README](README.md#-update-from-b-audio-sat-1745--read-this).
+
 ## Your files
 - `app/src/renderer/src/vision.ts` (yours)
 - New files you create under `app/src/renderer/src/vision/` (e.g. `gestures.ts`, `worker.ts`)
