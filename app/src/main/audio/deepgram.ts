@@ -42,9 +42,22 @@ export function deepgramAvailable(): boolean {
   return KEY.length > 10
 }
 
-export function createDeepgramEngine(source: Source, onText: (text: string, final: boolean) => void): SttEngine {
+/**
+ * onDead is called (once) when Deepgram is unusable: 2 failed connections in a row (no internet / bad key),
+ * or no message from the server for 6 s while we are sending audio (connection silently dropped).
+ * The pipeline then switches to the local Parakeet engine.
+ */
+export function createDeepgramEngine(
+  source: Source,
+  onText: (text: string, final: boolean) => void,
+  onDead?: (reason: string) => void
+): SttEngine {
   let ws: WebSocket | null = null
   let open = false
+  let failedConnects = 0
+  let lastMsgAt = 0
+  let lastSentAt = 0
+  let dead = false
   let stopped = false
   let queue: ArrayBuffer[] = []
   let stable = '' // is_final pieces of the current sentence
@@ -56,18 +69,41 @@ export function createDeepgramEngine(source: Source, onText: (text: string, fina
     if (text) onText(text, true)
   }
 
+  const die = (reason: string): void => {
+    if (dead || stopped) return
+    dead = true
+    stopped = true
+    console.warn(`[stt] deepgram unusable (${reason})`)
+    if (keepAlive) clearInterval(keepAlive)
+    clearInterval(watchdog)
+    try {
+      ws?.close()
+    } catch {
+      /* ignore */
+    }
+    onDead?.(reason)
+  }
+
+  const watchdog = setInterval(() => {
+    const t = Date.now()
+    if (open && t - lastSentAt < 2000 && t - lastMsgAt > 6000) die('no answer from Deepgram for 6 s')
+  }, 2000)
+
   const connect = (): void => {
     // Node's WebSocket can't set headers: Deepgram accepts the key as the "token" subprotocol.
     ws = new WebSocket(url(), ['token', KEY])
     ws.binaryType = 'arraybuffer'
     ws.onopen = () => {
       open = true
+      failedConnects = 0
+      lastMsgAt = Date.now()
       console.log(`[stt] deepgram connected (${source}), keyterms: ${TERMS.join(', ')}`)
       for (const b of queue) ws?.send(b)
       queue = []
       keepAlive = setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'KeepAlive' })), 8000)
     }
     ws.onmessage = (ev) => {
+      lastMsgAt = Date.now()
       if (typeof ev.data !== 'string') return
       let m: DgMessage
       try {
@@ -88,10 +124,12 @@ export function createDeepgramEngine(source: Source, onText: (text: string, fina
     }
     ws.onerror = (ev) => console.warn('[stt] deepgram error:', (ev as ErrorEvent).message ?? ev.type)
     ws.onclose = (ev) => {
+      const wasOpen = open
       open = false
       if (keepAlive) clearInterval(keepAlive)
       flushSentence()
       if (stopped) return
+      if (!wasOpen && ++failedConnects >= 2) return die(`cannot connect (${ev.code}${ev.reason ? ` ${ev.reason}` : ''})`)
       console.warn(`[stt] deepgram closed (${ev.code} ${ev.reason || ''}) — reconnecting in 1 s`)
       setTimeout(connect, 1000)
     }
@@ -101,12 +139,15 @@ export function createDeepgramEngine(source: Source, onText: (text: string, fina
   return {
     push(pcm: Int16Array): void {
       const buf = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer
+      if (dead) return
+      lastSentAt = Date.now()
       if (open && ws?.readyState === WebSocket.OPEN) ws.send(buf)
       else if (queue.length < 50) queue.push(buf) // keep ≤ 5 s while connecting
     },
     stop(): void {
       stopped = true
       if (keepAlive) clearInterval(keepAlive)
+      clearInterval(watchdog)
       try {
         ws?.send(JSON.stringify({ type: 'CloseStream' }))
       } catch {

@@ -14,7 +14,8 @@
     "postinstall": "node scripts/setup-models.mjs",
     "setup-stt": "node scripts/setup-stt.mjs",
     "stt-bench": "node --experimental-strip-types scripts/stt-bench.mts hotwords",
-    "dev:call": "electron-vite dev -- --autostart-call"
+    "dev:call": "electron-vite dev -- --autostart-call",
+    "dev:e2e": "electron-vite dev -- --autostart-call --autostart-away"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",

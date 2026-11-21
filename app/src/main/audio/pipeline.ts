@@ -14,6 +14,7 @@ import { addressesSomeone, findAddressed, findName, findTrouble, isQuestion } fr
 import { createSherpaEngine, loadSherpa } from './sherpa'
 import { Recorder } from './recorder'
 import { createDeepgramEngine, deepgramAvailable } from './deepgram'
+import { createParakeetEngine, loadParakeet, parakeetInstalled } from './parakeet'
 
 export interface SttEngine {
   /** feed 16 kHz mono Int16 PCM */
@@ -22,6 +23,45 @@ export interface SttEngine {
 }
 
 export type SttFactory = (source: Source, onText: (text: string, final: boolean) => void) => SttEngine
+
+/** Status lines for the activity panel ("Speech: Deepgram → local Parakeet (no internet)"). */
+let statusSink: (text: string) => void = (t) => console.log(`[stt] ${t}`)
+export function onSttStatus(fn: (text: string) => void): void {
+  statusSink = fn
+}
+
+function tryLoadParakeet(): boolean {
+  if (!parakeetInstalled()) return false
+  try {
+    loadParakeet()
+    return true
+  } catch (err) {
+    console.error('[stt] parakeet failed to load:', err)
+    return false
+  }
+}
+
+/**
+ * Deepgram first; if it dies mid-call (Wi-Fi off) or can't connect, switch THIS source to local Parakeet
+ * without restarting. Parakeet is pre-loaded at startup so the switch is instant.
+ */
+function deepgramWithFallback(localReady: boolean): SttFactory {
+  return (source, onText) => {
+    let current: SttEngine
+    current = createDeepgramEngine(source, onText, (reason) => {
+      if (!localReady) {
+        statusSink(`Speech: Deepgram lost (${reason}), no local model installed → transcript stopped`)
+        return
+      }
+      statusSink(`Speech: Deepgram lost (${reason}) → switched to local Parakeet`)
+      current = createParakeetEngine(source, onText)
+    })
+    return {
+      push: (pcm) => current.push(pcm),
+      stop: () => current.stop()
+    }
+  }
+}
 
 /**
  * TODO(B): implement one of these and return it from createStt():
@@ -42,8 +82,23 @@ export function createStt(kind: string): SttFactory | null {
     }
   }
   if (kind === 'deepgram') {
-    if (deepgramAvailable()) return createDeepgramEngine
-    console.error('[stt] TAP_STT=deepgram but DEEPGRAM_API_KEY is missing in app/.env — falling back to local sherpa')
+    const localReady = tryLoadParakeet() // pre-load the fallback (~5 s at startup)
+    if (deepgramAvailable()) {
+      statusSink(`Speech: Deepgram (cloud)${localReady ? ', local Parakeet ready as fallback' : ''}`)
+      return deepgramWithFallback(localReady)
+    }
+    if (localReady) {
+      statusSink('Speech: no DEEPGRAM_API_KEY → local Parakeet')
+      return createParakeetEngine
+    }
+    statusSink('Speech: no DEEPGRAM_API_KEY and no Parakeet → old local model')
+    return createStt('sherpa')
+  }
+  if (kind === 'parakeet') {
+    if (tryLoadParakeet()) {
+      statusSink('Speech: local Parakeet')
+      return createParakeetEngine
+    }
     return createStt('sherpa')
   }
   console.warn(`[stt] engine "${kind}" not implemented yet — use the dev text box or --mock`)
@@ -81,6 +136,8 @@ export class AudioPipeline {
     this.recorder?.push(source, pcm)
 
     if (!this.stt) return
+    // Only the OTHER people are transcribed (detectors ignore the mic). TAP_STT_MIC=1 to transcribe the mic too.
+    if (source !== 'call_audio' && process.env.TAP_STT_MIC !== '1') return
     let engine = this.engines.get(source)
     if (!engine) {
       engine = this.stt(source, (text, final) => this.onText(source, text, final))
