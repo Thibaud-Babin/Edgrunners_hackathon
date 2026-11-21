@@ -4,8 +4,20 @@ import { makeEvent } from '../../shared/events'
 import { startCallAudio, startMic } from './audio'
 import { cameraHealth, startVision } from './vision'
 import { el } from './ui/dom'
+import { currentTheme, initTheme, toggleTheme } from './ui/theme'
+
+initTheme()
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
+
+// ---------- theme switch ----------
+const themeBtn = $('theme-switch')
+const syncThemeBtn = (): void => themeBtn.setAttribute('aria-pressed', String(currentTheme() === 'dark'))
+themeBtn.onclick = () => {
+  toggleTheme()
+  syncThemeBtn()
+}
+syncThemeBtn()
 
 // ---------- sidebar pages ----------
 for (const nav of document.querySelectorAll<HTMLButtonElement>('.nav[data-page]')) {

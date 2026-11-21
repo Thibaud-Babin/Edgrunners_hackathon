@@ -6,6 +6,9 @@
 import type { AllowedAction, UiCommand } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { el, fmtDuration, toPoints } from './ui/dom'
+import { initTheme } from './ui/theme'
+
+initTheme()
 
 const cards = document.getElementById('cards')!
 const flash = document.getElementById('flash')!
