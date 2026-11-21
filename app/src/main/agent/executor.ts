@@ -7,6 +7,7 @@ import type { TapEvent, UiCommand, Waveform } from '../../shared/events.ts'
 import { now } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
+import { ACTION_TIER, denyReason, permission, RoleState, type UserRole } from './permissions.ts'
 import { decide, initialState, type RulesState } from './rules.ts'
 import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent } from './schemas.ts'
 import { cleanText } from './sanitize.ts'
@@ -25,7 +26,9 @@ export interface MicPort {
 }
 
 type SummaryResult = PayloadOf<'summary'>
-export type Verdict = { verdict: 'run'; req: ActionRequest } | { verdict: 'block'; reason: string; category: 'allowlist' | 'provenance' }
+export type Verdict =
+  | { verdict: 'run'; req: ActionRequest }
+  | { verdict: 'block'; reason: string; category: 'allowlist' | 'provenance' | 'permission' }
 
 const SUMMARY_WAIT_MS = 5000 // the LLM itself gives up after 3 s; this only guards against a lost reply
 // shortcut: slices by when B published each line, plus this grace for the STT delay; switch to B's start/end
@@ -45,16 +48,21 @@ export const MAY_TRIGGER: Record<Provenance, boolean> = {
   llm: false // AI output is display-only
 }
 
-/** Actions that change the user's own setup: only the user's own click may start them, never a detector. */
-export const USER_ONLY_ACTIONS: readonly ActionRequest['action'][] = ['switch_input_device', 'fix_mic']
-
-/** Pure gate: (1) schema + allowlist, (2) provenance, (3) user-only actions. */
-export function gate(req: unknown, provenance: Provenance): Verdict {
+/**
+ * Pure gate: (1) schema + allowlist, (2) provenance, (3) role × tier (permissions.ts).
+ * "click" actions run only from the user's own click (provenance `user`): your own devices and data at any rank,
+ * sharing outside the call only for executives and the CEO. Missing role → intern (least privilege).
+ */
+export function gate(req: unknown, provenance: Provenance, role: UserRole = 'intern'): Verdict {
   const parsed = ActionRequest.safeParse(req)
   if (!parsed.success) return { verdict: 'block', reason: 'not a valid, allowlisted action', category: 'allowlist' }
   if (!MAY_TRIGGER[provenance]) return { verdict: 'block', reason: "speech and AI output can't trigger actions", category: 'provenance' }
-  if (USER_ONLY_ACTIONS.includes(parsed.data.action) && provenance !== 'user')
-    return { verdict: 'block', reason: 'only your own click can change your devices', category: 'provenance' }
+  const p = permission(role, parsed.data.action)
+  if (p === 'deny') return { verdict: 'block', reason: denyReason(role, parsed.data.action), category: 'permission' }
+  if (p === 'click' && provenance !== 'user') {
+    const reason = ACTION_TIER[parsed.data.action] === 1 ? 'only your own click can change your devices' : 'only your own click can do this'
+    return { verdict: 'block', reason, category: 'provenance' }
+  }
   return { verdict: 'run', req: parsed.data }
 }
 
@@ -73,9 +81,19 @@ export class Executor {
   private pausedUntil = 0
   private hapticsDisabled = false
   private mic: MicPort | null
+  private roles: RoleState
 
-  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter, mic: MicPort | null = null) {
+  constructor(
+    events: EventBus,
+    bus: AgentBus,
+    ui: (cmd: UiCommand) => void,
+    haptics: HapticsPort,
+    report: Reporter,
+    mic: MicPort | null = null,
+    roles: RoleState = new RoleState()
+  ) {
     this.mic = mic
+    this.roles = roles
     this.bus = bus
     this.ui = ui
     this.haptics = haptics
@@ -122,7 +140,7 @@ export class Executor {
   /** Actions from one decision run in order (e.g. the knock first, then the card). */
   private async run(actions: unknown[], provenance: Provenance, decidedAt: number): Promise<void> {
     for (const a of actions) {
-      const g = gate(a, provenance)
+      const g = gate(a, provenance, this.roles.role)
       if (g.verdict === 'block') {
         const name = (a as { action?: unknown })?.action
         this.report.blocked(`${typeof name === 'string' ? name : 'action'} blocked (${g.reason})`, g.category)
@@ -229,6 +247,12 @@ export class Executor {
       case 'dismiss_card':
         this.ui({ type: 'DISMISS', id: a.cardId })
         return true
+      case 'show_minutes':
+      case 'share_recap':
+      case 'send_action_items':
+      case 'open_it_ticket':
+        this.report.log('decision', `${a.action} is not wired yet`) // filled in by the next steps
+        return false
       case 'send_haptic': {
         if (this.hapticsDisabled) {
           this.ui({ type: 'FLASH', reason: a.waveform })

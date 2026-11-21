@@ -49,7 +49,7 @@ export interface MonitorControls {
 export class Monitor {
   readonly reporter: Reporter
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
-  private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, paused: 0, injectionFlagged: 0, fallbacks: 0, deviceProblems: 0 }
+  private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, permission: 0, paused: 0, injectionFlagged: 0, fallbacks: 0, deviceProblems: 0 }
   private lastSeen: Record<Feed, number>
   private silentFlagged: Record<Feed, boolean> = { camera: false, mic: false, callAudio: false }
   private lastProblem = new Map<string, number>()
@@ -275,7 +275,7 @@ export class Monitor {
     const cost = this.counters.costUsd.toFixed(4)
     const line =
       `Checkup: ${d.actions} actions · ${this.counters.blocked} blocked (invalid ${d.invalid}, allowlist ${d.allowlist}, ` +
-      `provenance ${d.provenance}, paused ${d.paused}) · ${d.injectionFlagged} instruction-like speech · ` +
+      `provenance ${d.provenance}, role ${d.permission}, paused ${d.paused}) · ${d.injectionFlagged} instruction-like speech · ` +
       `${d.deviceProblems} device problems · ${d.fallbacks} AI fallbacks · AI cost ${cost} USD`
     if (line === this.lastCheckup) return
     this.lastCheckup = line

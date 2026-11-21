@@ -15,7 +15,7 @@ import type { Llm } from './llm.ts'
 import { Monitor } from './monitor.ts'
 import { startVisionIntake } from './vision-intake.ts'
 
-export type BlockCategory = 'invalid' | 'allowlist' | 'provenance' | 'paused'
+export type BlockCategory = 'invalid' | 'allowlist' | 'provenance' | 'permission' | 'paused'
 
 /** How agents write the judges' log and the counters (implemented by the Monitor). */
 export interface Reporter {

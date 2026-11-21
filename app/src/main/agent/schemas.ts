@@ -135,9 +135,19 @@ export const ActionRequest = z.discriminatedUnion('action', [
       // Optional second button (instead of "Not now"), e.g. "I'm muted on purpose".
       altLabel: z.string().max(60).optional(),
       altAction: z.enum(['snooze_mic_alerts', 'dismiss_card']).optional(),
+      // Device problem: also offer "Send diagnostics to IT".
+      itTicket: z.boolean().optional(),
       why: Why
     })
     .strict(),
+  // End of call (executive/CEO): decisions + action items card.
+  z.object({ action: z.literal('show_minutes'), why: Why }).strict(),
+  // Role-gated (permissions.ts): share a recap's summary with the team (T3).
+  z.object({ action: z.literal('share_recap'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
+  // Role-gated (T3): send the end-of-call decisions + action items to the attendees.
+  z.object({ action: z.literal('send_action_items'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
+  // The user's own device facts (never speech) to IT (T1, on click).
+  z.object({ action: z.literal('open_it_ticket'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
   // The exact mic fix the card named (Windows level, so Meet hears it too). Only the user's click runs it.
   z
     .object({
