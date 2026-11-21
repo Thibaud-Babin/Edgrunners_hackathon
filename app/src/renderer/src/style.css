@@ -35,4 +35,11 @@ body.overlay { background: transparent; overflow: hidden; }
 #flash { position: fixed; inset: 0; pointer-events: none; border: 0 solid #ffd65c; }
 #flash.on { animation: flash 0.8s ease-out; }
 @keyframes flash { 0% { border-width: 10px; } 100% { border-width: 0; } }
+/* Live captions (added by B, plain version; D: restyle) */
+#captions { position: fixed; left: 16px; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+#captions:empty { display: none; }
+.caption-line { background: rgba(0, 0, 0, 0.78); color: #fff; padding: 6px 10px; border-radius: 8px; font-size: 15px; line-height: 1.35; }
+.caption-line.partial { opacity: 0.7; }
+.caption-speaker { color: #9cc9ff; font-weight: 600; }
+.caption-line mark { background: #ffd65c; color: #000; border-radius: 3px; padding: 0 2px; }
 @keyframes in { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }

@@ -55,7 +55,10 @@ function rig() {
     await flush()
   }
   const cards = () => ui.filter((c) => c.type === 'SHOW_AWAY_SUMMARY')
-  return { ui, logs, say, cam, wait, flush, cards }
+  const sayAs = (text: string, speaker: string, ts: number) =>
+    events.publish({ type: 'TRANSCRIPT_FINAL', ts, source: 'call_audio', data: { text, speaker } })
+  const detect = (type: EventType, data: Record<string, unknown>) => events.publish({ type, ts: Date.now() / 1000, source: 'call_audio', data })
+  return { ui, logs, say, sayAs, detect, cam, wait, flush, cards }
 }
 
 test('away → back: the recap covers only what was said while away', async (t) => {
@@ -118,4 +121,29 @@ test('injection speech while away is only summarised, never acted on', async (t)
     ['SHOW_AWAY_SUMMARY']
   )
   assert.ok(r.logs.includes("Instruction-like speech ignored, speech can't trigger actions"))
+})
+
+test("speaker labels (B's diarization) appear in the recap once two voices were heard", async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = rig()
+  r.cam('USER_AWAY')
+  await r.wait(10)
+  r.sayAs('The release moves to Friday.', 'Speaker 1', T0 + 2) // one voice so far: no label
+  r.sayAs('Thibaud, are you OK with Friday?', 'Speaker 2', T0 + 6) // second voice: labels from now on
+  r.sayAs('Marc owns the test plan.', '‮Speaker 1', T0 + 8) // bidi trick in the label is stripped
+  r.cam('USER_BACK')
+  await r.wait(STT_GRACE_MS / 1000)
+  const [card] = r.cards()
+  assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY')
+  assert.equal(card.transcript, 'The release moves to Friday.\nSpeaker 2: Thibaud, are you OK with Friday?\nSpeaker 1: Marc owns the test plan.')
+})
+
+test("B's WAITING_FOR_YOU shows a nudge with the question; detector provenance is allowed to notify", async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = rig()
+  r.detect('WAITING_FOR_YOU', { question: 'Thibaud, are you OK with Friday?', silent_s: 2.5, mic_monitored: true })
+  await r.flush()
+  const nudge = r.ui.find((c) => c.type === 'SHOW_NUDGE')
+  assert.ok(nudge && nudge.type === 'SHOW_NUDGE')
+  assert.equal(nudge.question, 'Thibaud, are you OK with Friday?')
 })

@@ -8,7 +8,7 @@
  * and final = all stable pieces when the sentence ends.
  */
 import type { Source } from '../../shared/events'
-import type { SttEngine } from './pipeline'
+import type { OnText, SttEngine, SttMeta } from './pipeline'
 
 const KEY = process.env.DEEPGRAM_API_KEY || ''
 const TERMS = (process.env.TAP_HOTWORDS || process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim()).filter(Boolean)
@@ -16,7 +16,7 @@ const TERMS = (process.env.TAP_HOTWORDS || process.env.TAP_USER_NAMES || 'Thibau
 function url(): string {
   const p = new URLSearchParams({
     model: process.env.DG_MODEL || 'nova-3',
-    language: 'en',
+    language: process.env.TAP_STT_LANGUAGE || 'en', // 'multi' = English + French (+ others) in the same call
     encoding: 'linear16',
     sample_rate: '16000',
     channels: '1',
@@ -25,7 +25,8 @@ function url(): string {
     smart_format: 'true',
     endpointing: process.env.DG_ENDPOINTING || '800', // ms of silence that ends a sentence
     utterance_end_ms: '1000',
-    vad_events: 'true'
+    vad_events: 'true',
+    diarize: process.env.TAP_DIARIZE === '0' ? 'false' : 'true' // speaker labels: "Speaker 2 asked you…"
   })
   for (const t of TERMS) p.append('keyterm', t)
   return `wss://api.deepgram.com/v1/listen?${p}`
@@ -35,7 +36,23 @@ interface DgMessage {
   type?: string
   is_final?: boolean
   speech_final?: boolean
-  channel?: { alternatives?: Array<{ transcript?: string }> }
+  channel?: { alternatives?: Array<{ transcript?: string; words?: DgWord[] }> }
+}
+interface DgWord {
+  word: string
+  punctuated_word?: string
+  start: number
+  end: number
+  speaker?: number
+}
+
+/** Most frequent speaker among the words (diarization). */
+function mainSpeaker(words: DgWord[]): number | undefined {
+  const n = new Map<number, number>()
+  for (const w of words) if (w.speaker !== undefined) n.set(w.speaker, (n.get(w.speaker) ?? 0) + 1)
+  let best: number | undefined
+  for (const [sp, c] of n) if (best === undefined || c > (n.get(best) ?? 0)) best = sp
+  return best
 }
 
 export function deepgramAvailable(): boolean {
@@ -49,7 +66,7 @@ export function deepgramAvailable(): boolean {
  */
 export function createDeepgramEngine(
   source: Source,
-  onText: (text: string, final: boolean) => void,
+  onText: OnText,
   onDead?: (reason: string) => void
 ): SttEngine {
   let ws: WebSocket | null = null
@@ -59,14 +76,35 @@ export function createDeepgramEngine(
   let lastSentAt = 0
   let dead = false
   let stopped = false
-  let queue: ArrayBuffer[] = []
+  let queue: Array<{ buf: ArrayBuffer; wall: number }> = []
   let stable = '' // is_final pieces of the current sentence
+  let stableWords: DgWord[] = []
+  // Audio clock of the current connection: Deepgram word times are seconds of audio since the connection opened.
+  let sentSec = 0
+  let clock: Array<{ sec: number; wall: number }> = [] // when each sent chunk was captured
+  const wallAt = (sec: number): number => {
+    let e = clock[0]
+    for (const c of clock) {
+      if (c.sec > sec) break
+      e = c
+    }
+    return e ? e.wall + (sec - e.sec) * 1000 : Date.now()
+  }
+  const send = (buf: ArrayBuffer, wall: number): void => {
+    ws?.send(buf)
+    clock.push({ sec: sentSec, wall })
+    if (clock.length > 1200) clock.shift() // keep 2 min
+    sentSec += buf.byteLength / 2 / 16000
+  }
+  const meta = (words: DgWord[]): SttMeta => ({ words, speaker: mainSpeaker(words), wallAt })
   let keepAlive: ReturnType<typeof setInterval> | null = null
 
   const flushSentence = (): void => {
     const text = stable.trim()
+    const words = stableWords
     stable = ''
-    if (text) onText(text, true)
+    stableWords = []
+    if (text) onText(text, true, meta(words))
   }
 
   const die = (reason: string): void => {
@@ -97,8 +135,10 @@ export function createDeepgramEngine(
       open = true
       failedConnects = 0
       lastMsgAt = Date.now()
+      sentSec = 0
+      clock = []
       console.log(`[stt] deepgram connected (${source}), keyterms: ${TERMS.join(', ')}`)
-      for (const b of queue) ws?.send(b)
+      for (const q of queue) send(q.buf, q.wall)
       queue = []
       keepAlive = setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'KeepAlive' })), 8000)
     }
@@ -113,13 +153,18 @@ export function createDeepgramEngine(
       }
       if (m.type === 'UtteranceEnd') return flushSentence()
       if (m.type !== 'Results') return
-      const t = (m.channel?.alternatives?.[0]?.transcript ?? '').trim()
+      const alt = m.channel?.alternatives?.[0]
+      const t = (alt?.transcript ?? '').trim()
+      const words = alt?.words ?? []
       if (m.is_final) {
-        if (t) stable = `${stable} ${t}`.trim()
+        if (t) {
+          stable = `${stable} ${t}`.trim()
+          stableWords = [...stableWords, ...words]
+        }
         if (m.speech_final) flushSentence()
-        else if (stable) onText(stable, false)
+        else if (stable) onText(stable, false, meta(stableWords))
       } else if (t) {
-        onText(`${stable} ${t}`.trim(), false)
+        onText(`${stable} ${t}`.trim(), false, meta([...stableWords, ...words]))
       }
     }
     ws.onerror = (ev) => console.warn('[stt] deepgram error:', (ev as ErrorEvent).message ?? ev.type)
@@ -141,8 +186,8 @@ export function createDeepgramEngine(
       const buf = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer
       if (dead) return
       lastSentAt = Date.now()
-      if (open && ws?.readyState === WebSocket.OPEN) ws.send(buf)
-      else if (queue.length < 50) queue.push(buf) // keep ≤ 5 s while connecting
+      if (open && ws?.readyState === WebSocket.OPEN) send(buf, lastSentAt)
+      else if (queue.length < 50) queue.push({ buf, wall: lastSentAt }) // keep ≤ 5 s while connecting
     },
     stop(): void {
       stopped = true

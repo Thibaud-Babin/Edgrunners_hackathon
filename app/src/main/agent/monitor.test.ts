@@ -130,3 +130,27 @@ test('camera problems and problems reported in the call are logged in plain word
   assert.ok(logs.includes('Room too dark for the camera → attention detection may fail'))
   assert.ok(logs.includes("Someone in the call said they can't hear you → check your mic"))
 })
+
+test("B's MIC_QUALITY: a bad level is a device problem, back to ok is logged once", () => {
+  const events = new EventBus()
+  const logs: string[] = []
+  new Monitor(events, new AgentBus(), (c: UiCommand) => c.type === 'LOG_ENTRY' && logs.push(c.entry.text), { now: () => 1000 })
+  const q = (level: string) => events.publish({ type: 'MIC_QUALITY', ts: 1000, source: 'mic', data: { level, speech_rms: 0.01 } })
+  q('noisy')
+  q('ok')
+  q('ok')
+  q('loud!') // not one of B's levels → dropped as invalid
+  assert.ok(logs.includes('Mic quality: noisy → check your mic, or switch to the laptop mic'))
+  assert.equal(logs.filter((l) => l === 'Mic quality back to ok').length, 1)
+  assert.ok(logs.some((l) => l.startsWith('invalid message dropped: MIC_QUALITY')))
+})
+
+test("B's STT_USAGE: speech-to-text cost (running total per engine) is added to the cost counter once", () => {
+  const events = new EventBus()
+  let cost = 0
+  new Monitor(events, new AgentBus(), (c: UiCommand) => { if (c.type === 'COUNTERS') cost = c.costUsd }, { now: () => 1000 })
+  const u = (cost_usd: number) => events.publish({ type: 'STT_USAGE', ts: 1000, source: 'call_audio', data: { engine: 'deepgram', seconds: 60, cost_usd } })
+  u(0.004)
+  u(0.009)
+  assert.ok(Math.abs(cost - 0.009) < 1e-9)
+})

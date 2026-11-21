@@ -13,8 +13,15 @@ import { LIMITS, type PayloadOf, RawTapEvent } from './schemas.ts'
 import { cleanText, looksLikeInstruction, MAX } from './sanitize.ts'
 
 const KEEP_S = 30 * 60 // keep 30 min of transcript
-// Only the detector events an agent uses (the checkup). Name and question events are not needed anymore.
-const DETECTOR_EVENTS = ['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED'] as const
+// Only the detector events an agent uses: checkup (can't hear, video frozen) and executor (waiting for you, topic).
+const DETECTOR_EVENTS = ['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED', 'WAITING_FOR_YOU', 'TOPIC_MENTIONED'] as const
+// Which data field holds the display text of each detector event (B's contract, events.ts).
+const DETECTOR_TEXT: Record<(typeof DETECTOR_EVENTS)[number], string> = {
+  OTHERS_CANT_HEAR: 'text',
+  VIDEO_FROZEN_REPORTED: 'text',
+  WAITING_FOR_YOU: 'question',
+  TOPIC_MENTIONED: 'topic'
+}
 
 const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
   timeout: 'AI took longer than 3 s → template summary (AI timeout)',
@@ -26,6 +33,7 @@ const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
 
 export class AudioAgent {
   private lines: { ts: number; text: string }[] = []
+  private speakers = new Set<string>()
   private bus: AgentBus
   private llm: Llm
   private userName: string
@@ -51,9 +59,14 @@ export class AudioAgent {
   private onTranscript(e: TapEvent): void {
     const raw = this.parse(e)
     if (!raw || raw.source !== 'call_audio') return
-    const text = cleanText(raw.data?.text, MAX.transcriptChunk)
-    if (!text) return
-    const instructionLike = looksLikeInstruction(text)
+    const said = cleanText(raw.data?.text, MAX.transcriptChunk)
+    if (!said) return
+    const instructionLike = looksLikeInstruction(said)
+    // Speaker labels (B: Deepgram diarization) let the recap say who asked. Only once 2+ voices were heard:
+    // with one voice, "Speaker 1:" just adds noise. Speaker names are untrusted text too.
+    const speaker = cleanText(raw.data?.speaker, MAX.speakerName)
+    if (speaker) this.speakers.add(speaker)
+    const text = speaker && this.speakers.size >= 2 ? `${speaker}: ${said}` : said
     this.lines.push({ ts: raw.ts, text })
     const cutoff = now() - KEEP_S
     this.lines = this.lines.filter((l) => l.ts >= cutoff)
@@ -65,7 +78,7 @@ export class AudioAgent {
   private onDetector(e: TapEvent, type: (typeof DETECTOR_EVENTS)[number] & EventType): void {
     const raw = this.parse(e)
     if (!raw) return
-    this.bus.publish('detector', 'detector', 'detector', { type, text: cleanText(raw.data?.text, MAX.transcriptChunk) })
+    this.bus.publish('detector', 'detector', 'detector', { type, text: cleanText(raw.data?.[DETECTOR_TEXT[type]], MAX.transcriptChunk) })
   }
 
   private onMicLevel(e: TapEvent): void {

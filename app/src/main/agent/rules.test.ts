@@ -63,3 +63,17 @@ test('clicks: dismiss works, unknown actions are blocked', () => {
   assert.deepEqual(r.actions, [{ action: 'dismiss_card', cardId: 'card-1', why: 'you dismissed the card' }])
   assert.deepEqual(r.blocked, ['action "delete_everything" is not on the allowlist'])
 })
+
+test("B's WAITING_FOR_YOU → nudge card + knock knock; TOPIC_MENTIONED → soft haptic; device reports → nothing here", () => {
+  const det = (type: string, text: string) => env('detector', { type, text }, 1, 'detector')
+  const r = play([
+    [det('WAITING_FOR_YOU', 'Thibaud, are you OK with Friday?'), 1],
+    [det('TOPIC_MENTIONED', 'budget'), 2],
+    [det('OTHERS_CANT_HEAR', "we can't hear you"), 3]
+  ])
+  assert.deepEqual(
+    r.actions.map((a) => (a as { action: string }).action),
+    ['show_nudge', 'send_haptic', 'send_haptic', 'send_haptic']
+  )
+  assert.equal((r.actions[0] as { question: string }).question, 'Thibaud, are you OK with Friday?')
+})

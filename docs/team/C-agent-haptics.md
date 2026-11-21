@@ -118,7 +118,17 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 ## 6. What you receive / send
 
 - **Receive:** A's vision events, B's transcript and detector events, D's clicks.
-- **Send to UI (D renders them):** `SHOW_AWAY_SUMMARY` (the recap), `DISMISS`, `LOG_ENTRY`, `COUNTERS`.
+- **Send to UI (D renders them):** `SHOW_AWAY_SUMMARY` (the recap), `SHOW_NUDGE`, `DISMISS`, `LOG_ENTRY`, `COUNTERS`. Live captions (`CAPTION`) go straight from `index.ts`, cleaned with `sanitize.ts`.
+
+**B's update 2 (Sat evening), moved into the agents:**
+- `WAITING_FOR_YOU` → rules → nudge card + two knocks (T0, through the gate).
+- `TOPIC_MENTIONED` → soft haptic.
+- Speaker labels → the audio agent adds "Speaker N:" to transcript lines once 2+ voices were heard (labels are cleaned).
+- `MIC_QUALITY` → checkup: device problem when too quiet, clipping or noisy; logged once when back to ok.
+- `STT_USAGE` → checkup adds the speech-to-text cost to the cost counter.
+- `INSTRUCTION_LIKE_SPEECH` → appears in the event log; the audio agent's own flag still logs "ignored".
+- B's knock-speed log belonged to the dropped name-said recap and was not moved.
+- **Contract TODO:** `show_nudge` is not in `ALLOWED_ACTIONS` in `events.ts`; the agents allow it internally (`AGENT_ACTIONS` in `schemas.ts`) until a `contract:` PR adds it.
 
 **Open contract items (connect when the others' code lands):**
 - **B: transcript timestamps.** `TRANSCRIPT_FINAL` carries only `{ text }`, and its `ts` is when it was published (after the STT delay), not when it was said. Exact slicing needs `{ text, start, end }` → additive `events.ts` change, team OK, separate `contract:` PR. Until then the recap slices by `ts` and waits 1.5 s after "back" for late lines (`STT_GRACE_MS` in `executor.ts`), so it may include or miss a second or two at the edges.

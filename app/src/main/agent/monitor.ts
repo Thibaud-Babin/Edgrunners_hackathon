@@ -10,7 +10,9 @@ import type { LogEntry, TapEvent, UiCommand } from '../../shared/events.ts'
 import { now as clock } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
+import { z } from 'zod'
 import { cleanText, MAX } from './sanitize.ts'
+import { RawTapEvent } from './schemas.ts'
 
 export type Feed = 'camera' | 'mic' | 'callAudio'
 
@@ -32,6 +34,11 @@ export const SPAM_WINDOW_S = 10
 export const SPAM_PAUSE_S = 5
 const CHECKUP_EVERY_S = 30
 
+/** B's measurement events (events.ts). Parsed here, never trusted as typed. Extra fields from B are allowed. */
+const MicQuality = z.object({ level: z.enum(['ok', 'too_quiet', 'clipping', 'noisy']) })
+const SttUsage = z.object({ engine: z.string().max(40), cost_usd: z.number().finite().nonnegative() })
+const MIC_QUALITY_TEXT = { too_quiet: 'too quiet', clipping: 'clipping (too loud)', noisy: 'noisy' } as const
+
 /** The safety levers the checkup agent may pull. */
 export interface MonitorControls {
   llm: { hasKey: boolean; forceTemplateUntil(ts: number): void }
@@ -49,6 +56,8 @@ export class Monitor {
   private mouthActive = false
   private lastMicLoud: number
   private lastMicLevelAt = -Infinity // when the last mic level arrived: none → mic not monitored → no alert
+  private micQualityBad = false
+  private sttCost = new Map<string, number>()
   private aiFails = 0
   private aiBreakerUntil = 0
   private hapticFails = 0
@@ -76,10 +85,14 @@ export class Monitor {
       invalid: (reason) => this.reporter.blocked(`invalid message dropped: ${reason}`, 'invalid')
     }
 
+    // B measures, the checkup decides: mic quality is a device problem; speech-to-text cost joins the AI cost.
+    events.on('MIC_QUALITY', (e) => this.onMicQuality(e))
+    events.on('STT_USAGE', (e) => this.onSttUsage(e))
+
     // Readable event log for judges.
     events.on('*', (e: TapEvent) => {
       this.counters.events++
-      if (e.type !== 'MIC_LEVEL' && e.type !== 'TRANSCRIPT_PARTIAL') {
+      if (e.type !== 'MIC_LEVEL' && e.type !== 'TRANSCRIPT_PARTIAL' && e.type !== 'STT_USAGE') {
         const text = cleanText(e.data?.text, MAX.transcriptChunk)
         this.log('event', `${e.type}${text ? `: "${text}"` : ''}`)
       }
@@ -177,6 +190,29 @@ export class Monitor {
     if (t - this.lastMicLevelAt > MIC_LEVEL_STALE_S) return
     if (this.mouthActive && t - this.lastMicLoud >= MIC_SILENT_AFTER_S)
       this.problem('mic_silent', 'Mouth moving but the mic sends nothing → check that your mic is not muted')
+  }
+
+  /** B's MIC_QUALITY: too quiet / clipping / noisy is a device problem; back to ok is logged once. */
+  private onMicQuality(e: TapEvent): void {
+    const q = MicQuality.safeParse(RawTapEvent.safeParse(e).data?.data)
+    if (!q.success) return this.reporter.invalid('MIC_QUALITY with a bad shape')
+    if (q.data.level === 'ok') {
+      if (this.micQualityBad) this.log('decision', 'Mic quality back to ok')
+      this.micQualityBad = false
+      return
+    }
+    this.micQualityBad = true
+    this.problem(`mic_${q.data.level}`, `Mic quality: ${MIC_QUALITY_TEXT[q.data.level]} → check your mic, or switch to the laptop mic`)
+  }
+
+  /** B's STT_USAGE carries the speech-to-text cost since start, per engine: add only what is new. */
+  private onSttUsage(e: TapEvent): void {
+    const u = SttUsage.safeParse(RawTapEvent.safeParse(e).data?.data)
+    if (!u.success) return this.reporter.invalid('STT_USAGE with a bad shape')
+    const before = this.sttCost.get(u.data.engine) ?? 0
+    this.sttCost.set(u.data.engine, u.data.cost_usd)
+    this.counters.costUsd += Math.max(0, u.data.cost_usd - before)
+    this.pushCounters()
   }
 
   /** Log a device problem, at most once per PROBLEM_COOLDOWN_S for the same problem. */

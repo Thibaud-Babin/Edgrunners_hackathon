@@ -65,6 +65,7 @@ export class Executor {
     this.report = report
     events.on('USER_CLICK', (e) => this.onClick(e))
     bus.on('vision', (e) => this.handle(e))
+    bus.on('detector', (e) => this.handle(e))
     bus.on('user', (e) => this.handle(e))
     bus.on('summary', (e) => {
       const done = this.pending.get(e.payload.requestId)
@@ -156,6 +157,10 @@ export class Executor {
         this.report.log('action', `Looked back after ${seconds} s away → recap of those ${seconds} s shown (${r.summary.source} summary)`)
         return true
       }
+      case 'show_nudge':
+        this.ui({ type: 'SHOW_NUDGE', id: this.cardId(), text: "They're waiting for your answer", ...(a.question ? { question: a.question } : {}) })
+        this.report.log('action', `A question to you, then silence → nudge shown ("They're waiting for your answer")`)
+        return true
       case 'dismiss_card':
         this.ui({ type: 'DISMISS', id: a.cardId })
         return true

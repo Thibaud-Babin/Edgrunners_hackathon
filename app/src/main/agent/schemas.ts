@@ -72,10 +72,13 @@ export const UserInput = z
   .strict()
 export type UserInput = z.infer<typeof UserInput>
 
-/** B's deterministic detectors (no LLM) that the checkup uses. Text is display-only. */
+/**
+ * B's deterministic detectors (no LLM). Text is display-only.
+ * WAITING_FOR_YOU: `text` is the question asked to the user. TOPIC_MENTIONED: `text` is the topic word.
+ */
 export const DetectorHit = z
   .object({
-    type: z.enum(['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED']),
+    type: z.enum(['OTHERS_CANT_HEAR', 'VIDEO_FROZEN_REPORTED', 'WAITING_FOR_YOU', 'TOPIC_MENTIONED']),
     text: z.string().max(LIMITS.transcriptChunk)
   })
   .strict()
@@ -95,10 +98,17 @@ export const ActionRequest = z.discriminatedUnion('action', [
       why: Why
     })
     .strict(),
-  // Haptics come later: nothing requests one today, the path stays for the mouse.
+  // "They're waiting for your answer" (B's WAITING_FOR_YOU): a nudge card, display only.
+  z.object({ action: z.literal('show_nudge'), question: z.string().max(LIMITS.question), why: Why }).strict(),
   z.object({ action: z.literal('send_haptic'), waveform: z.enum(WAVEFORMS), why: Why }).strict(),
   z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict()
 ])
+
+/**
+ * Every action the executor may run: the contract's allowlist plus `show_nudge`, which B added as a UI command
+ * (SHOW_NUDGE) but not to ALLOWED_ACTIONS in events.ts. TODO(team): add 'show_nudge' there (contract PR).
+ */
+export const AGENT_ACTIONS = [...ALLOWED_ACTIONS, 'show_nudge'] as const
 export type ActionRequest = z.infer<typeof ActionRequest>
 
 /** A cleaned call-audio transcript line. Display and summaries only: it can never trigger anything. */
@@ -130,7 +140,7 @@ export const SummaryResult = z
   .strict()
 
 /** Executor → Monitor: what happened when an action ran (e.g. the haptic HTTP call failed). */
-export const ActionResult = z.object({ action: z.enum(ALLOWED_ACTIONS), ok: z.boolean() }).strict()
+export const ActionResult = z.object({ action: z.enum(AGENT_ACTIONS), ok: z.boolean() }).strict()
 
 /**
  * The agent bus registry: every envelope kind, its payload schema and the provenances it may carry.
