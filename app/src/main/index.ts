@@ -63,6 +63,8 @@ function createWindows(): void {
 }
 
 function sendUi(cmd: UiCommand): void {
+  // Mock mode: echo the judge-readable log to the terminal so runs can be diffed against demo/baseline-mock.log.
+  if (cmd.type === 'LOG_ENTRY' && process.argv.includes('--mock')) console.log(`[log] ${cmd.entry.kind}: ${cmd.entry.text}`)
   for (const w of [mainWin, overlayWin]) if (w && !w.isDestroyed()) w.webContents.send(IPC.ui, cmd)
 }
 
