@@ -11,6 +11,37 @@ Read your own sheet, then this page. Product spec: [PRD](../PRD.md). Code guide:
 
 > Change from the earlier plan: **D is pure UI** (our UI enthusiast). **C owns integration** because the agent is where everything meets.
 
+## 📣 Update 2 from B (audio), Sat evening: new audio features (PR #2)
+
+B **detects and measures**, C **decides**, D **shows**. To make the features visible tonight, B added small, clearly marked pieces to C's and D's files. **Move or restyle them freely.**
+
+| Feature | B sends (new, additive) | Added for now in C's `agent.ts` | Added for now in D's overlay |
+|---|---|---|---|
+| "They're waiting for you" | `WAITING_FOR_YOU` `{question, silent_s, mic_monitored}`: a question to you, then 2.5 s of silence, and the user is not talking | knock twice + `SHOW_NUDGE` | plain nudge card, closes after 12 s |
+| Speaker labels | `speaker: "Speaker 2"` on transcripts and detector events (Deepgram) | transcript lines get "Speaker N:" once 2+ voices are heard → "Speaker 2 asked you…" | — |
+| Live captions | `TRANSCRIPT_*` → `CAPTION` UI command (`index.ts`) | — | caption strip at the bottom: last 3 lines, your name in `<mark>` |
+| Knock speed | `NAME_MENTIONED.latency_s` + `latency_ref` | log line "knock 1.4 s after your name was said" | — |
+| French | `TAP_STT_LANGUAGE=multi` + French trouble/address phrases | — | — |
+| Topics | `TOPIC_MENTIONED` `{topic}` (`TAP_TOPICS`) | soft haptic (`damp_state_change`) | — |
+| Injection attempt | `INSTRUCTION_LIKE_SPEECH` `{text}` | log `blocked`: "instruction-like speech ignored", counts as blocked | — |
+| Mic quality | `MIC_QUALITY` `{level: ok/too_quiet/clipping/noisy, …}`, **measure only** | log only. **TODO(C):** decide (e.g. offer the laptop mic after 10 s of "noisy") | — |
+| Cost | `STT_USAGE` `{engine, seconds, cost_usd}` every 30 s | added to the cost counter (AXA frugality) | — |
+
+**C, please also note:**
+- **The LLM fix matters for your cards.** Haiku 5.5 *thinks by default*, and thinking counts toward `max_tokens`. With 200 tokens it sometimes thought and never answered, which gave an empty card. Fixed in `llm.ts` with `thinking: { type: 'disabled' }` and `max_tokens: 400`. Since then: 5/5 summaries correct, about 0.8 s each.
+- **End-of-call minutes (idea #7) is yours:** one LLM call over the full transcript → decisions + action items for the user.
+- `HAPTIC` gained `waiting` (knock) and `topic` (damp_state_change).
+
+**D, please also note:** the new UI commands are `SHOW_NUDGE {id, text, question?}` and `CAPTION {text, final, speaker?, highlight?}`. The caption strip is plain on purpose. It should stay readable over a video call: big font, high contrast. It's the accessibility feature judges will see first.
+
+**Measured on the replayed real call (Deepgram):**
+- knock 0.8–2.4 s after the name is said (target 1.5 s);
+- the nudge fired after "are you ready for Friday?";
+- "budget" topic heads-up;
+- recaps with real summaries.
+
+French clips with `multi`: names 2/2, trouble phrases 3/3, no false alert on "table". `multi` is worse on English names (5/7 vs 7/7), so English stays the default.
+
 ## 📣 Update from B (audio), Sat 17:45 — read this
 
 **What changed:** call audio → **Deepgram** (cloud). If Deepgram is unavailable, Tap switches to **local Parakeet** on its own.
