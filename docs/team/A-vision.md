@@ -22,7 +22,7 @@
 
 You also keep **`cameraHealth()`** (in `vision.ts`) up to date: `{ running, faceInFrame, frozen, brightness, tooBright, fps }`. **D's check-up screen reads it**, so don't rename its fields.
 
-> **Camera health method (implemented):** mean luma (0.299R + 0.587G + 0.114B) on a 64x48 frame every 250 ms. Too dark <= 60 (clears >= 80), too bright >= 200 (clears <= 180), each held 0.8 s; frozen when <= 3 of 3072 pixels change for 3 s. Thresholds validated on a labelled 8-image set (4 dark, 4 light; not committed; means 10.9-31.5 and 202.3-206.8, also asserted in health.test.ts). Bright sets cameraHealth().tooBright (no event; contract unchanged).
+> **Camera health method (implemented):** mean luma (0.299R + 0.587G + 0.114B) on a 64x48 frame every 250 ms. Too dark <= 60 (clears >= 80), too bright >= 190 (clears <= 170), each held 0.8 s; frozen when <= 3 of 3072 pixels change for 3 s. Thresholds validated on a labelled 8-image set (4 dark, 4 light; not committed; means 10.9-31.5 and 202.3-206.8, also asserted in health.test.ts). Bright sets cameraHealth().tooBright (no event; contract unchanged).
 
 Who uses your events: C's agent (away summary P0-3, mic-silent P0-4, gestures P1-1), D's check-up (P0-5).
 
@@ -37,6 +37,19 @@ If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a s
 
 **Demo consequence:** the away detector watches **yaw AND pitch**, so the phone glance triggers it. Rehearse PRD section 10 step 2 (look down at the phone) and confirm `USER_AWAY` within ~2 s.
 
+## Gaze mode - true look-away (P2, optional)
+
+The **Logi Gaze Tracker** (separate Logitech tray app) can drive `USER_AWAY`/`USER_BACK` from screen gaze instead of head pose. It streams over `ws://127.0.0.1:8964`; our client lives in `vision/gaze.ts` + `vision/gazeClient.ts`.
+
+- **Default is `pose`**; nothing changes until the mode is switched.
+- **D's later toggle:** import `{ getAwayMode, setAwayMode, gazeStatus }` from `./vision`; `setAwayMode('gaze' | 'pose')`; `gazeStatus()` returns `{ mode, connected, calibrated, lastSnapshotAt }`.
+- **Test now without UI:** devtools `localStorage.setItem('tap:awayMode','gaze'); location.reload()`; back with `'pose'`.
+- **Requirements:** the tracker must be running and **calibrated**, on the display where the meeting is. It opens the camera too, so the Windows multi-app camera setting must stay on.
+- **Behaviour:** smoothed gaze; off the tracked display for 250 ms -> `USER_AWAY` (`reason: 'turned_away'`, `data.gaze = true`); back inside for 500 ms -> `USER_BACK`. `gaze: null` with a face present (no prediction) is treated as off-screen; `gaze: null` with no face is **no signal**, so a blocked tracker camera cannot fake an away. Early reporting is deliberate: C's `rules.ts` enforces the 2 s minimum, so a 2 s look-away still produces the away card.
+- **Zone:** the whole tracked display. Electron cannot read another app's window rect without native code, so the meeting window is not used; run the tracker on the meeting display (multi-monitor limitation).
+- **No signal** (tracker closed, uncalibrated, tracking off, or `gaze: null` with no face): no gaze away/back; `gazeStatus()` reports it. Pose mode is unaffected. Face-loss is still reported by MediaPipe as `FACE_OUT_OF_FRAME`.
+- MediaPipe still runs for mouth, gestures and camera health; `FACE_OUT_OF_FRAME` is still emitted in gaze mode.
+
 ## Tasks, in order
 | When | Task | Done when |
 |---|---|---|
@@ -45,6 +58,7 @@ If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a s
 | 15:00-19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). `MOUTH_MOVING` is debounced (300 ms on / 800 ms off); tune so talking = active, smiling/yawning does not (yawns/laughs accepted). | 10 tries, >= 8 correct, no flicker |
 | 20:00-02:00 | Camera health: frozen (64x48 canvas diff), brightness, tooBright, faceInFrame, `CAMERA_FROZEN` / `LOW_LIGHT` - **done** (`vision/health.ts`). Next: 10 s neutral-face calibration (needed by P1 gestures). | D's check-up shows real values |
 | 02:00–09:00 (P1) | Gestures: nod = two pitch reversals of ±8–10° within ~1.2 s; shake = same on yaw; brow raise = `browInnerUp` ≈ +0.3 over baseline held 300–500 ms; tilt = ±15° roll held 400 ms. Cooldown ~1 s. | 8/10 correct per gesture after calibration |
+| If time (P2) | Gaze mode: install/calibrate the Logi Gaze Tracker, run it on the meeting display, switch with `setAwayMode('gaze')`; look off-screen -> away card; look back -> back | off-screen > 2 s shows the card; brief glances do not |
 | If UI stutters | Move the landmarker into a Web Worker. | UI smooth |
 
 ## How to test alone
@@ -58,6 +72,8 @@ If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a s
 - Frozen detection assumes real sensor noise: a perfectly static virtual camera looks frozen after 3 s. Do not test with an OBS test pattern and call it a bug.
 - Lighting thresholds were validated on the labelled 8-image set; re-check the venue light before the demo.
 - Looking down at a phone/keyboard: yaw alone misses it; the pitch rule (> 22 deg) catches it. `jawOpen` drifts at large pitch, so `MOUTH_MOVING` is gated to abs(yaw) < 28 deg and abs(pitch) < 22 deg and forced false outside.
+- Gaze mode is only valid if the tracker is calibrated on the meeting display; calibration drifts if you move. Both apps use the camera, so the Windows multi-app setting is required.
+- Gaze is noisy: the 250 ms / 500 ms hysteresis and the 24 px margin are deliberate. Tune them in `gaze.ts`, not in the tracker.
 - Research notes with thresholds and repos: `docs/research/build/face_gestures_and_glue.md`.
 
 ## Agent directives (paste to your AI coding agent)
@@ -69,5 +85,6 @@ Use @mediapipe/tasks-vision (already installed; wasm and model are served locall
 Emit only event types that already exist in events.ts, via window.tap.emit(makeEvent(...)), and only when a state changes.
 Keep the cameraHealth() fields exactly as they are (D reads them).
 Thresholds must be named constants at the top of the file so I can tune them.
+Away mode is optional: keep 'pose' as the default and expose setAwayMode/getAwayMode/gazeStatus for D.
 After each change run: cd app && npm run typecheck && npm test. Tell me what I must test by hand with the camera.
 ```

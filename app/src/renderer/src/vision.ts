@@ -9,6 +9,8 @@ import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from '@med
 import type { EventType } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { countChangedPixels, createFrameHealth, meanLuma } from './vision/health'
+import { createGazeAway } from './vision/gaze'
+import { startGazeClient, type GazeClientStatus } from './vision/gazeClient'
 
 // Starting thresholds from docs/PRD.md §4 "Gesture rules" — tune them during calibration.
 const AWAY_YAW_ENTER_DEG = 28
@@ -32,6 +34,13 @@ const LOW_LIGHT_EXIT = 80
 const TOO_BRIGHT_ENTER = 190 // labelled light test images: 202.3-206.8
 const TOO_BRIGHT_EXIT = 170
 const LIGHTING_HOLD_MS = 800
+
+// Gaze mode (optional): the Logi Gaze Tracker drives USER_AWAY/USER_BACK instead of yaw/pitch.
+// The tracker already runs its own camera; both apps need the Windows multi-app camera setting.
+const GAZE_AWAY_AFTER_MS = 250 // report early: C's rules.ts enforces the product's 2 s minimum
+const GAZE_BACK_AFTER_MS = 500
+const GAZE_MARGIN_PX = 24
+const GAZE_SMOOTHING = 0.35
 
 export interface HeadPose {
   yaw: number
@@ -57,7 +66,7 @@ export interface CameraHealth {
   faceInFrame: boolean
   frozen: boolean // no changed pixels on the 64x48 canvas for > 3 s
   brightness: number | null // mean luma 0..255; null before the first frame
-  tooBright: boolean // mean luma >= 200 for 0.8 s; cleared below 180
+  tooBright: boolean // mean luma >= 190 for 0.8 s; cleared below 170
   fps: number // 0 when the landmarker stopped receiving frames
 }
 
@@ -66,6 +75,83 @@ const health: CameraHealth = { running: false, faceInFrame: false, frozen: false
 export function cameraHealth(): CameraHealth {
   return { ...health }
 }
+
+// ---------- away mode: head pose (default) or Logi Gaze Tracker ----------
+// D can add the UI toggle later: import { getAwayMode, setAwayMode, gazeStatus } from './vision'.
+export type AwayMode = 'pose' | 'gaze'
+const GAZE_STORAGE_KEY = 'tap:awayMode'
+
+const gazeTracker = createGazeAway({
+  awayAfterMs: GAZE_AWAY_AFTER_MS,
+  backAfterMs: GAZE_BACK_AFTER_MS,
+  marginPx: GAZE_MARGIN_PX,
+  smoothing: GAZE_SMOOTHING
+})
+
+let awayMode: AwayMode = 'pose'
+let stopGaze: (() => void) | null = null
+let gazeClientStatus: GazeClientStatus = { connected: false, calibrated: false, lastSnapshotAt: null }
+
+export interface GazeStatus extends GazeClientStatus {
+  mode: AwayMode
+}
+
+export function getAwayMode(): AwayMode {
+  return awayMode
+}
+
+export function gazeStatus(): GazeStatus {
+  return { mode: awayMode, ...gazeClientStatus }
+}
+
+function emitTap(type: EventType, data?: Record<string, unknown>): void {
+  window.tap.emit(makeEvent(type, 'webcam', data))
+}
+
+function startGaze(): void {
+  if (stopGaze) return
+  gazeTracker.reset()
+  stopGaze = startGazeClient({
+    onSnapshot: (snapshot) => {
+      const update = gazeTracker.update(performance.now(), snapshot)
+      if (update?.kind === 'away') emitTap('USER_AWAY', { reason: update.reason, gaze: true })
+      if (update?.kind === 'back') emitTap('USER_BACK', { gaze: true })
+    },
+    onStatus: (status) => {
+      gazeClientStatus = status
+    }
+  })
+}
+
+function stopGazeMode(): void {
+  const wasAway = gazeTracker.away
+  stopGaze?.()
+  stopGaze = null
+  gazeTracker.reset()
+  gazeClientStatus = { connected: false, calibrated: false, lastSnapshotAt: null }
+  if (wasAway) emitTap('USER_BACK', { gaze: true })
+}
+
+/** Switch the away source. 'pose' is the default; 'gaze' requires the Logi Gaze Tracker. */
+export function setAwayMode(mode: AwayMode): void {
+  if (mode !== 'pose' && mode !== 'gaze') return
+  awayMode = mode
+  try {
+    localStorage.setItem(GAZE_STORAGE_KEY, mode)
+  } catch {
+    // localStorage unavailable: the mode still applies for this session
+  }
+  if (mode === 'gaze') startGaze()
+  else stopGazeMode()
+}
+
+try {
+  const saved = localStorage.getItem(GAZE_STORAGE_KEY)
+  if (saved === 'pose' || saved === 'gaze') awayMode = saved
+} catch {
+  // ignore
+}
+if (awayMode === 'gaze') startGaze()
 
 export type VisionListener = (info: { pose?: HeadPose; blend: Record<string, number>; face: boolean }) => void
 
@@ -88,6 +174,8 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
   let mouthActive = false
   let mouthPending: boolean | null = null
   let mouthPendingSince = 0
+  let faceOutSince: number | null = null
+  let faceOutSent = false
   const jaw: Array<{ t: number; v: number }> = []
   const emit = (type: EventType, data?: Record<string, unknown>): void => window.tap.emit(makeEvent(type, 'webcam', data))
 
@@ -157,22 +245,41 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       for (const c of res.faceBlendshapes[0]?.categories ?? []) blend[c.categoryName] = c.score
       const pose = res.facialTransformationMatrixes[0] ? headPose(res.facialTransformationMatrixes[0].data) : undefined
 
-      // Away / back with hysteresis: yaw OR pitch (phone glance) or no face, held > 2 s.
-      const yawLimit = away ? AWAY_YAW_EXIT_DEG : AWAY_YAW_ENTER_DEG
-      const pitchLimit = away ? AWAY_PITCH_EXIT_DEG : AWAY_PITCH_ENTER_DEG
-      const lookingAway = !face || (pose !== undefined && (Math.abs(pose.yaw) > yawLimit || Math.abs(pose.pitch) > pitchLimit))
-      if (lookingAway) {
-        lookingAwaySince ??= t
-        if (!away && t - lookingAwaySince > AWAY_AFTER_MS) {
-          away = true
-          emit('USER_AWAY', { reason: face ? 'turned_away' : 'no_face' })
-          if (!face) emit('FACE_OUT_OF_FRAME')
+      if (awayMode === 'pose') {
+        // Away / back with hysteresis: yaw OR pitch (phone glance) or no face, held > 2 s.
+        const yawLimit = away ? AWAY_YAW_EXIT_DEG : AWAY_YAW_ENTER_DEG
+        const pitchLimit = away ? AWAY_PITCH_EXIT_DEG : AWAY_PITCH_ENTER_DEG
+        const lookingAway = !face || (pose !== undefined && (Math.abs(pose.yaw) > yawLimit || Math.abs(pose.pitch) > pitchLimit))
+        if (lookingAway) {
+          lookingAwaySince ??= t
+          if (!away && t - lookingAwaySince > AWAY_AFTER_MS) {
+            away = true
+            emit('USER_AWAY', { reason: face ? 'turned_away' : 'no_face' })
+            if (!face) emit('FACE_OUT_OF_FRAME')
+          }
+        } else {
+          lookingAwaySince = null
+          if (away) {
+            away = false
+            emit('USER_BACK')
+          }
         }
       } else {
-        lookingAwaySince = null
+        // Gaze mode owns "away"; keep FACE_OUT_OF_FRAME for the check-up and the log.
         if (away) {
           away = false
           emit('USER_BACK')
+        }
+        lookingAwaySince = null
+        if (!face) {
+          faceOutSince ??= t
+          if (!faceOutSent && t - faceOutSince > AWAY_AFTER_MS) {
+            faceOutSent = true
+            emit('FACE_OUT_OF_FRAME')
+          }
+        } else {
+          faceOutSince = null
+          faceOutSent = false
         }
       }
 
