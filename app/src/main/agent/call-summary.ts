@@ -38,9 +38,17 @@ const ITEM_MAX = 220
 const AI_TIMEOUT_MS = 20_000
 const AI_MAX_TOKENS = 900
 
-/** Every final line the other participants said (call audio), in order. */
+/** "Bye", "thanks everyone", "see you"… in the last lines = the call is ending: summarize after a short silence. */
+export const GOODBYE =
+  /\b(bye|goodbye|see you|see ya|talk (to you )?(soon|later)|thanks?,? (you )?(everyone|everybody|all|guys)|thank you (everyone|everybody|all)|have a (good|great|nice) (day|evening|weekend|one)|that's all for today|au revoir|à plus|merci à tous|bonne (journée|soirée))\b/i
+
+/** One meeting: every final line the other participants said (call audio), in order. */
 export class CallTranscript {
   readonly lines: CallLine[] = []
+  /** Stable id of this meeting: its summaries replace each other in the panel and on disk. */
+  readonly id = `meeting-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  /** When the last goodbye phrase was heard (seconds), or 0. */
+  goodbyeAt = 0
   private chars = 0
   private summarizedUpTo = 0
 
@@ -48,6 +56,7 @@ export class CallTranscript {
     const t = text.trim()
     if (!t) return
     this.lines.push({ ts, text: t, ...(speaker ? { speaker } : {}) })
+    if (GOODBYE.test(t)) this.goodbyeAt = ts
     this.chars += t.length
     while (this.chars > MAX_CALL_CHARS && this.lines.length > 1) {
       this.chars -= this.lines.shift()!.text.length
@@ -62,6 +71,14 @@ export class CallTranscript {
 
   markSummarized(): void {
     this.summarizedUpTo = this.lines.length
+  }
+
+  get startedAt(): number {
+    return this.lines[0]?.ts ?? 0
+  }
+
+  get endedAt(): number {
+    return this.lines[this.lines.length - 1]?.ts ?? 0
   }
 
   get minutes(): number {

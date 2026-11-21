@@ -337,3 +337,9 @@ body.overlay .toast button { text-shadow: none; }
 #summary-title { white-space: nowrap; }
 .summary-section { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(196, 181, 253, 0.95); }
 .summary-list { margin: 0; padding-left: 18px; display: grid; gap: 5px; line-height: 1.5; }
+
+/* Overlay pill: "Summary" button (B) */
+.pill-btn { flex: none; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.pill-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pill-btn:disabled { opacity: 0.6; cursor: default; }
+.pill #pill-status { flex-shrink: 0; } /* the status stays readable; the cost meta shrinks first (B) */

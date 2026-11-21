@@ -585,9 +585,13 @@ window.tap.onUi((cmd: UiCommand) => {
       gen.disabled = false
       gen.textContent = 'Summarize the call'
       const nothing = !cmd.lines
+      // One entry per meeting (id): a newer summary of the same meeting replaces the older one.
+      const hm = (t: number): string => new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const day = new Date(cmd.started_at * 1000)
+      const when = day.toDateString() === new Date().toDateString() ? '' : `${day.toLocaleDateString([], { day: 'numeric', month: 'short' })} · `
       rememberMeetingSummary({
         id: cmd.id,
-        title: nothing ? 'Call summary' : `Call summary · ${cmd.minutes} min`,
+        title: nothing ? 'Meeting summary' : `Meeting · ${when}${hm(cmd.started_at)}–${hm(cmd.ended_at)} · ${cmd.minutes} min${cmd.final ? '' : ' · so far'}`,
         summary: nothing
           ? 'Nothing was said in the call yet. Start call audio on the Check-up page, then try again.'
           : cmd.source === 'template'
@@ -600,9 +604,9 @@ window.tap.onUi((cmd: UiCommand) => {
           { label: 'Decisions', items: cmd.decisions },
           { label: 'Talking points', items: cmd.points }
         ],
-        receivedAt: Date.now()
+        receivedAt: cmd.from === 'restored' ? cmd.ended_at * 1000 : Date.now()
       })
-      if (!cmd.auto) setSummaryOpen(true)
+      if (cmd.from === 'main') setSummaryOpen(true)
       break
     }
     case 'OPEN_SUMMARY':
@@ -746,7 +750,7 @@ $<HTMLButtonElement>('summary-generate').onclick = () => {
   const gen = $<HTMLButtonElement>('summary-generate')
   gen.disabled = true
   gen.textContent = 'Summarizing…'
-  window.tap.emit(makeEvent('CALL_SUMMARY_REQUEST', 'ui', {}))
+  window.tap.emit(makeEvent('CALL_SUMMARY_REQUEST', 'ui', { from: 'main' }))
   setTimeout(() => {
     gen.disabled = false
     gen.textContent = 'Summarize the call'
