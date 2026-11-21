@@ -186,3 +186,36 @@ test('F3 chain: name while away → "while you were away" card without looking b
   assert.equal(card.trigger, 'name')
   assert.match(card.transcript, /Budget approved/)
 })
+
+test("mic doctor: only the user's click can run fix_mic; the click runs the MicPort fix and logs the checked result", async (t) => {
+  assert.equal(gate({ action: 'fix_mic', fix: 'unmute', mic: 'laptop', why: 'x' }, 'detector').verdict, 'block')
+  assert.equal(gate({ action: 'fix_mic', fix: 'unmute', mic: 'laptop', why: 'x' }, 'user').verdict, 'run')
+  t.after(() => mock.timers.reset())
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 * 1000 })
+  const ui: UiCommand[] = []
+  const logs: string[] = []
+  const fixes: string[] = []
+  const events = new EventBus()
+  const bus = new AgentBus()
+  const report = { log: (_k: string, t: string) => logs.push(t), blocked: (t: string) => logs.push(t), invalid: (t: string) => logs.push(t) }
+  new AudioAgent(events, bus, new Llm({ client: null }), 'Thibaud', report)
+  startVisionIntake(events, bus, report)
+  const mic = { fix: async (f: string, m: string) => (fixes.push(`${f}:${m}`), { ok: true, text: 'laptop mic "X" unmuted (checked)' }) }
+  new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, mic)
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
+  }
+  const at = () => Date.now() / 1000
+  events.publish({ type: 'MIC_STATE', ts: at(), source: 'mic', data: { name: 'X', kind: 'laptop', muted: true, volume: 1 } })
+  events.publish({ type: 'MOUTH_MOVING', ts: at(), source: 'webcam', data: { active: true } })
+  mock.timers.tick(2000)
+  events.publish({ type: 'MIC_LEVEL', ts: at(), source: 'mic', data: { rms: 0 } })
+  await flush()
+  const card = ui.find((c) => c.type === 'SHOW_FIX')
+  assert.ok(card && card.type === 'SHOW_FIX')
+  assert.deepEqual([card.fix_label, card.action_id, card.alt_label, card.alt_action_id], ['Unmute laptop mic', 'fix_mic', "I'm muted on purpose", 'snooze_mic_alerts'])
+  events.publish({ type: 'USER_CLICK', ts: at(), source: 'ui', data: { action_id: 'fix_mic' } })
+  await flush()
+  assert.deepEqual(fixes, ['unmute:laptop'])
+  assert.ok(logs.includes('You clicked the fix → laptop mic "X" unmuted (checked)'))
+})

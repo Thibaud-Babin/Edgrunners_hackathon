@@ -15,6 +15,8 @@ import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
 import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
 import { cleanText, MAX } from './agent/sanitize'
+import { WinMic } from './audio/win-mic'
+import { makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -90,7 +92,9 @@ app.whenReady().then(() => {
   const bus = new EventBus()
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
   const llm = new Llm()
-  new Agent(bus, sendUi, haptics, llm, names[0])
+  // B: Windows-level mic (state for the mic doctor, and the fixes a card names). Only a click runs a fix.
+  const winMic = new WinMic()
+  new Agent(bus, sendUi, haptics, llm, names[0], winMic.available ? winMic : null)
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
   // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
   if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
@@ -113,7 +117,15 @@ app.whenReady().then(() => {
       sendUi({ type: 'CAPTION', text, final: type === 'TRANSCRIPT_FINAL', speaker, highlight: findName(text, names)?.word })
     })
   }
-  app.on('before-quit', () => audio.stop()) // closes recordings cleanly
+  app.on('before-quit', () => {
+    audio.stop() // closes recordings cleanly
+    winMic.stop()
+  })
+  // The Windows default mic, on every change → MIC_STATE (the agent's mic doctor uses it).
+  winMic.watch((m) => {
+    console.log(`[mic] default: ${m.kind} "${m.name}"${m.muted ? ' MUTED' : ''}, volume ${Math.round(m.volume * 100)} %${m.otherKind ? `, other mic: ${m.otherKind}` : ''}`)
+    bus.publish(makeEvent('MIC_STATE', 'mic', { name: m.name, kind: m.kind, muted: m.muted, volume: m.volume, ...(m.otherKind ? { other_kind: m.otherKind } : {}) }))
+  })
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
     // Dev text box: typed "speech" goes through the same pipeline as real STT output.

@@ -223,7 +223,13 @@ window.tap.onUi((cmd: UiCommand) => {
             click(cmd.action_id)
             removeToast(cmd.id)
           }),
-          button('Not now', 'ghost', () => userDismiss(cmd.id))
+          // Optional second button from the agent (e.g. "I'm muted on purpose"), else "Not now".
+          cmd.alt_label && cmd.alt_action_id
+            ? button(cmd.alt_label, 'ghost', () => {
+                click(cmd.alt_action_id!)
+                removeToast(cmd.id)
+              })
+            : button('Not now', 'ghost', () => userDismiss(cmd.id))
         ]
       })
       break

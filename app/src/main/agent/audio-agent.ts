@@ -23,7 +23,8 @@ const DETECTOR_TEXT: Record<(typeof DETECTOR_EVENTS)[number], string> = {
   VIDEO_FROZEN_REPORTED: 'text',
   WAITING_FOR_YOU: 'question',
   TOPIC_MENTIONED: 'topic',
-  MIC_QUALITY: 'level'
+  MIC_QUALITY: 'level',
+  MIC_STATE: 'name'
 }
 
 const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
@@ -88,6 +89,14 @@ export class AudioAgent {
       if (typeof d.partial === 'boolean') hit.partial = d.partial
       if (typeof d.latency_s === 'number' && d.latency_s >= 0 && d.latency_s <= 60) hit.latencyS = d.latency_s
       if (d.latency_ref === 'name_word' || d.latency_ref === 'sentence_start') hit.latencyRef = d.latency_ref
+    }
+    if (type === 'MIC_STATE') {
+      // B's Windows mic state. Same rule: keep only fields of the right type.
+      const d = raw.data ?? {}
+      if (d.kind === 'laptop' || d.kind === 'headset') hit.micKind = d.kind
+      if (typeof d.muted === 'boolean') hit.muted = d.muted
+      if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) hit.volume = d.volume
+      if (d.other_kind === 'laptop' || d.other_kind === 'headset') hit.otherKind = d.other_kind
     }
     this.bus.publish('detector', 'detector', 'detector', hit)
   }

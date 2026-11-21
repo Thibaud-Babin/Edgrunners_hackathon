@@ -131,3 +131,84 @@ test('F9: bad mic > 10 s → "switch to laptop mic" card; still bad 10 s after t
   assert.match(fixes[1]!.problem, /still noisy after switching/)
   assert.ok(r.log.includes('Mic quality ok after the switch → fix worked'))
 })
+
+// ---------- mic doctor (B's MIC_STATE + A's mouth + Tap's mic levels) ----------
+
+const micState = (ts: number, o: { muted: boolean; volume?: number; otherKind?: string; micKind?: string }) =>
+  env('detector', { type: 'MIC_STATE', text: 'Microphone Array (AMD)', micKind: o.micKind ?? 'laptop', muted: o.muted, volume: o.volume ?? 1, ...(o.otherKind ? { otherKind: o.otherKind } : {}) }, ts, 'detector')
+const mouth = (active: boolean, ts: number) => env('vision', { signal: 'mouth', active }, ts)
+const level = (rms: number, ts: number) => env('mic', { rms }, ts, 'detector')
+const clickOn = (actionId: string, ts: number) => env('user', { input: 'click', actionId }, ts, 'user')
+const fixCards = (r: { actions: unknown[] }) =>
+  r.actions.filter((a) => (a as { action: string }).action === 'show_fix') as { problem: string; fixLabel: string; fixAction: string; altLabel?: string; altAction?: string }[]
+
+test('mic doctor: muted while just listening → no alert (being muted on purpose is normal)', () => {
+  const r = play([[micState(1, { muted: true }), 1], [level(0, 2), 2], [level(0, 10), 10]])
+  assert.equal(fixCards(r).length, 0)
+  assert.ok(r.log.includes('Laptop mic "Microphone Array (AMD)" is muted in Windows'))
+})
+
+test('mic doctor: talking while muted → "Unmute laptop mic" card (+ "I\'m muted on purpose"); the click runs exactly that fix', () => {
+  const r = play([[micState(1, { muted: true }), 1], [mouth(true, 10), 10], [level(0, 11), 11], [level(0, 11.6), 11.6], [clickOn('fix_mic', 15), 15]])
+  const [card] = fixCards(r)
+  assert.match(card!.problem, /muted in Windows/)
+  assert.equal(card!.fixLabel, 'Unmute laptop mic')
+  assert.equal(card!.fixAction, 'fix_mic')
+  assert.deepEqual([card!.altLabel, card!.altAction], ["I'm muted on purpose", 'snooze_mic_alerts'])
+  assert.deepEqual(r.actions.find((a) => (a as { action: string }).action === 'fix_mic'), { action: 'fix_mic', fix: 'unmute', mic: 'laptop', why: 'you clicked "Unmute laptop mic"' })
+  assert.ok(r.log.includes('Mic problem fixed before anyone noticed'))
+})
+
+test('mic doctor: "muted on purpose" silences alerts until you unmute; a coworker\'s complaint still gets a card', () => {
+  const r = play([
+    [micState(1, { muted: true }), 1],
+    [mouth(true, 10), 10],
+    [level(0, 12), 12], // card 1
+    [clickOn('snooze_mic_alerts', 13), 13],
+    [mouth(false, 14), 14],
+    [mouth(true, 60), 60],
+    [level(0, 62), 62], // snoozed: no card
+    [env('detector', { type: 'OTHERS_CANT_HEAR', text: "we can't hear you" }, 70, 'detector'), 70], // card 2 (reported)
+    [micState(80, { muted: false }), 80], // unmuted: snooze over
+    [micState(81, { muted: true }), 81],
+    [mouth(false, 120), 120],
+    [mouth(true, 121), 121],
+    [level(0, 123), 123] // card 3
+  ])
+  const cards = fixCards(r)
+  assert.equal(cards.length, 3)
+  assert.equal(cards[1]!.altLabel, undefined, 'a confirmed problem has no "muted on purpose" button')
+  assert.match(cards[1]!.problem, /Someone said: "we can't hear you", but your laptop mic is muted in Windows/)
+  assert.ok(r.log.some((l) => l.startsWith('Muted on purpose')))
+})
+
+test('mic doctor: talking, not muted, but the mic sends nothing → "Switch to headset mic" when there is one', () => {
+  const r = play([[micState(1, { muted: false, otherKind: 'headset' }), 1], [level(0.001, 9), 9], [mouth(true, 10), 10], [level(0.001, 11), 11], [level(0.001, 12.2), 12.2]])
+  const [card] = fixCards(r)
+  assert.match(card!.problem, /laptop mic sends no sound/)
+  assert.equal(card!.fixLabel, 'Switch to headset mic')
+})
+
+test('mic doctor: talking and heard (mic loud) → no card', () => {
+  const r = play([[micState(1, { muted: false }), 1], [mouth(true, 10), 10], [level(0.1, 11), 11], [level(0.1, 12), 12]])
+  assert.equal(fixCards(r).length, 0)
+})
+
+test('mic doctor: a coworker can\'t hear you but the mic is fine → "probably muted in Meet: press Ctrl+D" (no fake fix)', () => {
+  const r = play([[micState(1, { muted: false }), 1], [env('detector', { type: 'OTHERS_CANT_HEAR', text: "we can't hear you" }, 5, 'detector'), 5]])
+  const [card] = fixCards(r)
+  assert.match(card!.problem, /probably muted in Meet: press Ctrl\+D/)
+  assert.deepEqual([card!.fixLabel, card!.fixAction], ['Got it', 'dismiss_card'])
+})
+
+test('mic doctor: a coworker can\'t hear you and the Windows volume is 15 % → "Raise mic volume to 80 %"', () => {
+  const r = play([
+    [micState(1, { muted: false, volume: 0.15 }), 1],
+    [env('detector', { type: 'OTHERS_CANT_HEAR', text: 'you are very quiet, we cannot hear you' }, 5, 'detector'), 5],
+    [clickOn('fix_mic', 6), 6]
+  ])
+  const [card] = fixCards(r)
+  assert.match(card!.problem, /very quiet \(volume 15 %\)/)
+  assert.equal(card!.fixLabel, 'Raise mic volume to 80 %')
+  assert.ok(r.log.includes('Mic problem fixed after a coworker reported it'))
+})
