@@ -11,7 +11,6 @@ import { EventBus } from './bus'
 import { Haptics } from './haptics'
 import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
-import { roleFromConfig } from './agent/permissions'
 import { AudioPipeline, createStt } from './audio/pipeline'
 import { runMock } from './mock'
 
@@ -82,7 +81,7 @@ app.whenReady().then(() => {
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
   // Role from config only (never speech, LLM or production UI). Missing/invalid → intern.
   const llm = new Llm()
-  new Agent(bus, sendUi, haptics, llm, names[0], roleFromConfig(process.env.TAP_USER_ROLE))
+  new Agent(bus, sendUi, haptics, llm, names[0])
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {

@@ -67,10 +67,10 @@ export const VisionSignal = z
   .strict()
 export type VisionSignal = z.infer<typeof VisionSignal>
 
-/** A deliberate input from the user: a click in Tap's UI or a gesture made on purpose. */
+/** A deliberate input from the user: a click in Tap's UI (e.g. dismissing a card). */
 export const UserInput = z
   .object({
-    input: z.enum(['click', 'nod', 'shake', 'brow_raise', 'tilt_left', 'tilt_right']),
+    input: z.enum(['click']),
     // Free string on purpose: the executor's allowlist (not the schema) rejects unknown actions, so it can log them.
     actionId: z.string().max(LIMITS.id).optional(),
     cardId: z.string().max(LIMITS.id).optional()
@@ -95,35 +95,15 @@ const Why = z.string().max(200)
 export const ActionRequest = z.discriminatedUnion('action', [
   z
     .object({
-      action: z.literal('show_recap'),
-      fromTs: Ts,
-      fallbackText: z.string().max(LIMITS.transcriptChunk),
-      afterMs: z.number().int().min(0).max(10_000), // let the end of the sentence arrive first
-      why: Why
-    })
-    .strict(),
-  z
-    .object({
       action: z.literal('show_away_summary'),
-      fromTs: Ts,
-      trigger: z.enum(['name', 'looked_back']),
-      skipIfSilent: z.boolean(), // no card when nothing was said while away
+      fromTs: Ts, // attention lost
+      untilTs: Ts, // attention back
       why: Why
     })
     .strict(),
-  z
-    .object({
-      action: z.literal('show_fix'),
-      problem: z.string().max(LIMITS.label * 2),
-      fixLabel: z.string().max(LIMITS.label),
-      fixAction: z.enum(ALLOWED_ACTIONS),
-      why: Why
-    })
-    .strict(),
+  // Haptics come later: nothing requests one today, the path stays for the mouse.
   z.object({ action: z.literal('send_haptic'), waveform: z.enum(WAVEFORMS), why: Why }).strict(),
-  z.object({ action: z.literal('switch_input_device'), prefer: z.enum(['laptop', 'headset']), why: Why }).strict(),
-  z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
-  z.object({ action: z.literal('post_chat_reply'), text: z.string().min(1).max(LIMITS.question), why: Why }).strict()
+  z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict()
 ])
 export type ActionRequest = z.infer<typeof ActionRequest>
 
@@ -134,13 +114,13 @@ export const TranscriptChunk = z
 
 export const MicLevel = z.object({ rms: z.number().finite().nonnegative() }).strict()
 
-/** Executor → Audio agent: "summarise what was said since `fromTs`". */
+/** Executor → Audio agent: "summarise what was said between `fromTs` and `untilTs`". */
 export const SummaryRequest = z
   .object({
     requestId: Id,
     kind: z.enum(['recap', 'away']),
     fromTs: Ts,
-    fallbackText: z.string().max(LIMITS.transcriptChunk)
+    untilTs: Ts
   })
   .strict()
 

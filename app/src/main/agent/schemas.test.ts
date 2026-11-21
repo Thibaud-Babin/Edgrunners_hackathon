@@ -14,7 +14,7 @@ test('rejects extra fields everywhere', () => {
   assert.ok(!LlmSummaryOutput.safeParse({ text: 'x', askedYou: false, topics: [], reply: 'yes' }).success)
   assert.ok(!EnvelopeBase.safeParse({ ...okEnvelope, role: 'ceo' }).success)
   assert.ok(!VisionSignal.safeParse({ signal: 'away', note: 'free text' }).success)
-  assert.ok(!ActionRequest.safeParse({ action: 'post_chat_reply', text: 'Yes', why: 'nod', role: 'ceo' }).success)
+  assert.ok(!ActionRequest.safeParse({ action: 'dismiss_card', cardId: 'c1', why: 'click', role: 'ceo' }).success)
 })
 
 test('rejects over-long text', () => {

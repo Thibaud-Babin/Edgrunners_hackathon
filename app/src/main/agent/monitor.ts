@@ -10,7 +10,6 @@ import type { LogEntry, TapEvent, UiCommand } from '../../shared/events.ts'
 import { now as clock } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { BlockCategory, Reporter } from './agent.ts'
-import type { Role } from './permissions.ts'
 import { cleanText, MAX } from './sanitize.ts'
 
 export const FEED_SILENT_S = 10
@@ -27,7 +26,6 @@ export interface MonitorControls {
   llm: { hasKey: boolean; forceTemplateUntil(ts: number): void }
   executor: { pause(untilTs: number): void; hapticsOff(): void }
   haptics: { fire(w: 'knock'): Promise<boolean> }
-  role: Role
 }
 
 type Feed = 'vision' | 'audio'
@@ -35,7 +33,7 @@ type Feed = 'vision' | 'audio'
 export class Monitor {
   readonly reporter: Reporter
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
-  private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, permission: 0, paused: 0, injectionFlagged: 0, fallbacks: 0 }
+  private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, paused: 0, injectionFlagged: 0, fallbacks: 0 }
   private lastSeen: Record<Feed, number>
   private silentFlagged: Record<Feed, boolean> = { vision: false, audio: false }
   private aiFails = 0
@@ -76,7 +74,6 @@ export class Monitor {
 
     // Heartbeats.
     bus.on('vision', () => this.seen('vision'))
-    bus.on('user', (e) => e.from === 'vision' && this.seen('vision'))
     bus.on('transcript', (e) => {
       this.seen('audio')
       if (e.payload.instructionLike) this.detail.injectionFlagged++
@@ -99,8 +96,7 @@ export class Monitor {
   private async selfCheck(c: MonitorControls): Promise<void> {
     const parts = [
       existsSync(join(process.cwd(), '.env')) ? '.env loaded' : 'no .env (defaults)',
-      c.llm.hasKey ? 'AI key present' : 'no AI key → template mode',
-      `role ${c.role}`
+      c.llm.hasKey ? 'AI key present' : 'no AI key → template mode'
     ]
     if (process.env.TAP_SELFTEST_HAPTIC === '1') {
       parts.push((await c.haptics.fire('knock')) ? 'HapticWeb reachable' : 'HapticWeb NOT reachable (check the hosts file: 127.0.0.1 local.jmw.nz)')
@@ -184,7 +180,7 @@ export class Monitor {
     const d = this.detail
     const line =
       `Checkup: ${d.actions} actions · ${this.counters.blocked} blocked (invalid ${d.invalid}, allowlist ${d.allowlist}, ` +
-      `provenance ${d.provenance}, permission ${d.permission}, paused ${d.paused}) · ${d.injectionFlagged} instruction-like speech · ` +
+      `provenance ${d.provenance}, paused ${d.paused}) · ${d.injectionFlagged} instruction-like speech · ` +
       `${d.fallbacks} AI fallbacks · AI $${this.counters.costUsd.toFixed(4)}`
     if (line === this.lastCheckup) return
     this.lastCheckup = line

@@ -1,5 +1,6 @@
 /**
- * OWNER: C. Agent 1, Audio: call-audio transcript → `Summary`. The ONLY agent that calls the LLM.
+ * OWNER: C. Agent 1, Audio: call-audio transcript → `Summary` of the time the user was not paying attention.
+ * The ONLY agent that calls the LLM.
  * Also the intake for B's deterministic detector events (name heard, can't hear you…) and mic level.
  * Its output is display-only: nothing it publishes can trigger an action (provenance transcript / llm).
  */
@@ -72,15 +73,16 @@ export class AudioAgent {
     this.bus.publish('audio', 'detector', 'mic', { rms: rms as number })
   }
 
-  private textSince(ts: number): string {
+  /** Only what was said between `from` and `until`: the time the user was not paying attention. */
+  private textBetween(from: number, until: number): string {
     return this.lines
-      .filter((l) => l.ts >= ts)
+      .filter((l) => l.ts >= from && l.ts <= until)
       .map((l) => l.text)
       .join('\n')
   }
 
   private async onRequest(req: PayloadOf<'summary.request'>): Promise<void> {
-    const text = this.textSince(req.fromTs) || req.fallbackText
+    const text = this.textBetween(req.fromTs, req.untilTs)
     const out = await this.llm.summarise(text, req.kind, this.userName)
     if (out.usedLlm) this.report.log('llm', `summary (${text.length} chars)`, out.costUsd)
     const why = out.fallback && FALLBACK_LOG[out.fallback]

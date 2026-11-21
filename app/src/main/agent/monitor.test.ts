@@ -14,8 +14,7 @@ function setup() {
     {
       llm: { hasKey: true, forceTemplateUntil: (ts) => calls.push(`template until ${ts}`) },
       executor: { pause: (ts) => calls.push(`pause until ${ts}`), hapticsOff: () => calls.push('haptics off') },
-      haptics: { fire: async () => true },
-      role: 'intern'
+      haptics: { fire: async () => true }
     },
     { timers: false }
   )

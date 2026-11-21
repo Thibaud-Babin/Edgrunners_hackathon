@@ -1,13 +1,13 @@
 /**
  * OWNER: C (A builds the vision code). Agent 2 intake: turns A's webcam events into validated envelopes.
- *   Passive signals (away, back, mouth…) → `VisionSignal`, provenance `vision`: may only notify (T0).
- *   Deliberate gestures (nod, shake, brow raise, tilt) → `UserInput`, provenance `user`.
+ *   Attention (away / back) and camera health (frozen, face out of frame, low light, mouth) → `VisionSignal`,
+ *   provenance `vision`: may only notify the user (T0).
  * Only enums, booleans and numbers get through: any free text A sends is dropped here.
  */
 import type { EventType, TapEvent } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
-import { RawTapEvent, type UserInput, type VisionSignal } from './schemas.ts'
+import { RawTapEvent, type VisionSignal } from './schemas.ts'
 
 const SIGNALS: Partial<Record<EventType, VisionSignal['signal']>> = {
   USER_AWAY: 'away',
@@ -18,19 +18,10 @@ const SIGNALS: Partial<Record<EventType, VisionSignal['signal']>> = {
   LOW_LIGHT: 'low_light'
 }
 
-const GESTURES: Partial<Record<EventType, UserInput['input']>> = {
-  GESTURE_NOD: 'nod',
-  GESTURE_SHAKE: 'shake',
-  GESTURE_BROW_RAISE: 'brow_raise',
-  GESTURE_TILT_LEFT: 'tilt_left',
-  GESTURE_TILT_RIGHT: 'tilt_right'
-}
-
 const REASONS: readonly string[] = ['turned_away', 'no_face'] satisfies NonNullable<VisionSignal['reason']>[]
 
 export function startVisionIntake(events: EventBus, bus: AgentBus, report: Reporter): void {
   for (const type of Object.keys(SIGNALS) as EventType[]) events.on(type, (e) => onSignal(e, SIGNALS[type]!))
-  for (const type of Object.keys(GESTURES) as EventType[]) events.on(type, (e) => onGesture(e, GESTURES[type]!))
 
   function parse(e: TapEvent): RawTapEvent | null {
     const raw = RawTapEvent.safeParse(e)
@@ -51,9 +42,5 @@ export function startVisionIntake(events: EventBus, bus: AgentBus, report: Repor
       ...(typeof reason === 'string' && REASONS.includes(reason) ? { reason: reason as VisionSignal['reason'] } : {}),
       ...(raw.confidence !== undefined ? { confidence: raw.confidence } : {})
     })
-  }
-
-  function onGesture(e: TapEvent, input: UserInput['input']): void {
-    if (parse(e)) bus.publish('vision', 'user', 'user', { input })
   }
 }
