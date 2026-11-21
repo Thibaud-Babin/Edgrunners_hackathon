@@ -65,8 +65,7 @@ type Envelope<T> = {
 ```ts
 // Summary: the Audio agent's only output
 {
-  kind: 'recap' | 'away';
-  text: string;          // ≤ 280 chars (recap), ≤ 400 (away)
+  text: string;          // ≤ 400 chars: what was said while the user was away
   askedYou: boolean;     // highlights the card; never triggers an action
   question?: string;     // ≤ 140 chars
   topics: string[];      // ≤ 5, each ≤ 40 chars
@@ -79,7 +78,7 @@ type Envelope<T> = {
 ## 3. AI model and cost
 
 - **Testing:** Anthropic **Haiku** via `@anthropic-ai/sdk`. Key in `app/.env` (`ANTHROPIC_API_KEY`), model in `TAP_LLM_MODEL`, prices in `TAP_PRICE_IN/OUT`.
-- **It is paid, so call it sparingly:** at most **one call per away window**; no call when the window has no speech or too little (template instead); small `max_tokens`; 3 s timeout; template fallback; AI breaker (2 failures in a row → template for 60 s). Every call logs its cost.
+- **It is paid, so call it sparingly:** at most **one call per away window**; no call when nothing was said or less than 40 characters (the words are shown as they are); output capped at 200 tokens; 3 s timeout; template fallback; AI breaker (2 failures in a row → template for 60 s); the spam guard (> 5 actions in 10 s → pause 5 s) also caps calls if vision flaps. Every call logs its model and cost.
 - **Later:** a free open-source model. The swap stays inside `llm.ts`.
 
 ---
@@ -90,10 +89,12 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 
 - **Startup self-check** → one log line: env loaded · AI key present (or "template mode") · feeds expected (camera, mic, call audio).
 - **Camera:** vision feed silent > 10 s, camera frozen, face out of frame, low light.
-- **Mic:** mic level feed silent; mouth moving but mic sends nothing.
-- **Call audio:** transcript feed silent while a call runs; "others can't hear you" said in the call.
+- **Mic:** mic level feed silent > 10 s; mouth moving but the mic sends nothing for 2 s.
+- **Call audio:** no transcribed speech for 60 s (a quiet call is normal, so the limit is longer); "others can't hear you" or "your video is frozen" said in the call.
+- Each device problem is logged at most once per 30 s.
 - **AI:** breaker state, fallbacks, cost.
-- **Counters:** actions, blocked (invalid / provenance / allowlist), instruction-like speech, AI fallbacks, AI cost.
+- **Counters:** actions, blocked (invalid / provenance / allowlist / paused), instruction-like speech, device problems, AI fallbacks, AI cost.
+- **Needs from B:** a call-audio level or heartbeat event would let the checkup tell "quiet call" from "call audio not captured".
 - **Haptics (later):** HapticWeb reachable, breaker after 3 failed calls.
 
 ---
@@ -120,20 +121,20 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 - **Send to UI (D renders them):** `SHOW_AWAY_SUMMARY` (the recap), `DISMISS`, `LOG_ENTRY`, `COUNTERS`.
 
 **Open contract items (connect when the others' code lands):**
-- **B: transcript timestamps.** `TRANSCRIPT_FINAL` carries only `{ text }`, and its `ts` is when it was published (after the STT delay), not when it was said. Exact slicing needs `{ text, start, end }` → additive `events.ts` change, team OK, separate `contract:` PR. Until then the recap slices by `ts` (may include or miss 1–2 s at the edges).
+- **B: transcript timestamps.** `TRANSCRIPT_FINAL` carries only `{ text }`, and its `ts` is when it was published (after the STT delay), not when it was said. Exact slicing needs `{ text, start, end }` → additive `events.ts` change, team OK, separate `contract:` PR. Until then the recap slices by `ts` and waits 1.5 s after "back" for late lines (`STT_GRACE_MS` in `executor.ts`), so it may include or miss a second or two at the edges.
 - **A: attention signals.** v1 uses `USER_AWAY` / `USER_BACK` (+ `FACE_OUT_OF_FRAME`). If A adds eyes closed / looking at phone, the intake maps them to the same signal.
 
 ## 7. Tasks, in order (updated Sun)
 
-| # | Task | Done when |
-|---|---|---|
-| 1 | Fix docs to the new goal (this sheet, `CLAUDE.local.md`, Rule 30 table) | Docs match the goal |
-| 2 | Refocus agents: attention lost/back → recap of that window only. Remove name knock, gesture replies, confirm cards, roles, UI-only outputs | Mock: away → back → one recap of that window |
-| 3 | Haiku cost control: one call per away window, skip tiny slices, cost logged | Cost per recap visible in the log |
-| 4 | Checkup = gear health (camera, mic, call audio, AI) | A device problem in the mock produces a clear log line |
-| 5 | Real-data testing: record real A/B events to `demo/recordings/*.jsonl`, replay with `npm run mock` | Recap and checkup work on a real recording |
-| 6 | Cleanup: dead code and tests, graph rebuild, `/ponytail-review` | No unused code |
-| 7 | First push: PR to `main`; separate `contract:` PR for transcript timestamps if agreed | PR open |
+| # | Task | Done when | Status |
+|---|---|---|---|
+| 1 | Fix docs to the new goal (this sheet, `CLAUDE.local.md`, Rule 30 table) | Docs match the goal | done |
+| 2 | Refocus agents: attention lost/back → recap of that window only. Remove name knock, gesture replies, confirm cards, roles, UI-only outputs | Mock: away → back → one recap of that window | done (mock) |
+| 3 | Haiku cost control: one call per away window, skip tiny slices, cost logged | Cost per recap visible in the log | done (no key tested yet) |
+| 4 | Checkup = gear health (camera, mic, call audio, AI) | A device problem in the mock produces a clear log line | done (mock) |
+| 5 | Real-data testing: record real A/B events to `demo/recordings/*.jsonl`, replay with `npm run mock` | Recap and checkup work on a real recording | tooling done; **needs a session with A's and B's real code** |
+| 6 | Cleanup: dead code and tests, graph rebuild, `/ponytail-review` | No unused code | done |
+| 7 | First push: PR to `main`; separate `contract:` PR for transcript timestamps if agreed | PR open | branch pushed; PR to open |
 
 ## 8. Demo beats
 
@@ -146,7 +147,12 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 
 - `npm run mock` (fake meeting; from the VS Code terminal use `env -u ELECTRON_RUN_AS_NODE npm run mock`).
 - Edit `demo/mock-events.json` to script situations. Keep at least: attention recap, injection attempt, AI timeout, device trouble.
-- Mock data passing is not proof. Replay real recordings from A's and B's code before calling a part done.
+- Mock data passing is not proof. Replay real recordings from A's and B's code before calling a part done:
+  ```bash
+  TAP_RECORD=1 npm run dev                                          # real camera + call; writes demo/recordings/<time>.jsonl
+  TAP_MOCK_FILE=demo/recordings/<time>.jsonl npm run mock           # replay it (path relative to the repo root)
+  ```
+  Recording is dev-only (off in packaged builds). Recordings hold real speech: `demo/recordings/` is gitignored, never commit them.
 
 ## 10. What I need from the others
 
