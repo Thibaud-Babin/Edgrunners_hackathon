@@ -207,9 +207,9 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 .t-ctrl button { width: 26px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--text-2); font-size: 13px; }
 .t-ctrl button:hover { background: var(--inset); color: var(--text); }
 .t-body { display: flex; gap: 10px; padding: 6px 12px 8px; }
-.tile { flex: none; width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 20px; background: var(--accent-soft); color: var(--accent); }
-.toast.fix .tile { background: rgba(255, 93, 93, 0.25); color: var(--bad); }
-.toast.reply .tile { background: rgba(60, 207, 142, 0.25); color: var(--ok); }
+.t-tile { flex: none; width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 20px; background: var(--accent-soft); color: var(--accent); }
+.toast.fix .t-tile { background: rgba(255, 93, 93, 0.25); color: var(--bad); }
+.toast.reply .t-tile { background: rgba(60, 207, 142, 0.25); color: var(--ok); }
 .t-content { min-width: 0; }
 .t-title { font-weight: 600; font-size: 14px; }
 .question { font-size: 20px; font-weight: 600; line-height: 1.25; margin: 4px 0 8px; }

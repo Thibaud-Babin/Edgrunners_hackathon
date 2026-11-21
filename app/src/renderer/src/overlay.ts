@@ -73,7 +73,7 @@ function addToast(o: ToastOpts): HTMLElement {
   }
   head.append(app, ctrl)
 
-  const tile = el('span', 'tile')
+  const tile = el('span', 't-tile')
   if (typeof o.icon === 'string') tile.textContent = o.icon
   else tile.append(o.icon)
   const content = el('div', 't-content')
