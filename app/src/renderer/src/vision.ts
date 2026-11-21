@@ -29,8 +29,8 @@ const FROZEN_AFTER_MS = 3000
 const FROZEN_MAX_CHANGED_PIXELS = 3 // of 64x48 = 3072: real sensor noise always changes more
 const LOW_LIGHT_ENTER = 60 // mean luma 0..255 (labelled dark test images: 10.9-31.5)
 const LOW_LIGHT_EXIT = 80
-const TOO_BRIGHT_ENTER = 200 // labelled light test images: 202.3-206.8
-const TOO_BRIGHT_EXIT = 180
+const TOO_BRIGHT_ENTER = 190 // labelled light test images: 202.3-206.8
+const TOO_BRIGHT_EXIT = 170
 const LIGHTING_HOLD_MS = 800
 
 export interface HeadPose {
