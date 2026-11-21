@@ -69,7 +69,7 @@ export function cameraHealth(): CameraHealth {
 
 export type VisionListener = (info: { pose?: HeadPose; blend: Record<string, number>; face: boolean }) => void
 
-/** Infrared (Windows Hello) and virtual cameras: black-and-white or not a real picture, useless for face tracking. */
+/** Infrared (Windows Hello), presence-detection ("CPD") and virtual cameras: black-and-white or not a real picture. */
 const NOT_A_COLOUR_CAMERA = /\b(ir|infrared|hello|virtual|obs|lvnext)\b/i
 
 /**
