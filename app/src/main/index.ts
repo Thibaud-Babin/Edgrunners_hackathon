@@ -78,7 +78,6 @@ function sendUi(cmd: UiCommand): void {
     else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
     else if (cmd.type === 'SHOW_NUDGE') console.log(`[card] NUDGE: ${cmd.text}${cmd.question ? ` | ${cmd.question}` : ''}`)
     else if (cmd.type === 'SHOW_NOTICE') console.log(`[card] NOTICE: ${cmd.text}`)
-    else if (cmd.type === 'SHOW_MINUTES') console.log(`[card] MINUTES ${cmd.id}: decisions ${JSON.stringify(cmd.decisions)} | action items ${JSON.stringify(cmd.action_items)}`)
     else if (cmd.type === 'ROLE') console.log(`[ui] ROLE ${cmd.role} (IT view ${cmd.sees_it_view ? 'shown' : 'hidden'}, ${cmd.confidential ? 'confidential' : 'not confidential'})`)
     else console.log(`[ui] ${cmd.type}`)
   }

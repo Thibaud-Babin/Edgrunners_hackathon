@@ -83,10 +83,10 @@ export class Agent {
 function roleSummary(role: UserRole): string {
   switch (role) {
     case 'intern':
-      return 'cards and own-device fixes; sharing meeting content blocked'
+      return 'cards and own-device fixes; IT view hidden; normal IT queue'
     case 'senior':
-      return 'cards, own-device fixes, IT view; sharing meeting content blocked'
+      return 'cards, own-device fixes, IT view; normal IT queue'
     default:
-      return 'may share recaps and send action items on click; confidential meetings (no cloud AI, wiped at call end); priority IT support'
+      return 'cards, own-device fixes, IT view; confidential meetings (no cloud AI, no recording); priority IT support'
   }
 }

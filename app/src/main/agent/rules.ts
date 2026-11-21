@@ -274,9 +274,9 @@ function onUser(d: Decision, u: UserInput, t: number): void {
       d.state.micFixStage = 2
       d.state.micBad = { ...d.state.micBad, since: t } // give the fix 10 s before judging it
     }
-  } else if (actionId === 'open_it_ticket' || actionId === 'share_recap' || actionId === 'send_action_items') {
-    // Role-gated actions (permissions.ts): the rules only pass the click on; the executor's gate decides by role.
-    d.actions.push({ action: actionId, cardId: u.cardId ?? '', why: `you clicked "${CLICK_LABEL[actionId]}"` })
+  } else if (actionId === 'open_it_ticket') {
+    // The rules only pass the click on; the executor's gate checks it (T1: the user's own click).
+    d.actions.push({ action: 'open_it_ticket', cardId: u.cardId ?? '', why: 'you clicked "Send diagnostics to IT"' })
   } else if (actionId === 'snooze_mic_alerts') {
     d.state.micSnoozeUntil = t + MIC_SNOOZE_S
     d.state.micPlan = null
@@ -295,8 +295,6 @@ function onUser(d: Decision, u: UserInput, t: number): void {
 }
 
 // ---------- mic doctor ----------
-
-const CLICK_LABEL = { open_it_ticket: 'Send diagnostics to IT', share_recap: 'Share with team', send_action_items: 'Send to attendees' } as const
 
 const FIX_LABEL: Record<MicFix, (mic: MicKind) => string> = {
   unmute: (mic) => `Unmute ${mic} mic`,

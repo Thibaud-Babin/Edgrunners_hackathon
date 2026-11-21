@@ -3,7 +3,7 @@ import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { EventType, UiCommand } from '../../shared/events.ts'
 import { AgentBus, EventBus } from '../bus.ts'
-import { AudioAgent, templateMinutes } from './audio-agent.ts'
+import { AudioAgent } from './audio-agent.ts'
 import { Executor, gate, type ItTicket, STT_GRACE_MS } from './executor.ts'
 import { Llm, type MessagesClient } from './llm.ts'
 import { RoleState, type UserRole } from './permissions.ts'
@@ -75,24 +75,6 @@ test('not confidential (intern): the recap uses the cloud AI', async (t) => {
   assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY' && card.summary === 'Cloud summary.')
 })
 
-test('retention: at call end the CEO\'s transcript is deleted, the intern\'s is kept', async (t) => {
-  t.after(() => mock.timers.reset())
-  for (const [role, wiped] of [['ceo', true], ['intern', false]] as const) {
-    const r = roleRig(role)
-    r.say('Budget approved, Sara sends the numbers tonight.', T0 + 1)
-    r.ui_('CALL_ENDED')
-    await r.flush()
-    if (wiped) assert.ok(r.logs.some((l) => l.startsWith('Call ended: 1 transcript lines deleted from this laptop (CEO, confidential)')))
-    else assert.ok(r.logs.some((l) => l.startsWith('Call ended: what was said stays on this laptop')))
-    // A later recap over the same time window shows the line only if it was kept.
-    await r.awayRecap()
-    const card = r.ui.find((c) => c.type === 'SHOW_AWAY_SUMMARY')
-    assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY')
-    assert.equal(/Budget approved/.test(card.transcript), !wiped, role)
-    mock.timers.reset()
-  }
-})
-
 test('CALL_ENDED from anything but the UI is dropped', async (t) => {
   t.after(() => mock.timers.reset())
   const r = roleRig('ceo')
@@ -142,101 +124,23 @@ test('IT ticket: only the user\'s click opens it, never a detector, speech or th
   for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
 })
 
-test('share recap: the CEO\'s click shares the summary; the intern\'s click is blocked with the reason', async (t) => {
-  t.after(() => mock.timers.reset())
-  for (const role of ['ceo', 'senior', 'intern'] as const) {
-    const r = roleRig(role)
-    await r.awayRecap()
-    const card = r.ui.find((c) => c.type === 'SHOW_AWAY_SUMMARY')
-    assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY' && card.share === true, 'every recap card offers Share')
-    r.ui_('USER_CLICK', { action_id: 'share_recap', args: { id: card.id } })
-    await r.flush()
-    const shared = r.ui.some((c) => c.type === 'SHOW_NOTICE' && c.text === 'Recap shared with #team (simulated)')
-    assert.equal(shared, role === 'ceo', role)
-    if (role === 'ceo') assert.ok(r.logs.some((l) => l.startsWith('You clicked "Share with team" → recap summary shared with #team')))
-    else assert.ok(r.logs.includes(`share_recap blocked (sharing meeting content outside the call is for executives and the CEO (you: ${role === 'senior' ? 'senior / tech lead' : 'intern'}, T3))`), r.logs.join('\n'))
-    mock.timers.reset()
-  }
-})
-
-test('share recap: after the CEO\'s call ends, old recaps can no longer be shared', async (t) => {
+test('End call is logged; it changes nothing (no wipe, no minutes)', async (t) => {
   t.after(() => mock.timers.reset())
   const r = roleRig('ceo')
-  await r.awayRecap()
-  const card = r.ui.find((c) => c.type === 'SHOW_AWAY_SUMMARY')
-  assert.ok(card)
   r.ui_('CALL_ENDED')
   await r.flush()
-  r.ui_('USER_CLICK', { action_id: 'share_recap', args: { id: card.id } })
-  await r.flush()
-  assert.ok(!r.ui.some((c) => c.type === 'SHOW_NOTICE'))
-  assert.ok(r.logs.includes('You clicked "Share with team" → nothing shared (that recap is no longer kept)'))
+  assert.ok(r.logs.includes('Call ended (CEO)'))
+  assert.equal(r.ui.length, 0)
 })
 
-test('share recap: a detector or the AI can never share, even for the CEO', () => {
-  const req = { action: 'share_recap', cardId: 'card-1', why: 'test' }
-  for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
-})
-
-test('minutes by rules: decisions and action items, capped, never more than asked', () => {
-  const m = templateMinutes([
-    'Hello everyone.',
-    'Budget approved, Sara sends the numbers tonight.',
-    'We decided to ship on Friday.',
-    'Paul will check the tests by Monday.',
-    'Nice weather today.'
-  ])
-  assert.deepEqual(m.decisions, ['Budget approved, Sara sends the numbers tonight.', 'We decided to ship on Friday.'])
-  assert.deepEqual(m.actionItems, ['Budget approved, Sara sends the numbers tonight.', 'Paul will check the tests by Monday.'])
-  const many = templateMinutes(Array.from({ length: 9 }, (_, i) => `We agreed on point ${i}. ${'x'.repeat(200)}`))
-  assert.equal(many.decisions.length, 5)
-  assert.ok(many.decisions.every((l) => l.length <= 140))
-})
-
-test('end of call: the CEO gets a minutes card (zero AI calls) and may send it; then the transcript is wiped', async (t) => {
+test('sharing is gone: a share or send click is not on the allowlist, for every role', async (t) => {
   t.after(() => mock.timers.reset())
-  const r = roleRig('ceo')
-  r.say('Budget approved, Sara sends the numbers tonight.', T0 + 1)
-  r.ui_('CALL_ENDED')
-  await r.flush()
-  assert.equal(r.aiCalls(), 0)
-  const card = r.ui.find((c) => c.type === 'SHOW_MINUTES')
-  assert.ok(card && card.type === 'SHOW_MINUTES')
-  assert.deepEqual([card.decisions, card.action_items, card.can_send], [['Budget approved, Sara sends the numbers tonight.'], ['Budget approved, Sara sends the numbers tonight.'], true])
-  // Minutes were made before the wipe.
-  const minutesAt = r.logs.findIndex((l) => l.startsWith('Call ended → minutes card: 1 decisions, 1 action items'))
-  const wipeAt = r.logs.findIndex((l) => l.startsWith('Call ended: 1 transcript lines deleted'))
-  assert.ok(minutesAt >= 0 && wipeAt > minutesAt, r.logs.join('\n'))
-  r.ui_('USER_CLICK', { action_id: 'send_action_items', args: { id: card.id } })
-  await r.flush()
-  assert.ok(r.ui.some((c) => c.type === 'SHOW_NOTICE' && c.text === 'Decisions and action items sent to the attendees (simulated)'))
-  // A second click sends nothing again.
-  r.ui_('USER_CLICK', { action_id: 'send_action_items', args: { id: card.id } })
-  await r.flush()
-  assert.ok(r.logs.includes('You clicked "Send to attendees" → nothing sent (those minutes are no longer kept)'))
-})
-
-test('end of call: the intern and the senior get no minutes card, and a forged send click is blocked', async (t) => {
-  t.after(() => mock.timers.reset())
-  for (const role of ['intern', 'senior'] as const) {
+  for (const role of ['intern', 'ceo'] as const) {
     const r = roleRig(role)
-    r.say('Budget approved, Sara sends the numbers tonight.', T0 + 1)
-    r.ui_('CALL_ENDED')
+    for (const id of ['share_recap', 'send_action_items']) r.ui_('USER_CLICK', { action_id: id, args: { id: 'card-1' } })
     await r.flush()
-    assert.ok(!r.ui.some((c) => c.type === 'SHOW_MINUTES'), role)
-    r.ui_('USER_CLICK', { action_id: 'send_action_items', args: { id: 'card-1' } })
-    await r.flush()
-    assert.ok(r.logs.some((l) => l.startsWith('send_action_items blocked (sharing meeting content outside the call')), role)
+    assert.ok(r.logs.includes('action "share_recap" is not on the allowlist'), role)
+    assert.ok(r.logs.includes('action "send_action_items" is not on the allowlist'), role)
     mock.timers.reset()
   }
-})
-
-test('end of call with nothing decided: no minutes card', async (t) => {
-  t.after(() => mock.timers.reset())
-  const r = roleRig('executive')
-  r.say('Nice weather today.', T0 + 1)
-  r.ui_('CALL_ENDED')
-  await r.flush()
-  assert.ok(!r.ui.some((c) => c.type === 'SHOW_MINUTES'))
-  assert.ok(r.logs.includes('Call ended → no minutes card (no decision or action item was heard)'))
 })

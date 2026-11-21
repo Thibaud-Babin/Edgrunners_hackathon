@@ -105,11 +105,6 @@ export class Executor {
   private roles: RoleState
   private ports: ExecutorPorts
   private ticketSeq = 0
-  /** Recap card id → its summary (never the transcript): what "Share with team" may send. */
-  private shareable = new Map<string, string>()
-  /** The last minutes card: what "Send to attendees" may send. */
-  private minutes: { id: string; decisions: string[]; actionItems: string[] } | null = null
-  private pendingMinutes = new Map<string, (m: PayloadOf<'minutes'> | null) => void>()
 
   constructor(
     events: EventBus,
@@ -129,7 +124,7 @@ export class Executor {
     this.haptics = haptics
     this.report = report
     events.on('USER_CLICK', (e) => this.onClick(e))
-    events.on('CALL_ENDED', (e) => void this.onCallEnded(e))
+    events.on('CALL_ENDED', (e) => this.onCallEnded(e))
     bus.on('vision', (e) => this.handle(e))
     bus.on('detector', (e) => this.handle(e))
     bus.on('user', (e) => this.handle(e))
@@ -144,23 +139,13 @@ export class Executor {
       this.pending.delete(e.payload.requestId)
       done?.(e.payload)
     })
-    bus.on('minutes', (e) => {
-      const done = this.pendingMinutes.get(e.payload.requestId)
-      this.pendingMinutes.delete(e.payload.requestId)
-      done?.(e.payload)
-    })
   }
 
-  /** D's "End call" button. Retention by role: confidential roles keep nothing that was said. */
-  private async onCallEnded(e: TapEvent): Promise<void> {
+  /** D's "End call" button: logged for now (the end-of-call IT report hooks in here). */
+  private onCallEnded(e: TapEvent): void {
     const raw = RawTapEvent.safeParse(e)
     if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('CALL_ENDED with a bad shape or source')
-    // Minutes first (executive, CEO: the roles that may send them), while what was said is still here.
-    if (permission(this.roles.role, 'send_action_items') !== 'deny')
-      await this.run([{ action: 'show_minutes', why: 'you ended the call' }], 'user', now())
-    const wipe = this.roles.flags.wipeAtCallEnd
-    if (wipe) this.shareable.clear()
-    this.bus.publish('executor', 'system', 'call.end', { wipe })
+    this.report.log('decision', `Call ended (${this.roles.flags.label})`)
   }
 
   /** Intake for D's clicks: the user's own deliberate input. */
@@ -238,8 +223,7 @@ export class Executor {
         }
         this.ui({
           type: 'SHOW_AWAY_SUMMARY',
-          id: this.keepShareable(r.summary.text),
-          share: true,
+          id: this.cardId(),
           away_from: a.fromTs,
           until: a.untilTs,
           trigger: a.trigger,
@@ -258,7 +242,7 @@ export class Executor {
           this.report.log('decision', 'Your name was said → no recap (no transcript yet)')
           return true
         }
-        this.ui({ type: 'SHOW_RECAP', id: this.keepShareable(r.summary.text), share: true, transcript: r.transcript, summary: r.summary.text, question: r.summary.question })
+        this.ui({ type: 'SHOW_RECAP', id: this.cardId(), transcript: r.transcript, summary: r.summary.text, question: r.summary.question })
         this.report.log('action', `Your name was said → recap card shown (${r.summary.source} summary${r.summary.question ? ', with the question to you' : ''})`)
         return true
       }
@@ -299,42 +283,6 @@ export class Executor {
         return true
       case 'open_it_ticket':
         return this.sendTicket()
-      case 'share_recap': {
-        // The gate already checked the role (T3: executive, CEO) and that this is the user's own click.
-        const summary = this.shareable.get(a.cardId)
-        if (!summary) {
-          this.report.log('decision', 'You clicked "Share with team" → nothing shared (that recap is no longer kept)')
-          return false
-        }
-        this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: 'Recap shared with #team (simulated)' })
-        this.report.log('action', `You clicked "Share with team" → recap summary shared with #team (simulated; ${summary.length} chars, summary only, never the transcript)`)
-        return true
-      }
-      case 'show_minutes': {
-        const m = await this.requestMinutes()
-        if (!m) return false
-        if (!m.decisions.length && !m.actionItems.length) {
-          this.report.log('decision', 'Call ended → no minutes card (no decision or action item was heard)')
-          return true
-        }
-        const id = this.cardId()
-        this.minutes = { id, decisions: m.decisions, actionItems: m.actionItems }
-        this.ui({ type: 'SHOW_MINUTES', id, decisions: m.decisions, action_items: m.actionItems, can_send: true })
-        this.report.log('action', `Call ended → minutes card: ${m.decisions.length} decisions, ${m.actionItems.length} action items (made on this laptop, nothing sent until you click)`)
-        return true
-      }
-      case 'send_action_items': {
-        // The gate already checked the role (T3) and that this is the user's own click.
-        const m = this.minutes
-        if (!m || m.id !== a.cardId) {
-          this.report.log('decision', 'You clicked "Send to attendees" → nothing sent (those minutes are no longer kept)')
-          return false
-        }
-        this.minutes = null
-        this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: 'Decisions and action items sent to the attendees (simulated)' })
-        this.report.log('action', `You clicked "Send to attendees" → ${m.decisions.length} decisions and ${m.actionItems.length} action items sent (simulated; the minutes only, never the transcript)`)
-        return true
-      }
       case 'send_haptic': {
         if (this.hapticsDisabled) {
           this.ui({ type: 'FLASH', reason: a.waveform })
@@ -411,38 +359,10 @@ export class Executor {
     })
   }
 
-  /** Ask the Audio agent for the call's minutes over the bus. */
-  private requestMinutes(): Promise<PayloadOf<'minutes'> | null> {
-    const requestId = `min-${++this.reqSeq}`
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (!this.pendingMinutes.delete(requestId)) return
-        this.report.log('error', 'No minutes arrived in time → card skipped')
-        resolve(null)
-      }, SUMMARY_WAIT_MS)
-      this.pendingMinutes.set(requestId, (m) => {
-        clearTimeout(timer)
-        resolve(m)
-      })
-      if (!this.bus.publish('executor', 'system', 'minutes.request', { requestId })) {
-        this.pendingMinutes.delete(requestId)
-        clearTimeout(timer)
-        resolve(null)
-      }
-    })
-  }
-
   private cardId(): string {
     return `card-${++this.cardSeq}`
   }
 
-  /** A new recap card id; its summary is kept for "Share with team" (last 20 cards only). */
-  private keepShareable(summary: string): string {
-    const id = this.cardId()
-    this.shareable.set(id, summary)
-    if (this.shareable.size > 20) this.shareable.delete(this.shareable.keys().next().value as string)
-    return id
-  }
 }
 
 function sleep(ms: number): Promise<void> {

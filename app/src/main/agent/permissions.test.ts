@@ -17,20 +17,22 @@ test('the matrix has exactly 16 cells and nothing is ever automatic above T0', (
   for (const t of [1, 2, 3] as const) for (const r of ROLES) assert.notEqual(MATRIX[t][r], 'auto')
 })
 
-test('action tiers: own device and own data are T1, sharing outside the call is T3', () => {
+test('action tiers: cards are T0, own device and own data are T1; nothing is T2 or T3 today', () => {
   assert.equal(ACTION_TIER.fix_mic, 1)
   assert.equal(ACTION_TIER.switch_input_device, 1)
   assert.equal(ACTION_TIER.open_it_ticket, 1)
-  assert.equal(ACTION_TIER.share_recap, 3)
-  assert.equal(ACTION_TIER.send_action_items, 3)
   assert.equal(ACTION_TIER.show_recap, 0)
-  assert.equal(permission('intern', 'share_recap'), 'deny')
-  assert.equal(permission('ceo', 'share_recap'), 'click')
+  assert.ok(Object.values(ACTION_TIER).every((t) => t <= 1))
+  assert.equal(permission('intern', 'open_it_ticket'), 'click')
+})
+
+test('higher tiers stay ranked for future actions: T2 denied to interns, T3 only for executive and CEO', () => {
+  assert.deepEqual(ROLES.map((r) => MATRIX[2][r]), ['deny', 'click', 'click', 'click'])
+  assert.deepEqual(ROLES.map((r) => MATRIX[3][r]), ['deny', 'deny', 'click', 'click'])
 })
 
 test('role flags: confidentiality and IT view grow with rank', () => {
   assert.deepEqual(ROLES.map((r) => ROLE_FLAGS[r].confidential), [false, false, true, true])
-  assert.deepEqual(ROLES.map((r) => ROLE_FLAGS[r].wipeAtCallEnd), [false, false, true, true])
   assert.deepEqual(ROLES.map((r) => ROLE_FLAGS[r].seesItView), [false, true, true, true])
   assert.deepEqual(ROLES.map((r) => ROLE_FLAGS[r].ticketPriority), ['normal', 'normal', 'priority', 'priority'])
 })
@@ -53,28 +55,18 @@ test('RoleState notifies only on a real change', () => {
 })
 
 // ---------- the gate with roles ----------
-const SHARE = { action: 'share_recap', cardId: 'card-1', why: 'test' }
 const FIX = { action: 'fix_mic', fix: 'unmute', mic: 'laptop', why: 'test' }
-
-test('share: intern and senior blocked with a readable reason, executive and CEO run on their click', () => {
-  for (const r of ['intern', 'senior'] as const) {
-    const g = gate(SHARE, 'user', r)
-    assert.equal(g.verdict, 'block')
-    assert.ok(g.verdict === 'block' && g.category === 'permission' && /executives and the CEO/.test(g.reason))
-  }
-  for (const r of ['executive', 'ceo'] as const) assert.equal(gate(SHARE, 'user', r).verdict, 'run')
-})
 
 test('click-only actions never run from a detector, vision or the system, even for the CEO', () => {
   for (const p of ['detector', 'vision', 'system'] as const) {
-    assert.equal(gate(SHARE, p, 'ceo').verdict, 'block')
+    assert.equal(gate({ action: 'open_it_ticket', cardId: '', why: 'x' }, p, 'ceo').verdict, 'block')
     assert.equal(gate(FIX, p, 'ceo').verdict, 'block')
   }
 })
 
 test('speech and AI output never trigger anything, whatever the role', () => {
   for (const r of ROLES) for (const p of ['transcript', 'llm'] as const) {
-    assert.equal(gate(SHARE, p, r).verdict, 'block')
+    assert.equal(gate(FIX, p, r).verdict, 'block')
     assert.equal(gate({ action: 'send_haptic', waveform: 'knock', why: 'x' }, p, r).verdict, 'block')
   }
 })
@@ -84,5 +76,6 @@ test('fixing your own mic is allowed at every rank, on your click', () => {
 })
 
 test('gate without a role behaves as intern', () => {
-  assert.equal(gate(SHARE, 'user').verdict, 'block')
+  assert.equal(gate(FIX, 'user').verdict, 'run')
+  assert.equal(gate(FIX, 'detector').verdict, 'block')
 })

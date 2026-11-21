@@ -151,7 +151,7 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 
 ## 6b. Roles and access rights (Nexthink track)
 
-**Principle:** Tap never has more authority than the person it works for. With rank, two things grow: what the agent may do towards others (more), and how confidential the meetings are (stricter).
+**Principle:** Tap never has more authority than the person it works for. Tap runs on top of Teams/Meet and cannot reach documents, channels or attendees, so no action shares meeting content. With rank, meetings get more confidential and IT support gets faster.
 
 - **Role source:** `TAP_USER_ROLE` = `intern` | `senior` | `executive` | `ceo` (company SSO in real life). Missing or invalid → `intern` (least privilege). Dev builds only: D's switch sends `USER_SET_ROLE`; packaged builds ignore it and log a block. Never from speech, AI output or a production UI.
 - **Policy as data, one file:** `agent/permissions.ts` (`ACTION_TIER`, `MATRIX`, `ROLE_FLAGS`). The gate (`gate()` in `executor.ts`) checks it after schema, allowlist and provenance.
@@ -161,25 +161,24 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 | T0 notify | cards, haptics, minutes card | auto | auto | auto | auto |
 | T1 own device / own data | `fix_mic`, `switch_input_device`, `open_it_ticket` | click | click | click | click |
 | T2 speak for you | (none yet) | blocked | click | click | click |
-| T3 share outside the call | `share_recap`, `send_action_items` | blocked | blocked | click | click |
+| T3 affect others | (none yet) | blocked | blocked | click | click |
 
 "Click" = only the user's own click on Tap's button (provenance `user`). A detector, vision, speech or the AI can never start T1–T3.
 
 | Flag (`ROLE_FLAGS`) | Intern | Senior | Executive | CEO |
 |---|---|---|---|---|
 | Confidential: no cloud AI (local template recap), no event recording | no | no | yes | yes |
-| Transcript wiped at End call | no (kept 30 min) | no | yes | yes |
 | Sees the IT view (D hides it otherwise) | no | yes | yes | yes |
 | IT ticket queue | normal | normal | priority | priority |
 
 **Features:**
-- **Share recap (5):** recap cards carry `share: true`. Click → the summary only (never the transcript) goes to a simulated #team channel (`SHOW_NOTICE`). Intern/senior: blocked with the reason in the log.
-- **Minutes at End call (6):** executive/CEO get `SHOW_MINUTES` (decisions + action items, ≤ 5 each) built by rules on the laptop (`templateMinutes()` in `audio-agent.ts`; no AI call), before the wipe. "Send to attendees" (T3) is a simulated send.
-- **Confidential mode (8) + retention (9):** see the flags. `CALL_ENDED` (D's End call button, source `ui` only) → `call.end` on the bus → the Audio agent wipes or keeps.
+- **Confidential mode (8):** executive/CEO recaps are made on the laptop (template, fallback `confidential`, not counted as an AI failure); `TAP_RECORD` does not record them.
+- **End call:** `CALL_ENDED` (D's button, source `ui` only) is logged. Next: an end-of-call device report to the IT log.
+- Dropped after review: sharing recaps, minutes to attendees, wiping the transcript at call end.
 - **IT ticket (10) + VIP priority (11):** device fix cards carry `it_ticket: true`. Click → a ticket with device facts and the checkup's problem history (no speech, no device name) is written to `<userData>/it-tickets/T-NNNN.json` (simulated helpdesk).
 - **IT view by role (13):** `ROLE {role, sees_it_view, confidential}` is sent at start and on a dev switch.
 
-**Needs from D:** End call button (`CALL_ENDED`), dev-only role switch (`USER_SET_ROLE {role}`), "Share with team" on recap cards (`USER_CLICK share_recap {args:{id}}`), "Send diagnostics to IT" on fix cards with `it_ticket` (`USER_CLICK open_it_ticket`), render `SHOW_NOTICE` and `SHOW_MINUTES` ("Send to attendees" → `USER_CLICK send_action_items {args:{id}}` when `can_send`), hide the IT view when `sees_it_view` is false.
+**Needs from D:** End call button (`CALL_ENDED`), dev-only role switch (`USER_SET_ROLE {role}`), "Send diagnostics to IT" on fix cards with `it_ticket` (`USER_CLICK open_it_ticket`), render `SHOW_NOTICE`, hide the IT view when `sees_it_view` is false.
 **Needs from B:** the WAV recorder (`audio/recorder.ts`) should not record for confidential roles (`roles.flags.confidential` in `index.ts`).
 
 **Try it:** `TAP_USER_ROLE=intern npm run mock` vs `TAP_USER_ROLE=ceo npm run mock`.
@@ -195,7 +194,7 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 | 5 | Real-data testing: record real A/B events to `demo/recordings/*.jsonl`, replay with `npm run mock` | Recap and checkup work on a real recording | tooling done; **needs a session with A's and B's real code** |
 | 6 | Cleanup: dead code and tests, graph rebuild, `/ponytail-review` | No unused code | done |
 | 7 | First push: PR to `main`; separate `contract:` PR for transcript timestamps if agreed | PR open | branch pushed; PR to open |
-| 8 | Roles and access rights (Nexthink): `permissions.ts`, gate, confidential mode, retention, share, minutes, IT ticket | Mock: intern blocked, CEO shares after click; tests green | done (mock + tests); **needs D's buttons** |
+| 8 | Roles and access rights (Nexthink): `permissions.ts`, gate, confidential mode, IT ticket + priority, IT view by role | Mock: intern vs CEO; tests green | done (mock + tests); **needs D's buttons** |
 
 ## 8. Demo beats
 
