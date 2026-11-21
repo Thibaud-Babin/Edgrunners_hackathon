@@ -7,6 +7,39 @@ import { makeEvent } from '../../shared/events'
 
 const cards = document.getElementById('cards')!
 const flash = document.getElementById('flash')!
+// Live captions strip (bottom of the overlay). Added by B as a plain version; D: restyle freely.
+const captions = document.getElementById('captions')!
+const finalLines: HTMLElement[] = []
+let partialLine: HTMLElement | null = null
+
+/** One caption line; the user's name (highlight) is wrapped in <mark>. Text only, never innerHTML. */
+function captionLine(text: string, speaker?: string, highlight?: string): HTMLElement {
+  const line = el('div', 'caption-line')
+  if (speaker) line.append(el('span', 'caption-speaker', `${speaker}: `))
+  const i = highlight ? text.toLowerCase().indexOf(highlight.toLowerCase()) : -1
+  if (i < 0 || !highlight) line.append(document.createTextNode(text))
+  else {
+    const mark = document.createElement('mark')
+    mark.textContent = text.slice(i, i + highlight.length)
+    line.append(document.createTextNode(text.slice(0, i)), mark, document.createTextNode(text.slice(i + highlight.length)))
+  }
+  return line
+}
+
+function showCaption(text: string, final: boolean, speaker?: string, highlight?: string): void {
+  const line = captionLine(text, speaker, highlight)
+  partialLine?.remove()
+  partialLine = null
+  if (final) {
+    finalLines.push(line)
+    captions.append(line)
+    while (finalLines.length > 3) finalLines.shift()?.remove() // keep the last 3 sentences
+  } else {
+    line.classList.add('partial')
+    partialLine = line
+    captions.append(line)
+  }
+}
 
 function el(tag: string, cls: string, text?: string): HTMLElement {
   const e = document.createElement(tag)
@@ -71,6 +104,13 @@ window.tap.onUi((cmd: UiCommand) => {
           }
         ]
       ])
+      break
+    case 'SHOW_NUDGE':
+      addCard(cmd.id, cmd.text, cmd.question ? [el('div', 'question', cmd.question)] : [])
+      setTimeout(() => dismiss(cmd.id), 12000)
+      break
+    case 'CAPTION':
+      showCaption(cmd.text, cmd.final, cmd.speaker, cmd.highlight)
       break
     case 'DISMISS':
       dismiss(cmd.id)

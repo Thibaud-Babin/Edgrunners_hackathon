@@ -124,7 +124,7 @@ function parakeetV3(): Model {
 function deepgram(): Model {
   const key = process.env.DEEPGRAM_API_KEY
   if (!key) throw new Error('DEEPGRAM_API_KEY not set in app/.env')
-  const params = new URLSearchParams({ model: process.env.DG_MODEL || 'nova-3', language: 'en', smart_format: 'true', punctuate: 'true' })
+  const params = new URLSearchParams({ model: process.env.DG_MODEL || 'nova-3', language: process.env.TAP_STT_LANGUAGE || 'en', smart_format: 'true', punctuate: 'true' })
   for (const w of HOT) params.append('keyterm', w.trim())
   return {
     name: `deepgram-${params.get('model')}+keyterms`,

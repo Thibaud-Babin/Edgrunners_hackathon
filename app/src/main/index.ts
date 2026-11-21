@@ -13,6 +13,7 @@ import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
 import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
 import { runMock } from './mock'
+import { findName } from './detectors/text'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -64,12 +65,13 @@ function createWindows(): void {
 
 function sendUi(cmd: UiCommand): void {
   // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
-  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS') {
+  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION') {
     if (cmd.type === 'LOG_ENTRY') {
       if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
     } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
     else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
     else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
+    else if (cmd.type === 'SHOW_NUDGE') console.log(`[card] NUDGE: ${cmd.text}${cmd.question ? ` | ${cmd.question}` : ''}`)
     else console.log(`[ui] ${cmd.type}`)
   }
   for (const w of [mainWin, overlayWin]) if (w && !w.isDestroyed()) w.webContents.send(IPC.ui, cmd)
@@ -95,6 +97,16 @@ app.whenReady().then(() => {
     sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
   })
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
+  // Live captions (accessibility): what the others say, shown in the overlay as they speak. Display only, no decision,
+  // so it goes straight to the UI. The user's name is highlighted. D renders CAPTION in overlay.ts.
+  for (const type of ['TRANSCRIPT_PARTIAL', 'TRANSCRIPT_FINAL'] as const) {
+    bus.on(type, (e) => {
+      if (e.source !== 'call_audio') return
+      const text = String(e.data?.text ?? '')
+      const speaker = e.data?.speaker ? String(e.data.speaker) : undefined
+      sendUi({ type: 'CAPTION', text, final: type === 'TRANSCRIPT_FINAL', speaker, highlight: findName(text, names)?.word })
+    })
+  }
   app.on('before-quit', () => audio.stop()) // closes recordings cleanly
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
