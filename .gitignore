@@ -17,3 +17,7 @@ demo/recordings/
 # copied/downloaded by app/scripts/setup-models.mjs
 app/src/renderer/public/mediapipe/
 app/src/renderer/public/models/
+
+# personal / local
+CLAUDE.local.md
+graphify-out/
