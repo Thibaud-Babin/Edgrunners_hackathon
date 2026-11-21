@@ -3,7 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
@@ -73,10 +73,13 @@ function sendUi(cmd: UiCommand): void {
   if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION') {
     if (cmd.type === 'LOG_ENTRY') {
       if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
-    } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
-    else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
+    } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP ${cmd.id}: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
+    else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY ${cmd.id} (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
     else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
     else if (cmd.type === 'SHOW_NUDGE') console.log(`[card] NUDGE: ${cmd.text}${cmd.question ? ` | ${cmd.question}` : ''}`)
+    else if (cmd.type === 'SHOW_NOTICE') console.log(`[card] NOTICE: ${cmd.text}`)
+    else if (cmd.type === 'SHOW_MINUTES') console.log(`[card] MINUTES ${cmd.id}: decisions ${JSON.stringify(cmd.decisions)} | action items ${JSON.stringify(cmd.action_items)}`)
+    else if (cmd.type === 'ROLE') console.log(`[ui] ROLE ${cmd.role} (IT view ${cmd.sees_it_view ? 'shown' : 'hidden'}, ${cmd.confidential ? 'confidential' : 'not confidential'})`)
     else console.log(`[ui] ${cmd.type}`)
   }
   for (const w of [mainWin, overlayWin]) if (w && !w.isDestroyed()) w.webContents.send(IPC.ui, cmd)
@@ -105,11 +108,12 @@ app.whenReady().then(() => {
     allowRoleSwitch: !app.isPackaged,
     // Simulated helpdesk: tickets land as JSON in the app's data folder (outside the repo). No real IT system.
     tickets: {
+      // Sync on purpose: one small file on a click. (fs/promises stalled late in a long mock run here.)
       send: async (t) => {
         const dir = join(app.getPath('userData'), 'it-tickets')
-        await mkdir(dir, { recursive: true })
+        mkdirSync(dir, { recursive: true })
         const file = join(dir, `${t.id}.json`)
-        await writeFile(file, JSON.stringify(t, null, 2))
+        writeFileSync(file, JSON.stringify(t, null, 2))
         return { ok: true, where: file }
       }
     }
