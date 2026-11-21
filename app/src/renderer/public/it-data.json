@@ -1,0 +1,23 @@
+{
+  "simulated": true,
+  "scope": "Acme SA · 1 200 employees · last 30 days",
+  "tiles": [
+    { "label": "Hours lost in meetings", "value": "412 h", "delta": "−18 % vs last month", "trend": [520, 498, 470, 455, 440, 431, 412] },
+    { "label": "Problems caught by Tap", "value": "2 318", "delta": "+9 %", "trend": [1700, 1820, 1900, 2050, 2140, 2230, 2318] },
+    { "label": "Fixed in one click", "value": "71 %", "delta": "+6 pts", "trend": [52, 55, 60, 63, 66, 69, 71] },
+    { "label": "Cost per meeting", "value": "$0.004", "delta": "target < $0.01", "trend": [6, 5, 5, 4.5, 4.2, 4.1, 4] }
+  ],
+  "problems": [
+    { "type": "Talking into a dead mic", "hours": 138 },
+    { "type": "Wrong input device", "hours": 97 },
+    { "type": "Missed question while away", "hours": 84 },
+    { "type": "Frozen / black camera", "hours": 56 },
+    { "type": "\"Can't hear you\" loops", "hours": 37 }
+  ],
+  "health": [
+    { "label": "Alert latency (p50)", "value": "0.9 s" },
+    { "label": "False alerts", "value": "2.1 %" },
+    { "label": "Injected commands blocked", "value": "100 %" },
+    { "label": "Agent uptime", "value": "99.6 %" }
+  ]
+}
