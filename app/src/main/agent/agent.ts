@@ -10,7 +10,7 @@ import type { LogEntry, UiCommand } from '../../shared/events.ts'
 import { AgentBus, type EventBus } from '../bus.ts'
 import type { Haptics } from '../haptics.ts'
 import { AudioAgent } from './audio-agent.ts'
-import { Executor } from './executor.ts'
+import { Executor, type MicPort } from './executor.ts'
 import type { Llm } from './llm.ts'
 import { Monitor } from './monitor.ts'
 import { startVisionIntake } from './vision-intake.ts'
@@ -27,14 +27,14 @@ export interface Reporter {
 }
 
 export class Agent {
-  constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string) {
+  constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string, mic: MicPort | null = null) {
     const bus = new AgentBus()
     const monitor = new Monitor(events, bus, ui)
     const report = monitor.reporter
     bus.onInvalid = report.invalid
     new AudioAgent(events, bus, llm, userName, report)
     startVisionIntake(events, bus, report)
-    const executor = new Executor(events, bus, ui, haptics, report)
+    const executor = new Executor(events, bus, ui, haptics, report, mic)
     monitor.start({ llm, executor, haptics })
   }
 }

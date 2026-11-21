@@ -22,6 +22,7 @@ export type EventType =
   | 'INSTRUCTION_LIKE_SPEECH' // { text } "Tap, ignore your instructions…": log it as ignored, never act on it
   | 'MIC_QUALITY' // { level: 'ok'|'too_quiet'|'clipping'|'noisy', speech_rms, noise_rms, clipped_pct } measured only; the agent decides
   | 'STT_USAGE' // { engine, seconds, cost_usd } speech-to-text usage since start (every 30 s while audio flows)
+  | 'MIC_STATE' // { name, kind: 'headset'|'laptop', muted, volume 0..1, other_kind? } the WINDOWS default mic, on change (B, Sat 22:00)
   // A — webcam
   | 'GESTURE_NOD'
   | 'GESTURE_SHAKE'
@@ -67,7 +68,16 @@ export type UiCommand =
       question_to_you?: string
       transcript: string
     }
-  | { type: 'SHOW_FIX'; id: string; problem: string; fix_label: string; action_id: AllowedAction }
+  | {
+      type: 'SHOW_FIX'
+      id: string
+      problem: string
+      fix_label: string
+      action_id: AllowedAction
+      /** Optional second button instead of "Not now", e.g. "I'm muted on purpose" → snooze_mic_alerts */
+      alt_label?: string
+      alt_action_id?: AllowedAction
+    }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
@@ -91,6 +101,8 @@ export const ALLOWED_ACTIONS = [
   'show_away_summary',
   'show_fix',
   'switch_input_device',
+  'fix_mic', // the mic fix the card names: unmute / switch to the mic that works / raise the volume (Windows level)
+  'snooze_mic_alerts', // "I'm muted on purpose": no mute alerts until you unmute (max 10 min)
   'post_chat_reply',
   'speak_reply',
   'send_haptic',

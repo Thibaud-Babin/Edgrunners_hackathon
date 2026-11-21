@@ -16,6 +16,14 @@ export interface HapticsPort {
   fire(w: Waveform): Promise<boolean>
 }
 
+/**
+ * The user's own microphone at the Windows level (B's audio/win-mic.ts), so Meet hears the fix too.
+ * `fix` does it AND checks it worked; `text` says what happened, for the log.
+ */
+export interface MicPort {
+  fix(fix: 'unmute' | 'switch' | 'volume', mic: 'laptop' | 'headset'): Promise<{ ok: boolean; text: string }>
+}
+
 type SummaryResult = PayloadOf<'summary'>
 export type Verdict = { verdict: 'run'; req: ActionRequest } | { verdict: 'block'; reason: string; category: 'allowlist' | 'provenance' }
 
@@ -38,7 +46,7 @@ export const MAY_TRIGGER: Record<Provenance, boolean> = {
 }
 
 /** Actions that change the user's own setup: only the user's own click may start them, never a detector. */
-export const USER_ONLY_ACTIONS: readonly ActionRequest['action'][] = ['switch_input_device']
+export const USER_ONLY_ACTIONS: readonly ActionRequest['action'][] = ['switch_input_device', 'fix_mic']
 
 /** Pure gate: (1) schema + allowlist, (2) provenance, (3) user-only actions. */
 export function gate(req: unknown, provenance: Provenance): Verdict {
@@ -64,8 +72,10 @@ export class Executor {
   private report: Reporter
   private pausedUntil = 0
   private hapticsDisabled = false
+  private mic: MicPort | null
 
-  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter) {
+  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter, mic: MicPort | null = null) {
+    this.mic = mic
     this.bus = bus
     this.ui = ui
     this.haptics = haptics
@@ -190,7 +200,14 @@ export class Executor {
         this.report.log('action', `A question to you, then silence → nudge shown ("They're waiting for your answer")`)
         return true
       case 'show_fix':
-        this.ui({ type: 'SHOW_FIX', id: this.cardId(), problem: a.problem, fix_label: a.fixLabel, action_id: a.fixAction })
+        this.ui({
+          type: 'SHOW_FIX',
+          id: this.cardId(),
+          problem: a.problem,
+          fix_label: a.fixLabel,
+          action_id: a.fixAction,
+          ...(a.altLabel && a.altAction ? { alt_label: a.altLabel, alt_action_id: a.altAction } : {})
+        })
         this.report.log('action', `${capitalise(a.why)} → fix card shown ("${a.fixLabel}"; nothing changes until you click)`)
         return true
       case 'switch_input_device':
@@ -198,6 +215,17 @@ export class Executor {
         this.ui({ type: 'SWITCH_MIC', prefer: a.prefer })
         this.report.log('action', `You clicked the fix → switched to the ${a.prefer} mic`)
         return true
+      case 'fix_mic': {
+        // Windows-level fix (B's MicPort): unmute / make the working mic the default / raise the volume, then check.
+        if (!this.mic) {
+          this.report.log('error', 'Mic fix needs Windows mic control, not available here')
+          return false
+        }
+        const r = await this.mic.fix(a.fix, a.mic)
+        this.report.log(r.ok ? 'action' : 'error', `You clicked the fix → ${r.text}`)
+        if (r.ok && a.fix === 'switch') this.ui({ type: 'SWITCH_MIC', prefer: a.mic }) // Tap's own capture follows
+        return r.ok
+      }
       case 'dismiss_card':
         this.ui({ type: 'DISMISS', id: a.cardId })
         return true
