@@ -81,6 +81,35 @@ function parakeet(): Model {
   })
 }
 
+function parakeetHot(): Model {
+  const d = join(M, 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8')
+  const vocab = new Set(readFileSync(join(d, 'tokens.txt'), 'utf-8').split('\n').map((l) => l.split(' ')[0]))
+  const hot = join(M, 'parakeet-hotwords.txt')
+  require('node:fs').writeFileSync(hot, HOT.map((w) => tokenize(w.trim(), vocab)).join('\n') + '\n')
+  const rec = new sherpa.OfflineRecognizer({
+    featConfig: { sampleRate: 16000, featureDim: 80 },
+    modelConfig: {
+      transducer: { encoder: join(d, 'encoder.int8.onnx'), decoder: join(d, 'decoder.int8.onnx'), joiner: join(d, 'joiner.int8.onnx') },
+      tokens: join(d, 'tokens.txt'),
+      modelType: 'nemo_transducer',
+      numThreads: 2
+    },
+    decodingMethod: 'modified_beam_search',
+    maxActivePaths: 4,
+    hotwordsFile: hot,
+    hotwordsScore: Number(process.env.HOT_SCORE || 2.0)
+  })
+  return {
+    name: `parakeet+hotwords(${process.env.HOT_SCORE || 2})`,
+    transcribe(samples) {
+      const s = rec.createStream()
+      s.acceptWaveform({ samples, sampleRate: 16000 })
+      rec.decode(s)
+      return rec.getResult(s).text
+    }
+  }
+}
+
 function whisper(): Model {
   const d = join(M, 'sherpa-onnx-whisper-small.en')
   return offline('whisper-small.en', {
@@ -114,7 +143,7 @@ function vadSegments(file: string): Segment[] {
   if (wave.sampleRate !== 16000) throw new Error(`${file}: need 16 kHz (got ${wave.sampleRate}); convert with ffmpeg -ar 16000 -ac 1`)
   const vad = new sherpa.Vad(
     {
-      sileroVad: { model: join(M, 'silero_vad.onnx'), threshold: 0.5, minSilenceDuration: 0.4, minSpeechDuration: 0.25, windowSize: 512, maxSpeechDuration: 12 },
+      sileroVad: { model: join(M, 'silero_vad.onnx'), threshold: 0.5, minSilenceDuration: Number(process.env.VAD_SILENCE || 0.4), minSpeechDuration: 0.25, windowSize: 512, maxSpeechDuration: 12 },
       sampleRate: 16000,
       numThreads: 1,
       debug: 0
@@ -159,6 +188,7 @@ console.log(`${files.length} file(s), ${segments.length} speech segments, ${audi
 const builders: Array<[string, () => Model]> = [
   ['zipformer', zipformer],
   ['parakeet', parakeet],
+  ['parakeethot', parakeetHot],
   ['whisper', whisper],
   ['moonshine', moonshine]
 ]

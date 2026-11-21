@@ -31,6 +31,8 @@ test('detects trouble phrases', () => {
   assert.equal(findTrouble("sorry we can't hear you"), 'cant_hear')
   assert.equal(findTrouble("I think you're frozen"), 'frozen')
   assert.equal(findTrouble('the release is on Friday'), null)
+  assert.equal(findTrouble('Yes, I can hear you. Your audio is fine now.'), null) // real false alert, 2026-11-21
+  assert.equal(findTrouble("can't hear you. i think you're on mute."), 'cant_hear')
 })
 
 test('detects questions', () => {

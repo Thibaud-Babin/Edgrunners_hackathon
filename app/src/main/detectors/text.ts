@@ -84,7 +84,7 @@ export function findName(text: string, variants: string[], threshold = 0.8): Nam
 
 /** Spoken tech-trouble phrases said by OTHERS in the call. Extend with what you hear in tests. */
 const TROUBLE: Array<{ kind: 'cant_hear' | 'frozen'; re: RegExp }> = [
-  { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio))\b/ },
+  { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio) (is )?(not working|off|muted|broken|cutting))\b/ },
   { kind: 'frozen', re: /\b(you('re| are) frozen|your (video|camera) (is )?(frozen|stuck)|we can('| no)?t see you|you froze)\b/ }
 ]
 
