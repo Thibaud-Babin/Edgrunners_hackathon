@@ -42,9 +42,9 @@ LauzHack rules allow one project to win several prizes (top overall + challenge 
 
 ## Tech stack (tentative)
 
-- App: TypeScript + Vite, running in the browser
+- App: Electron + TypeScript (electron-vite) — see [docs/PRD.md](docs/PRD.md) §4
 - Face and hand landmarks: MediaPipe (`@mediapipe/tasks-vision`), in a web worker
-- Captions: Web Speech API (Chrome/Edge), Deepgram as fallback
+- Call audio: Electron loopback capture → Deepgram streaming STT (on-device Whisper as fallback)
 - AI summaries: a small, cheap LLM behind a tiny proxy, called only when an event fires
 - Haptics: Logitech Actions SDK plugin (C#) for the MX Master 4; HapticWeb plugin for early prototyping
 - Into Zoom/Meet/Teams: OBS browser source + virtual camera
