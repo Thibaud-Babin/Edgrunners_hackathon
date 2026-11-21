@@ -47,7 +47,7 @@ D  dev tools, card clicks ──┘
 
 | Person | Files | Produces | Test without the others |
 |---|---|---|---|
-| **A** vision | `src/renderer/src/vision.ts` | `USER_AWAY/BACK`, `MOUTH_MOVING`, `FACE_OUT_OF_FRAME`, gestures (P1) | "Start camera" → pose/blendshape readout + events in the log |
+| **A** vision | `src/renderer/src/vision.ts`, `src/renderer/src/vision/` | `USER_AWAY/BACK`, `MOUTH_MOVING`, `FACE_OUT_OF_FRAME`, `CAMERA_FROZEN`, `LOW_LIGHT`, `cameraHealth()`, gestures (P1) | "Start camera" -> pose/blendshape readout + events in the log |
 | **B** audio | `src/renderer/src/audio.ts`, `src/main/audio/`, `src/main/detectors/` | transcripts, `NAME_MENTIONED`, `QUESTION_*`, `OTHERS_CANT_HEAR`, `MIC_LEVEL` | `npm test`; "Start call audio"; plug STT into `createStt()` |
 | **C** agent + haptics | `src/main/agent/`, `src/main/haptics.ts`, `plugins/haptics/` | cards, log, counters, haptics | `npm run mock` or the dev text box |
 | **D** integration + UI | `src/main/index.ts`, `src/renderer/*.html`, `main.ts`, `overlay.ts`, `style.css` | windows, cards, `USER_CLICK` | `npm run mock` |
@@ -59,12 +59,13 @@ Search the code for `TODO(A)`, `TODO(B)`, `TODO(C)`, `TODO(D)` to find your star
 - Name typed/said in the call → `knock` → recap card (template summary without an API key, Claude with one).
 - Look away (fake button or real camera) → talk → name or look back → "while you were away" card with everything said since you turned away.
 - Mouth moving + mic silent ≥ 2 s → `angry_alert` + "Your mic sends nothing" card.
+- Camera health on a 64x48 canvas: `CAMERA_FROZEN`, `LOW_LIGHT`, `cameraHealth().tooBright`, live `brightness` / `frozen` / `fps` for the check-up.
 - "Can you hear me?" in the call → fix card. Unknown actions → blocked and logged.
 - Haptics through HapticWeb (screen flash if the plugin isn't reachable).
 
 ## Not done yet (by owner)
 
-- **A**: gestures, frozen camera, low light, calibration, Web Worker.
+- **A**: calibration, gestures, Web Worker.
 - **B**: speech-to-text engine (Deepgram live, local sherpa-onnx fallback), partial-result name detection, latency measurement.
 - **C**: gesture → reply actions, real device switch, own C# haptics plugin, pricing constants.
 - **D**: check-up screen, IT view (P1), card design, packaging for the demo laptop.
