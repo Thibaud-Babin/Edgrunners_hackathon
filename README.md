@@ -20,6 +20,8 @@ Full analysis, build plans and sources: **[docs/project-ideas.md](docs/project-i
 
 **Recommendation:** Tap. Choose First Signs *instead* only if we want Scholé and can find a Deaf LSF-CH signer to check the signs.
 
+**📋 PRD (team plan, requirements, contracts, timeline): [docs/PRD.md](docs/PRD.md)**
+
 **Tap's extended design** (Nexthink "silent tech pain" detection, agent security, activity log and IT view): **[docs/tap-agent-design.md](docs/tap-agent-design.md)**.
 
 **To check on Saturday morning:**
