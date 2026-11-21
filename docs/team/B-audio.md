@@ -16,7 +16,8 @@ Real 2-min Meet call recorded with `TAP_RECORD=1`, compared with `scripts/stt-co
 - Use `TAP_STT=deepgram` + `DEEPGRAM_API_KEY` in `app/.env`. Without a key it falls back to local sherpa.
 - A name only counts when the sentence speaks to someone (`addressesSomeone`), which removes "talk about the table → tibo".
 - `findAddressed` catches mangled names used to address someone ("hey bo, are you still here?").
-- TODO: wire Parakeet + Silero VAD as the local `TAP_STT=parakeet` fallback (no internet at the venue).
+- ✅ Local fallback: Parakeet + Silero VAD (`parakeet.ts`). Pre-loaded when `TAP_STT=deepgram`, and switched to automatically when Deepgram can't connect or goes silent for 6 s. Tested with a bad key: the switch happens in about 2 s.
+- ✅ End to end (`npm run dev:e2e` + the real call replayed): away card, recaps, and the fix card all fire. Parakeet names 4/7 live.
 
 ## Status (Sat 21 Nov, pre-hackathon spike) ✅
 - **Capture:** Electron loopback works on Thibaud's laptop (~32 kB/s, level follows the sound).

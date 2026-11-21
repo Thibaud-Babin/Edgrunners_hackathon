@@ -4,6 +4,14 @@
 
 You have full freedom on design, as long as you keep the two plugs below unchanged.
 
+> 📣 **Update from B (Sat 17:45):**
+> - The counter text is now "video stays on this laptop".
+> - New `decision` log lines start with `Speech:` (which engine is running, and switches).
+> - Expect frequent `FLASH` commands when the mouse is absent.
+> - `npm run dev:e2e` runs the whole loop without a webcam.
+>
+> Details: [team README](README.md#-update-from-b-audio-sat-1745--read-this).
+
 ## Your files
 - `app/src/renderer/index.html`, `overlay.html`, `src/style.css`, `src/main.ts`, `src/overlay.ts`
 - New UI files under `app/src/renderer/src/ui/` (components, icons, fonts in `public/`)

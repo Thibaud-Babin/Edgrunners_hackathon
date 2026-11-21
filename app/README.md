@@ -6,12 +6,22 @@
 cd app
 npm install          # also copies MediaPipe wasm + downloads the face model (offline afterwards)
 copy .env.example .env   # then fill in ANTHROPIC_API_KEY (optional) and TAP_USER_NAMES
-npm run setup-stt    # once: downloads the local speech-to-text model (~310 MB download, ~75 MB kept)
+npm run setup-stt    # once: local speech-to-text (Parakeet ~460 MB + Silero VAD + old Zipformer)
 npm run dev          # the app
+npm run dev:call     # the app + starts call-audio capture
+npm run dev:e2e      # the app + call audio + clicks "Look away": the whole loop without a webcam
 npm run mock         # the app + replays demo/mock-events.json (no camera/mic/call needed)
 npm test             # detector unit tests
 npm run typecheck
 ```
+
+**Speech-to-text (`TAP_STT` in `.env`):**
+- `deepgram` (recommended): needs `DEEPGRAM_API_KEY`, and falls back to local Parakeet automatically if Deepgram can't connect or stops answering.
+- `parakeet`: local only.
+- `sherpa`: old local model, poor on real calls.
+- `none`: dev text box only.
+
+**Debug options:** `TAP_RECORD=1` saves the call audio to `demo/recordings/` (compare models with `node --experimental-strip-types scripts/stt-compare.mts`). `TAP_DEBUG_AUDIO=0` silences the terminal trace.
 
 If you see `Error: Electron uninstall`: `node node_modules/electron/install.js`.
 
