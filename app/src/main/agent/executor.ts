@@ -105,6 +105,8 @@ export class Executor {
   private roles: RoleState
   private ports: ExecutorPorts
   private ticketSeq = 0
+  /** Recap card id → its summary (never the transcript): what "Share with team" may send. */
+  private shareable = new Map<string, string>()
 
   constructor(
     events: EventBus,
@@ -146,6 +148,7 @@ export class Executor {
     const raw = RawTapEvent.safeParse(e)
     if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('CALL_ENDED with a bad shape or source')
     const wipe = this.roles.flags.wipeAtCallEnd
+    if (wipe) this.shareable.clear()
     this.bus.publish('executor', 'system', 'call.end', { wipe })
   }
 
@@ -224,7 +227,8 @@ export class Executor {
         }
         this.ui({
           type: 'SHOW_AWAY_SUMMARY',
-          id: this.cardId(),
+          id: this.keepShareable(r.summary.text),
+          share: true,
           away_from: a.fromTs,
           until: a.untilTs,
           trigger: a.trigger,
@@ -243,7 +247,7 @@ export class Executor {
           this.report.log('decision', 'Your name was said → no recap (no transcript yet)')
           return true
         }
-        this.ui({ type: 'SHOW_RECAP', id: this.cardId(), transcript: r.transcript, summary: r.summary.text, question: r.summary.question })
+        this.ui({ type: 'SHOW_RECAP', id: this.keepShareable(r.summary.text), share: true, transcript: r.transcript, summary: r.summary.text, question: r.summary.question })
         this.report.log('action', `Your name was said → recap card shown (${r.summary.source} summary${r.summary.question ? ', with the question to you' : ''})`)
         return true
       }
@@ -284,8 +288,18 @@ export class Executor {
         return true
       case 'open_it_ticket':
         return this.sendTicket()
+      case 'share_recap': {
+        // The gate already checked the role (T3: executive, CEO) and that this is the user's own click.
+        const summary = this.shareable.get(a.cardId)
+        if (!summary) {
+          this.report.log('decision', 'You clicked "Share with team" → nothing shared (that recap is no longer kept)')
+          return false
+        }
+        this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: 'Recap shared with #team (simulated)' })
+        this.report.log('action', `You clicked "Share with team" → recap summary shared with #team (simulated; ${summary.length} chars, summary only, never the transcript)`)
+        return true
+      }
       case 'show_minutes':
-      case 'share_recap':
       case 'send_action_items':
         this.report.log('decision', `${a.action} is not wired yet`) // filled in by the next steps
         return false
@@ -367,6 +381,14 @@ export class Executor {
 
   private cardId(): string {
     return `card-${++this.cardSeq}`
+  }
+
+  /** A new recap card id; its summary is kept for "Share with team" (last 20 cards only). */
+  private keepShareable(summary: string): string {
+    const id = this.cardId()
+    this.shareable.set(id, summary)
+    if (this.shareable.size > 20) this.shareable.delete(this.shareable.keys().next().value as string)
+    return id
   }
 }
 

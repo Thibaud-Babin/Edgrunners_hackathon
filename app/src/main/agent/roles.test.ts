@@ -113,7 +113,7 @@ async function mutedMicTicket(r: ReturnType<typeof roleRig>) {
   await r.flush()
   const card = r.ui.find((c) => c.type === 'SHOW_FIX')
   assert.ok(card && card.type === 'SHOW_FIX' && card.it_ticket === true, 'device fix cards offer the IT ticket')
-  r.ui_('USER_CLICK', { action_id: 'open_it_ticket', card_id: card.id })
+  r.ui_('USER_CLICK', { action_id: 'open_it_ticket', args: { id: card.id } })
   await r.flush()
 }
 
@@ -139,5 +139,41 @@ test('IT ticket: device facts only (no speech, no device name), priority by role
 test('IT ticket: only the user\'s click opens it, never a detector, speech or the AI', () => {
   const req = { action: 'open_it_ticket', cardId: 'c1', why: 'test' }
   assert.equal(gate(req, 'user', 'intern').verdict, 'run')
+  for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
+})
+
+test('share recap: the CEO\'s click shares the summary; the intern\'s click is blocked with the reason', async (t) => {
+  t.after(() => mock.timers.reset())
+  for (const role of ['ceo', 'senior', 'intern'] as const) {
+    const r = roleRig(role)
+    await r.awayRecap()
+    const card = r.ui.find((c) => c.type === 'SHOW_AWAY_SUMMARY')
+    assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY' && card.share === true, 'every recap card offers Share')
+    r.ui_('USER_CLICK', { action_id: 'share_recap', args: { id: card.id } })
+    await r.flush()
+    const shared = r.ui.some((c) => c.type === 'SHOW_NOTICE' && c.text === 'Recap shared with #team (simulated)')
+    assert.equal(shared, role === 'ceo', role)
+    if (role === 'ceo') assert.ok(r.logs.some((l) => l.startsWith('You clicked "Share with team" → recap summary shared with #team')))
+    else assert.ok(r.logs.includes(`share_recap blocked (sharing meeting content outside the call is for executives and the CEO (you: ${role === 'senior' ? 'senior / tech lead' : 'intern'}, T3))`), r.logs.join('\n'))
+    mock.timers.reset()
+  }
+})
+
+test('share recap: after the CEO\'s call ends, old recaps can no longer be shared', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = roleRig('ceo')
+  await r.awayRecap()
+  const card = r.ui.find((c) => c.type === 'SHOW_AWAY_SUMMARY')
+  assert.ok(card)
+  r.ui_('CALL_ENDED')
+  await r.flush()
+  r.ui_('USER_CLICK', { action_id: 'share_recap', args: { id: card.id } })
+  await r.flush()
+  assert.ok(!r.ui.some((c) => c.type === 'SHOW_NOTICE'))
+  assert.ok(r.logs.includes('You clicked "Share with team" → nothing shared (that recap is no longer kept)'))
+})
+
+test('share recap: a detector or the AI can never share, even for the CEO', () => {
+  const req = { action: 'share_recap', cardId: 'card-1', why: 'test' }
   for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
 })
