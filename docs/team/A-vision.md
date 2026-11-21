@@ -13,20 +13,33 @@
 | `USER_AWAY` | `{ reason: 'turned_away' \| 'no_face' }` | face turned > ~28° or missing for > 2 s |
 | `USER_BACK` | — | face back towards the screen |
 | `MOUTH_MOVING` | `{ active: boolean }` | **only when it changes** (talking starts/stops) |
-| `FACE_OUT_OF_FRAME` | — | no face detected |
-| `CAMERA_FROZEN` | — | frames identical for > 3 s |
-| `LOW_LIGHT` | `{ brightness }` | mean brightness too low |
+| `FACE_OUT_OF_FRAME` | — | no face detected — **baseline: only emitted together with `USER_AWAY` (reason `no_face`)** |
+| `CAMERA_FROZEN` | — | frames identical for > 3 s — **not implemented in the baseline** |
+| `LOW_LIGHT` | `{ brightness }` | mean brightness too low — **not implemented in the baseline** |
 | `GESTURE_NOD` / `_SHAKE` / `_BROW_RAISE` / `_TILT_LEFT` / `_TILT_RIGHT` (P1) | `{ confidence }` | once per gesture, then ~1 s cooldown |
 
 You also keep **`cameraHealth()`** (in `vision.ts`) up to date: `{ running, faceInFrame, frozen, brightness, fps }`. **D's check-up screen reads it**, so don't rename its fields.
 
+> **Baseline today:** `frozen` is always `false` and `brightness` is always `null` — the frozen-frame and low-light detectors are **not implemented** (they are parked, with the other vision hardening, in a local stash). D's check-up must not present those two as "pass".
+
 Who uses your events: C's agent (away summary P0-3, mic-silent P0-4, gestures P1-1), D's check-up (P0-5).
+
+## Spike result — camera & performance (Sat, demo laptop)
+
+**Hardware:** Logitech LVNext devkit, USB `046D:094F` — one composite device with RGB (`MI_00`), Windows Hello IR (`MI_02`), CPD (`MI_04`), microphone (`MI_06`), HID (`MI_08`) and a **USB network interface (`MI_09`)** = the LogiInsight-class webcam from PRD P2-7.
+
+**Performance:** **83 fps** at 640×480 (`cameraHealth().fps`), face in frame, GPU delegate active (no `GPU delegate unavailable` warning). Task Manager showed **~1 % on the iGPU** while the RTX 3070 stayed idle → no bottleneck, and no reason to force the dGPU. The camera advertises YUY2/MJPG/NV12 from 640×480 up to 4K (up to 240 fps at 640×480); we can throttle the landmarker to ~30 fps later to save heat once Zoom/OBS run.
+
+**Camera sharing (the Block-2 answer):** out of the box the RGB interface is **single-consumer** — Zoom/Meet/Windows Camera fail while Tap holds it, and the IR interface keeps working because it is a separate USB interface. **Fixed** with Windows 11 → Settings → Bluetooth & devices → Cameras → **LVNext Camera** → Advanced camera options → **"Allow multiple apps to use camera at the same time"**. Verified: Zoom + Tap live at the same time. Keep this setting on the demo laptop and re-check after Windows/driver updates.
+If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a second laptop joins with video), (2) the call uses the IR or CPD camera, (3) OBS Virtual Camera as last resort (not installed — avoid).
+
+**Demo consequence:** the current (baseline) away detector only watches **yaw** — rehearse PRD §10 step 2 by turning the head **sideways** (not just glancing down) until `USER_AWAY` fires.
 
 ## Tasks, in order
 | When | Task | Done when |
 |---|---|---|
 | Sat 12:00–13:00 | `npm install`, `npm run dev`, click **Start camera**. Turn your head left/right/up/down and check the yaw/pitch/roll readout has sensible signs (fix `headPose()` if not). | Readout moves the right way |
-| 13:00–15:00 **spike** | 1) Measure FPS (`cameraHealth().fps`) on the demo laptop **while Zoom/Meet runs**. 2) **Critical test: can Zoom and Tap use the webcam at the same time?** If not, tell C + D immediately (fallback: Tap opens the camera, OBS Virtual Camera feeds Zoom). | FPS ≥ 15 and camera-sharing answer known |
+| 13:00–15:00 **spike** ✅ | 1) Measure FPS (`cameraHealth().fps`) on the demo laptop **while Zoom/Meet runs**. 2) **Critical test: can Zoom and Tap use the webcam at the same time?** — **done, see "Spike result" above**: 83 fps alone, GPU delegate, iGPU ~1 %; the RGB interface is single-consumer by default, fixed by the Windows 11 multi-app camera setting (verified with Zoom + Tap). | FPS ≥ 15 ✅ and camera-sharing answer known ✅ |
 | 15:00–19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). Tune `MOUTH_MOVING` so talking = active, smiling/yawning ≠ active. | 10 tries, ≥ 8 correct, no flicker |
 | 20:00–02:00 | Camera health: `frozen` (compare consecutive frames on a 64×48 canvas), `brightness` (mean luma of the same canvas), `faceInFrame`. Emit `CAMERA_FROZEN` / `LOW_LIGHT`. Add a 10 s neutral-face calibration (store baseline blendshapes). | D's check-up shows real values |
 | 02:00–09:00 (P1) | Gestures: nod = two pitch reversals of ±8–10° within ~1.2 s; shake = same on yaw; brow raise = `browInnerUp` ≈ +0.3 over baseline held 300–500 ms; tilt = ±15° roll held 400 ms. Cooldown ~1 s. | 8/10 correct per gesture after calibration |
