@@ -12,6 +12,7 @@ import { countChangedPixels, createFrameHealth, meanLuma } from './vision/health
 import { mouthMoving, mouthSignal } from './vision/mouth'
 import { createGazeAway, gazeAvailability, type GazeFallbackReason } from './vision/gaze'
 import { startGazeClient, type GazeClientStatus } from './vision/gazeClient'
+import { faceBox, framing, type FaceBox, type Framing } from '../../shared/framing'
 
 // Starting thresholds from docs/PRD.md §4 "Gesture rules" — tune them during calibration.
 const AWAY_YAW_ENTER_DEG = 28
@@ -67,13 +68,16 @@ export function headPose(m: number[]): HeadPose {
 export interface CameraHealth {
   running: boolean
   faceInFrame: boolean
+  /** B: found AND well framed? (centered, not too far / close, not cut off), smoothed over ~0.5 s */
+  framing: Framing
   frozen: boolean // no changed pixels on the 64x48 canvas for > 3 s
   brightness: number | null // mean luma 0..255; null before the first frame
   tooBright: boolean // mean luma >= 190 for 0.8 s; cleared below 170
   fps: number // 0 when the landmarker stopped receiving frames
 }
 
-const health: CameraHealth = { running: false, faceInFrame: false, frozen: false, brightness: null, tooBright: false, fps: 0 }
+const NO_FACE: Framing = framing(null)
+const health: CameraHealth = { running: false, faceInFrame: false, framing: NO_FACE, frozen: false, brightness: null, tooBright: false, fps: 0 }
 
 export function cameraHealth(): CameraHealth {
   return { ...health }
@@ -244,6 +248,8 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
   let lastLandmarkAt = 0
   health.running = true
   health.faceInFrame = false
+  health.framing = NO_FACE
+  let box: FaceBox | null = null // smoothed face box
   health.frozen = false
   health.brightness = null
   health.tooBright = false
@@ -295,6 +301,15 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       const res: FaceLandmarkerResult = landmarker.detectForVideo(video, t)
       const face = res.faceLandmarks.length > 0
       health.faceInFrame = face
+      // B: smooth the face box (EMA ~0.5 s at 15-30 fps) so the check-up row doesn't flicker
+      const b = face ? faceBox(res.faceLandmarks[0]!) : null
+      if (!b) box = null
+      else if (!box) box = b
+      else {
+        const k = 0.15
+        box = Object.fromEntries(Object.entries(box).map(([key, v]) => [key, v + k * (b[key as keyof FaceBox] - v)])) as unknown as FaceBox
+      }
+      health.framing = framing(box)
       frames++
       if (t - fpsSince >= 1000) {
         health.fps = Math.round((frames * 1000) / (t - fpsSince))
@@ -415,6 +430,7 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
     running = false
     health.running = false
     health.faceInFrame = false
+    health.framing = NO_FACE
     health.frozen = false
     health.brightness = null
     health.tooBright = false
