@@ -146,6 +146,10 @@ export const ActionRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('send_call_report'), why: Why }).strict(),
   // The user's own device facts (never speech) to IT (T1, on click).
   z.object({ action: z.literal('open_it_ticket'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
+  // B: the same device facts, sent by Tap itself when the user can't fix it (only from Tap's device checks).
+  z.object({ action: z.literal('auto_it_ticket'), cardId: z.string().max(LIMITS.id), reason: z.string().max(120), why: Why }).strict(),
+  // The Undo on an automatic ticket, during its 10 s.
+  z.object({ action: z.literal('cancel_it_ticket'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
   // The exact mic fix the card named (Windows level, so Meet hears it too). Only the user's click runs it.
   z
     .object({

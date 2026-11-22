@@ -297,3 +297,90 @@ test('B: the one-click fix failed → a card says so and now offers "Send to IT"
   assert.ok(failed.type === 'SHOW_FIX' && failed.it_ticket === true)
   assert.match(failed.problem, /^Tap couldn't fix it \(could not unmute laptop mic "X"\)/)
 })
+
+// ---------- B: automatic IT tickets (only when the user can't fix it) ----------
+async function failedFixRig() {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 * 1000 })
+  const ui: UiCommand[] = []
+  const logs: string[] = []
+  const tickets: { id: string; reason?: string; automatic?: boolean }[] = []
+  const events = new EventBus()
+  const bus = new AgentBus()
+  const report = { log: (_k: string, t: string) => logs.push(t), blocked: (t: string) => logs.push(t), invalid: (t: string) => logs.push(t) }
+  new AudioAgent(events, bus, new Llm({ client: null }), 'Thibaud', report)
+  startVisionIntake(events, bus, report)
+  const ex = new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, { fix: async () => ({ ok: false, text: 'could not unmute laptop mic "X"' }) }, undefined, {
+    tickets: { send: async (t) => (tickets.push(t), { ok: true, where: 'test' }) }
+  })
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
+  }
+  const at = () => Date.now() / 1000
+  const mutedTalkAndFix = async () => {
+    events.publish({ type: 'MIC_STATE', ts: at(), source: 'mic', data: { name: 'X', kind: 'laptop', muted: true, volume: 1 } })
+    events.publish({ type: 'MOUTH_MOVING', ts: at(), source: 'webcam', data: { active: true } })
+    mock.timers.tick(2000)
+    events.publish({ type: 'MIC_LEVEL', ts: at(), source: 'mic', data: { rms: 0 } })
+    await flush()
+    events.publish({ type: 'USER_CLICK', ts: at(), source: 'ui', data: { action_id: 'fix_mic' } })
+    await flush()
+    events.publish({ type: 'MOUTH_MOVING', ts: at(), source: 'webcam', data: { active: false } })
+  }
+  const failedCard = () => ui.filter((c) => c.type === 'SHOW_FIX' && c.problem.startsWith("Tap couldn't fix it")).pop() as Extract<UiCommand, { type: 'SHOW_FIX' }>
+  const ticketCmds = (id: string) => ui.filter((c) => c.type === 'IT_TICKET' && c.card_id === id).map((c) => (c as Extract<UiCommand, { type: 'IT_TICKET' }>).state)
+  return { ui, logs, tickets, events, ex, flush, at, mutedTalkAndFix, failedCard, ticketCmds }
+}
+
+test('B: auto ticket: a failed fix → "in 10 s, Undo" on the card → sent by Tap itself after 10 s (reason, automatic)', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = await failedFixRig()
+  await r.mutedTalkAndFix()
+  const card = r.failedCard()
+  assert.ok(card, 'failed-fix card')
+  assert.deepEqual(r.ticketCmds(card.id), ['pending'])
+  assert.equal(r.tickets.length, 0, 'nothing sent yet: the user can undo')
+  mock.timers.tick(10_000)
+  await r.flush()
+  assert.deepEqual(r.ticketCmds(card.id), ['pending', 'sent'])
+  assert.equal(r.tickets.length, 1)
+  assert.equal(r.tickets[0]!.reason, 'the one-click fix failed')
+  assert.equal(r.tickets[0]!.automatic, true)
+  assert.ok(r.logs.some((l) => l.startsWith('Tap sent IT ticket T-0001 by itself (the one-click fix failed)')))
+})
+
+test('B: auto ticket: Undo within 10 s → never sent', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = await failedFixRig()
+  await r.mutedTalkAndFix()
+  const card = r.failedCard()
+  mock.timers.tick(4000)
+  r.events.publish({ type: 'USER_CLICK', ts: r.at(), source: 'ui', data: { action_id: 'cancel_it_ticket', args: { id: card.id } } })
+  await r.flush()
+  mock.timers.tick(20_000)
+  await r.flush()
+  assert.deepEqual(r.ticketCmds(card.id), ['pending', 'cancelled'])
+  assert.equal(r.tickets.length, 0)
+})
+
+test('B: auto ticket: the same problem again the same day → "already reported", no second ticket', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = await failedFixRig()
+  await r.mutedTalkAndFix()
+  mock.timers.tick(10_000)
+  await r.flush()
+  mock.timers.tick(60_000) // past the mic card cooldown
+  r.events.publish({ type: 'MIC_STATE', ts: r.at(), source: 'mic', data: { name: 'X', kind: 'laptop', muted: false, volume: 1 } })
+  await r.flush()
+  await r.mutedTalkAndFix()
+  const second = r.failedCard()
+  assert.deepEqual(r.ticketCmds(second.id), ['duplicate'])
+  mock.timers.tick(20_000)
+  await r.flush()
+  assert.equal(r.tickets.length, 1)
+})
+
+test('B: auto ticket: only Tap\'s own device checks (system) may send it; speech, AI and a UI click cannot', () => {
+  const req = { action: 'auto_it_ticket', cardId: 'c1', reason: 'the one-click fix failed', why: 'test' }
+  assert.equal(gate(req, 'system', 'intern').verdict, 'run')
+  for (const p of ['transcript', 'llm'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
+})

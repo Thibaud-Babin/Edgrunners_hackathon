@@ -32,7 +32,12 @@ export const ACTION_TIER: Record<ActionRequest['action'], Tier> = {
   open_it_ticket: 1, // your own device facts, to your own IT
   // Device facts only (no meeting content) to the company's own IT, for every call. Started only by the user's
   // End call click (the CALL_ENDED intake runs it with provenance user), never by a detector or the AI.
-  send_call_report: 0
+  send_call_report: 0,
+  // B: like the call report: device facts only (never speech), to the company's own IT. Tap's own device checks
+  // start it (provenance system: a failed fix, still bad after switching, no other mic, 3rd time this week); speech and
+  // AI can't (MAY_TRIGGER). The user sees it and can undo it for 10 s. A user's click still sends one too (T1 above).
+  auto_it_ticket: 0,
+  cancel_it_ticket: 0 // not sending is always allowed
 }
 
 export const MATRIX: Record<Tier, Record<UserRole, Permission>> = {

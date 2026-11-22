@@ -12,6 +12,11 @@ import { ACTION_TIER, denyReason, permission, RoleState, type UserRole } from '.
 import { decide, initialState, type RulesState } from './rules.ts'
 import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent } from './schemas.ts'
 import { cleanText } from './sanitize.ts'
+import { ticketReason } from './it-stats.ts'
+
+/** B: an automatic ticket waits this long so the user can undo it, and the same problem is sent once a day at most. */
+export const AUTO_TICKET_DELAY_S = 10
+export const AUTO_TICKET_DEDUPE_S = 24 * 3600
 
 /** What the executor needs from haptics.ts (an interface, so tests can fake it). */
 export interface HapticsPort {
@@ -34,6 +39,9 @@ export interface ItTicket {
   requesterRole: string
   diagnostics: Diagnostics | null
   mic: { kind: 'laptop' | 'headset'; muted: boolean; volume: number; otherKind?: 'laptop' | 'headset' } | null
+  /** B: why it was sent (e.g. "the one-click fix failed") and whether Tap sent it by itself */
+  reason?: string
+  automatic?: boolean
 }
 
 /** Where tickets go: a simulated helpdesk (index.ts writes JSON files). Returns where it was stored. */
@@ -122,6 +130,10 @@ export class Executor {
   private roles: RoleState
   private ports: ExecutorPorts
   private ticketSeq = 0
+  /** B: automatic tickets waiting for their 10 s (card id → timer), and the last one sent per problem (key → when, id) */
+  private autoPending = new Map<string, ReturnType<typeof setTimeout>>()
+  private autoLast = new Map<string, { at: number; id: string }>()
+  private lastTicketId = ''
   private reportSeq = 0
 
   constructor(
@@ -280,10 +292,11 @@ export class Executor {
         this.ui({ type: 'SHOW_NUDGE', id: this.cardId(), text: "They're waiting for your answer", ...(a.question ? { question: a.question } : {}) })
         this.report.log('action', `A question to you, then silence → nudge shown ("They're waiting for your answer")`)
         return true
-      case 'show_fix':
+      case 'show_fix': {
+        const id = this.cardId()
         this.ui({
           type: 'SHOW_FIX',
-          id: this.cardId(),
+          id,
           problem: a.problem,
           fix_label: a.fixLabel,
           action_id: a.fixAction,
@@ -291,7 +304,13 @@ export class Executor {
           ...(a.itTicket ? { it_ticket: true } : {})
         })
         this.report.log('action', `${capitalise(a.why)} → fix card shown ("${a.fixLabel}"; nothing changes until you click)`)
+        // B: nothing the user can click fixes this (still bad after switching, no other mic) → IT, automatically
+        if (a.itTicket) {
+          const reason = ticketReason(a.problem)
+          this.scheduleAutoTicket(id, reason, reason)
+        }
         return true
+      }
       case 'switch_input_device':
         // The main window restarts the mic on another device (renderer/src/main.ts → audio.ts).
         this.ui({ type: 'SWITCH_MIC', prefer: a.prefer })
@@ -306,15 +325,18 @@ export class Executor {
         const r = await this.mic.fix(a.fix, a.mic)
         this.report.log(r.ok ? 'action' : 'error', `You clicked the fix → ${r.text}`)
         // B (Sun 04:00): the fix did not work → say so, and now offer IT (a device problem the user can't fix).
-        if (!r.ok)
+        if (!r.ok) {
+          const id = this.cardId()
           this.ui({
             type: 'SHOW_FIX',
-            id: this.cardId(),
+            id,
             problem: `Tap couldn't fix it (${r.text}). This may be a device or driver problem.`,
             fix_label: 'OK',
             action_id: 'dismiss_card',
             it_ticket: true
           })
+          this.scheduleAutoTicket(id, 'the one-click fix failed', `fix_failed:${a.fix}:${a.mic}`)
+        }
         if (r.ok && a.fix === 'switch') this.ui({ type: 'SWITCH_MIC', prefer: a.mic }) // Tap's own capture follows
         return r.ok
       }
@@ -323,6 +345,17 @@ export class Executor {
         return true
       case 'open_it_ticket':
         return this.sendTicket(a.cardId)
+      case 'auto_it_ticket':
+        return this.sendTicket(a.cardId, a.reason)
+      case 'cancel_it_ticket': {
+        const timer = this.autoPending.get(a.cardId)
+        if (!timer) return true // already sent, or nothing pending
+        clearTimeout(timer)
+        this.autoPending.delete(a.cardId)
+        this.ui({ type: 'IT_TICKET', card_id: a.cardId, state: 'cancelled', reason: '', auto: true })
+        this.report.log('action', 'You clicked Undo → the automatic IT ticket was not sent')
+        return true
+      }
       case 'send_call_report':
         return this.sendCallReport()
       case 'send_haptic': {
@@ -340,7 +373,33 @@ export class Executor {
   }
 
   /** The user's click: their own device facts (no speech, no names) to IT, with priority by role (VIP support). */
-  private async sendTicket(cardId: string): Promise<boolean> {
+  /**
+   * B: an automatic ticket for a problem the user can't fix. Shown on the card at once ("in 10 s, Undo"), sent after
+   * AUTO_TICKET_DELAY_S through the gate as provenance system (Tap's own device check; speech and AI never get here).
+   * The same problem (key) goes to IT once a day at most. Also called by index.ts for a problem's 3rd time this week.
+   */
+  scheduleAutoTicket(cardId: string, reason: string, key: string): void {
+    const t = now()
+    const last = this.autoLast.get(key)
+    if (last && t - last.at < AUTO_TICKET_DEDUPE_S) {
+      this.ui({ type: 'IT_TICKET', card_id: cardId, state: 'duplicate', reason, auto: true, ref: last.id })
+      this.report.log('decision', `IT ticket not sent again: ${reason} (already reported today, ${last.id})`)
+      return
+    }
+    if (this.autoPending.has(cardId)) return
+    this.ui({ type: 'IT_TICKET', card_id: cardId, state: 'pending', reason, auto: true, delay_s: AUTO_TICKET_DELAY_S })
+    this.report.log('decision', `Problem the user can't fix (${reason}) → IT ticket in ${AUTO_TICKET_DELAY_S} s unless you click Undo`)
+    const timer = setTimeout(() => {
+      this.autoPending.delete(cardId)
+      this.lastTicketId = ''
+      void this.run([{ action: 'auto_it_ticket', cardId, reason, why: `Tap's device check: ${reason}` }], 'system', now()).then(() => {
+        if (this.lastTicketId) this.autoLast.set(key, { at: now(), id: this.lastTicketId })
+      })
+    }, AUTO_TICKET_DELAY_S * 1000)
+    this.autoPending.set(cardId, timer)
+  }
+
+  private async sendTicket(cardId: string, autoReason?: string): Promise<boolean> {
     const flags = this.roles.flags
     const ticket: ItTicket = {
       id: `T-${String(++this.ticketSeq).padStart(4, '0')}`,
@@ -348,20 +407,26 @@ export class Executor {
       priority: flags.ticketPriority,
       requesterRole: flags.label,
       diagnostics: this.ports.diagnostics?.() ?? null,
-      mic: this.micFacts()
+      mic: this.micFacts(),
+      reason: autoReason ?? 'sent by the user',
+      ...(autoReason !== undefined ? { automatic: true } : {})
     }
+    const auto = autoReason !== undefined
+    const reason = autoReason ?? 'sent by the user'
     const sent = this.ports.tickets
       ? await this.ports.tickets.send(ticket).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
       : { ok: true, where: 'log only' }
     if (!sent.ok) {
-      this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: false, ref: ticket.id, text: `Ticket ${ticket.id} could not be sent` })
-      this.report.log('error', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} could not be saved (${sent.where})`)
+      this.ui({ type: 'IT_TICKET', card_id: cardId, state: 'failed', reason, auto, ref: ticket.id })
+      this.report.log('error', `${auto ? 'Automatic IT ticket' : 'You clicked "Send diagnostics to IT" → ticket'} ${ticket.id} could not be saved (${sent.where})`)
       return false
     }
     const queue = ticket.priority === 'priority' ? 'priority: executive support' : 'normal queue'
-    // B: the user clicked, so the button confirms ("Sent to IT ✓"); no extra card to read in the middle of a call.
-    this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: true, ref: ticket.id, text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk): device facts only, nothing you said` })
-    this.report.log('action', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent (${queue}; device facts only, no speech; ${sent.where})`)
+    // B: shown inside the card it belongs to; no extra card to read in the middle of a call.
+    this.lastTicketId = ticket.id
+    this.ui({ type: 'IT_TICKET', card_id: cardId, state: 'sent', reason, auto, ref: ticket.id })
+    const who = auto ? `Tap sent IT ticket ${ticket.id} by itself (${reason})` : `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent`
+    this.report.log('action', `${who} (${queue}; device facts only, no speech; ${sent.where})`)
     return true
   }
 

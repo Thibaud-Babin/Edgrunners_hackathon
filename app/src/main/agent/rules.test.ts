@@ -260,3 +260,9 @@ test('B: "Send to IT" only when no click can fix it: not on muted / quiet / swit
   assert.match(fixCards(r)[0]!.problem, /Check its cable/)
   assert.deepEqual(tickets(r), [true])
 })
+
+test('B: a click can cancel an automatic ticket, but never create one', () => {
+  const r = play([[clickOn('auto_it_ticket', 1), 1], [env('user', { input: 'click', actionId: 'cancel_it_ticket', cardId: 'card-3' }, 2, 'user'), 2]])
+  assert.ok(r.blocked.some((b) => b.includes("auto_it_ticket comes only from Tap's own device checks")))
+  assert.ok(r.actions.some((a) => (a as { action: string; cardId?: string }).action === 'cancel_it_ticket' && (a as { cardId?: string }).cardId === 'card-3'))
+})
