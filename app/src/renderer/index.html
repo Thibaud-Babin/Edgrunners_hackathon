@@ -10,12 +10,15 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body class="main">
+    <button class="captions-toggle" id="captions-toggle" type="button" aria-label="Live Captions: On" aria-pressed="true" title="Live Captions: On">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="M10 10a2 2 0 1 0 0 4M17 10a2 2 0 1 0 0 4"></path></svg>
+    </button>
     <button class="theme-switch" id="theme-switch" aria-label="Switch between light and dark theme" aria-pressed="true"><span>Light</span><i class="knob"></i><span>Dark</span></button>
 
     <!-- ============ Orbit hub ============ -->
     <section id="hub">
       <div class="hub-head">
-        <div class="hub-title"><span class="brand-dot">T</span>Tap</div>
+        <div class="hub-title"><span class="brand-dot"><img src="./tap-orbital-logo.svg" alt="" draggable="false" /></span>Tap</div>
         <p>Control center · use it before and after the call. During the call Tap runs in the background.</p>
         <span class="hub-counters" id="side-counters">AI calls 0 · $0.0000</span>
       </div>
@@ -24,7 +27,7 @@
         <div class="orbit-ring r-outer"></div>
         <div class="orbit-ring r-inner"></div>
         <div class="orbit-core">
-          <div class="core-disc" id="core-disc">T</div>
+          <div class="core-disc" id="core-disc"><img src="./tap-orbital-logo-core.svg" alt="" draggable="false" /></div>
           <span class="badge" id="core-badge">● not started</span>
         </div>
         <button class="orbit-node" data-orb="0" style="--c: rgba(52, 211, 153, 0.9)"><span class="o-glow"></span><span class="o-disc">✓</span><span class="o-name">Check-up</span><span class="badge o-badge" id="badge-check">not run yet</span></button>

@@ -162,7 +162,26 @@ function captionsEnabled(): boolean {
 function toggleCaptions(): void {
   const enabled = !captionsEnabled()
   try { localStorage.setItem(CAPTIONS_KEY, String(enabled)) } catch { /* renderer storage unavailable */ }
+  syncCaptionsControls()
 }
+
+function syncCaptionsControls(): void {
+  const enabled = captionsEnabled()
+  const label = `Live Captions: ${enabled ? 'On' : 'Off'}`
+  const button = $<HTMLButtonElement>('captions-toggle')
+  button.classList.toggle('on', enabled)
+  button.setAttribute('aria-pressed', String(enabled))
+  button.setAttribute('aria-label', label)
+  button.title = label
+  const setting = document.getElementById('set-captions') as HTMLInputElement | null
+  if (setting) setting.checked = enabled
+}
+
+$<HTMLButtonElement>('captions-toggle').onclick = toggleCaptions
+window.addEventListener('storage', (event) => {
+  if (event.key === CAPTIONS_KEY) syncCaptionsControls()
+})
+syncCaptionsControls()
 
 interface MeetingSummaryItem {
   id: string
@@ -887,7 +906,7 @@ function syncSettings(): void {
   $('set-sound-more').classList.toggle('off', !soundOn())
   $<HTMLInputElement>('set-extra').checked = store.get(EXTRA_HAPTICS_KEY) === 'true'
   $<HTMLInputElement>('set-gaze').checked = getAwayMode() === 'gaze'
-  $<HTMLInputElement>('set-captions').checked = captionsEnabled()
+  syncCaptionsControls()
   $<HTMLInputElement>('set-auto-summary').checked = store.get(AUTO_SUMMARY_KEY) !== 'false'
   $<HTMLInputElement>('set-theme').checked = currentTheme() === 'dark'
 }
@@ -919,6 +938,7 @@ $<HTMLInputElement>('set-auto-summary').onchange = (e) => {
 }
 $<HTMLInputElement>('set-captions').onchange = (e) => {
   if ((e.target as HTMLInputElement).checked !== captionsEnabled()) toggleCaptions()
+  else syncCaptionsControls()
 }
 $<HTMLInputElement>('set-theme').onchange = () => {
   toggleTheme()
