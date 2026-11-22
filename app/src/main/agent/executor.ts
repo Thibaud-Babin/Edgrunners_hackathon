@@ -198,8 +198,13 @@ export class Executor {
 
   private mouthTimer: ReturnType<typeof setTimeout> | undefined
 
+  /** B: when someone last reported a device problem ("can't hear you", "can't see you"): no recap / nudge for it */
+  private troubleAt = 0
+
   private handle(env: Envelope<unknown>): void {
     const decidedAt = now()
+    const hitType = (env.payload as { type?: unknown } | null)?.type
+    if (env.kind === 'detector' && (hitType === 'OTHERS_CANT_HEAR' || hitType === 'VIDEO_FROZEN_REPORTED')) this.troubleAt = decidedAt
     const before = this.state
     const d = decide(this.state, env, decidedAt)
     this.state = d.state
@@ -297,6 +302,11 @@ export class Executor {
         if (a.waitSentenceEnd) await this.sentenceEnd(decidedAt)
         const r = await this.summary(a.fromTs, now())
         if (!r) return true
+        // B: the name was in "Tibo, we can't hear you" (heard before the end of the sentence): the fix card covers it
+        if (now() - this.troubleAt < 5) {
+          this.report.log('decision', 'Your name was said in a device problem report → the fix card covers it (no recap)')
+          return true
+        }
         if (!r.transcript) {
           this.report.log('decision', 'Your name was said → no recap (no transcript yet)')
           return true
@@ -306,6 +316,7 @@ export class Executor {
         return true
       }
       case 'show_nudge':
+        if (now() - this.troubleAt < 8) return true // B: a device problem report, not a question waiting for you
         this.ui({ type: 'SHOW_NUDGE', id: this.cardId(), text: "They're waiting for your answer", ...(a.question ? { question: a.question } : {}) })
         this.report.log('action', `A question to you, then silence → nudge shown ("They're waiting for your answer")`)
         return true

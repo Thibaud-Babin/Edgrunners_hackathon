@@ -32,6 +32,9 @@ const QUOTE_MAX = 120
 export const TALKING_FOR_S = 1.5 // mouth moving this long = you are trying to talk
 export const MIC_SILENT_S = 2 // talking, mic levels arriving, but nothing loud for this long = the mic sends nothing
 export const MIC_LOUD_RMS = 0.02 // same threshold as B's "the user is talking"
+/** B (Sun 12:00, live call): any sound at all. A working mic always has room noise (~0.002-0.006); muted / dead ≈ 0.
+ * Soft speech under 0.02 (or lips moving while silent) said "your mic sends no sound" and sent a ticket. */
+export const MIC_ALIVE_RMS = 0.001
 export const MIC_LEVELS_FRESH_S = 1.5 // mic levels older than this: Tap's own mic capture is off, it knows nothing
 export const MIC_CARD_COOLDOWN_S = 30 // at most one automatic mic card per 30 s
 export const MIC_SNOOZE_S = 600 // "I'm muted on purpose": at most 10 min
@@ -57,6 +60,8 @@ export interface RulesState {
   /** Tap's own mic capture: when the last level arrived, and when it was last loud. */
   micLevelAt: number
   micLoudAt: number
+  /** B: last mic level with any sound at all (MIC_ALIVE_RMS) */
+  micAliveAt: number
   /** The fix the last mic card offered (its button runs exactly this), and whether a coworker had reported it. */
   micPlan: { fix: MicFix; mic: MicKind; reported: boolean } | null
   micCardAt: number | null
@@ -87,6 +92,7 @@ export function initialState(): RulesState {
     mouthSince: null,
     micLevelAt: 0,
     micLoudAt: 0,
+    micAliveAt: 0,
     micPlan: null,
     micCardAt: null,
     micSnoozeUntil: null,
@@ -170,7 +176,7 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
       d.actions.push({ action: 'send_haptic', waveform: HAPTIC.topic, why: `topic "${hit.text}" mentioned` })
       return
     case 'OTHERS_CANT_HEAR': // F7: card first (it appears at once), then the alert
-      if (d.state.mic) micCard(d, t, true, `Someone said: "${quote(hit.text)}"`)
+      if (d.state.mic) micCard(d, t, true, `Someone said: "${quote(hit.text)}"`, false, TOO_QUIET.test(hit.text))
       else
         // No Windows mic state (not Windows, or B's mic watch is off): the old generic card.
         d.actions.push({
@@ -396,6 +402,7 @@ const FIX_LABEL: Record<MicFix, (mic: MicKind) => string> = {
 function onMicLevel(d: Decision, level: { rms: number }, t: number): void {
   d.state.micLevelAt = t
   if (level.rms > MIC_LOUD_RMS) d.state.micLoudAt = t
+  if (level.rms > MIC_ALIVE_RMS) d.state.micAliveAt = t
   checkMicFix(d, t)
   checkTalkingMuted(d, t)
 }
@@ -418,7 +425,7 @@ function onMicState(d: Decision, hit: DetectorHit): void {
 
 /** Talking, Tap's mic capture is running, but nothing loud came since you started: the mic sends nothing. */
 function micSilent(s: RulesState, t: number): boolean {
-  return s.mouthSince !== null && t - s.micLevelAt < MIC_LEVELS_FRESH_S && t - s.micLoudAt >= MIC_SILENT_S && s.micLoudAt < s.mouthSince
+  return s.mouthSince !== null && t - s.micLevelAt < MIC_LEVELS_FRESH_S && t - s.micLoudAt >= MIC_SILENT_S && s.micLoudAt < s.mouthSince && t - s.micAliveAt >= MIC_SILENT_S
 }
 
 /**
@@ -444,7 +451,10 @@ function checkTalkingMuted(d: Decision, t: number): void {
  *   all fine, yet reported → probably muted in Meet: only a hint (no app can press Meet's own mute button)
  * `quality`: B's mic quality has been bad for 10 s; without a better idea, switching mic is still worth a try.
  */
-function micCard(d: Decision, t: number, reported: boolean, context: string, quality = false): void {
+/** B: they hear you, but badly ("can't hear you well", "talk louder", "speak up"): not muted */
+const TOO_QUIET = /\b(hear you (very )?(well|badly)|hard to hear|barely hear|(talk|speak) (a (bit|little) )?(louder|up)|you('re| are) (very |a bit |too )?(quiet|low)|louder)\b|(parle|parlez) plus fort|on t'entend mal/i
+
+function micCard(d: Decision, t: number, reported: boolean, context: string, quality = false, quietReport = false): void {
   const s = d.state
   const mic = s.mic!
   let problem: string
@@ -464,6 +474,8 @@ function micCard(d: Decision, t: number, reported: boolean, context: string, qua
     noOtherMic = true
   } else if (quality) {
     problem = `${context}. Move closer to the mic, or plug in a headset.`
+  } else if (reported && quietReport) {
+    problem = `${context}. They hear you, but quietly: move closer to the mic, or raise its volume (Windows sound settings, or Meet's mic settings).`
   } else if (reported) {
     problem = `${context}. Your mic works in Windows, so you are probably muted in Meet: press Ctrl+D in Meet.`
   } else return
@@ -472,7 +484,7 @@ function micCard(d: Decision, t: number, reported: boolean, context: string, qua
   d.actions.push({
     action: 'show_fix',
     problem: problem.slice(0, 280),
-    fixLabel: plan ? FIX_LABEL[plan.fix](plan.mic) : 'Got it',
+    fixLabel: plan ? (plan.fix === 'switch' && plan.mic === mic.kind ? `Switch to the other ${mic.kind} mic` : FIX_LABEL[plan.fix](plan.mic)) : 'Got it',
     fixAction: plan ? 'fix_mic' : 'dismiss_card',
     // B (Sun 04:00): a ticket only when no click can fix it (silent mic, no other mic). Muted, quiet, muted in Meet,
     // switch: one-click fixes on the user's side, IT would drown in them. (A failed fix and a problem that keeps

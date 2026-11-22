@@ -229,9 +229,12 @@ export class AudioPipeline {
     // The name only counts when the sentence speaks TO someone (question, "you", or the name opens the sentence):
     // removes "let's talk about the [table→tibo]" false alerts. On the final result, also try the vocative
     // rule for names the transcriber mangled ("hey bo, are you still here?").
-    let name = findName(text, this.names)
+    // B (Sun 12:00, live call): "Tibo, we can't hear you" is a mic problem, not a question: the fix card only
+    // (no name knock, no recap, no "waiting for your answer").
+    const trouble = findTrouble(text)
+    let name = trouble ? null : findName(text, this.names)
     if (name && !addressesSomeone(text, name.word)) name = null
-    if (!name && final) name = findAddressed(text, this.names)
+    if (!name && final && !trouble) name = findAddressed(text, this.names)
     if (name && !this.nameFiredThisSentence) {
       this.nameFiredThisSentence = true
       const lat = this.latency(name.word, meta)
@@ -250,7 +253,6 @@ export class AudioPipeline {
     } else if (isQuestion(text) && /\b(anyone|everyone|guys|team|all|tout le monde|quelqu'un)\b/i.test(text)) {
       this.bus.publish(makeEvent('QUESTION_TO_GROUP', source, { text, speaker }))
     }
-    const trouble = findTrouble(text)
     if (trouble === 'cant_hear') this.bus.publish(makeEvent('OTHERS_CANT_HEAR', source, { text, speaker }))
     if (trouble === 'frozen') this.bus.publish(makeEvent('VIDEO_FROZEN_REPORTED', source, { text, speaker }))
 
