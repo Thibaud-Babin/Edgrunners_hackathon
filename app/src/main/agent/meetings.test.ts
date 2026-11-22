@@ -111,3 +111,18 @@ test('meetings: two stray lines then silence → no automatic summary (needs a r
   await flush()
   assert.equal(runs.length, 0)
 })
+
+test('meetings (B): end() from Meet (you left / another meeting) → final summary now, the next call starts fresh', async (t) => {
+  const { m, runs, flush } = rig(t)
+  MEETING_1.forEach((l, i) => m.onLine(l, 100 + i))
+  assert.equal(m.end(), true)
+  await flush()
+  assert.equal(runs.length, 1)
+  assert.equal(runs[0]!.final, true)
+  assert.deepEqual(runs[0]!.lines, MEETING_1)
+  m.onLine('Hi, new call here.', 110)
+  await m.request('main')
+  await flush()
+  assert.deepEqual(runs[1]!.lines, ['Hi, new call here.'], 'the second call does not contain the first')
+  assert.equal(new Meetings(async () => {}).end(), false, 'nothing said: nothing to end')
+})

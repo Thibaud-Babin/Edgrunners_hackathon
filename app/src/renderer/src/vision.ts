@@ -292,6 +292,13 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
     if (t - lastLandmarkAt > 1200) health.fps = 0
   }
   const healthTimer = window.setInterval(sampleHealth, HEALTH_SAMPLE_MS)
+  // B: heartbeat every 2 s, so a still face isn't "camera silent", and so "we can't see you" can tell
+  // a camera that works (off in Meet) from one that is stuck (no frames, frozen picture).
+  const aliveTimer = window.setInterval(() => {
+    if (!running) return
+    const stuck = health.frozen || video.readyState < 2 || performance.now() - lastLandmarkAt > 2500
+    emit('CAMERA_ALIVE', { face: !stuck && health.faceInFrame, frozen: stuck })
+  }, 2000)
   const loop = (): void => {
     if (!running) return
     if (video.currentTime !== lastVideoTime) {
@@ -428,6 +435,8 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
 
   return () => {
     running = false
+    clearInterval(aliveTimer)
+    emit('CAMERA_ALIVE', { face: false, frozen: false, stopped: true })
     health.running = false
     health.faceInFrame = false
     health.framing = NO_FACE

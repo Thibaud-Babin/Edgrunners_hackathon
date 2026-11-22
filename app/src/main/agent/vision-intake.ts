@@ -15,7 +15,8 @@ const SIGNALS: Partial<Record<EventType, VisionSignal['signal']>> = {
   MOUTH_MOVING: 'mouth',
   CAMERA_FROZEN: 'camera_frozen',
   FACE_OUT_OF_FRAME: 'face_out_of_frame',
-  LOW_LIGHT: 'low_light'
+  LOW_LIGHT: 'low_light',
+  CAMERA_ALIVE: 'camera_alive'
 }
 
 const REASONS: readonly string[] = ['turned_away', 'no_face'] satisfies NonNullable<VisionSignal['reason']>[]
@@ -40,6 +41,7 @@ export function startVisionIntake(events: EventBus, bus: AgentBus, report: Repor
     bus.publish('vision', 'vision', 'vision', {
       signal,
       ...(signal === 'mouth' ? { active: raw.data?.active === true } : {}),
+      ...(signal === 'camera_alive' ? { face: raw.data?.face === true, frozen: raw.data?.frozen === true, stopped: raw.data?.stopped === true } : {}),
       ...(typeof reason === 'string' && REASONS.includes(reason) ? { reason: reason as VisionSignal['reason'] } : {}),
       // Gaze reports when the user first left, before its 3 s hold. Never accept a future timestamp.
       ...(signal === 'away' && typeof since === 'number' && Number.isFinite(since) && since >= 0 && since <= raw.ts ? { since } : {}),

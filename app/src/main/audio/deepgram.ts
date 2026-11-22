@@ -9,6 +9,7 @@
  */
 import type { Source } from '../../shared/events'
 import type { OnText, SttEngine, SttMeta } from './pipeline'
+import { sentenceDone } from './sentence'
 
 const KEY = process.env.DEEPGRAM_API_KEY || ''
 const TERMS = (process.env.TAP_HOTWORDS || process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim()).filter(Boolean)
@@ -161,7 +162,8 @@ export function createDeepgramEngine(
           stable = `${stable} ${t}`.trim()
           stableWords = [...stableWords, ...words]
         }
-        if (m.speech_final) flushSentence()
+        // B: also at the sentence's own punctuation (speech_final can take 30 s in a monologue)
+        if (m.speech_final || sentenceDone(stable)) flushSentence()
         else if (stable) onText(stable, false, meta(stableWords))
       } else if (t) {
         onText(`${stable} ${t}`.trim(), false, meta([...stableWords, ...words]))

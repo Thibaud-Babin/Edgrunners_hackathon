@@ -53,8 +53,12 @@ export const LlmSummaryOutput = z
 /** Vision agent output: enums, booleans and numbers only, never free text. */
 export const VisionSignal = z
   .object({
-    signal: z.enum(['away', 'back', 'mouth', 'camera_frozen', 'face_out_of_frame', 'low_light']),
+    signal: z.enum(['away', 'back', 'mouth', 'camera_frozen', 'face_out_of_frame', 'low_light', 'camera_alive']),
     active: z.boolean().optional(),
+    /** camera_alive (B): Tap's camera sees a face / is frozen or gets no frames / was stopped by the user */
+    face: z.boolean().optional(),
+    frozen: z.boolean().optional(),
+    stopped: z.boolean().optional(),
     reason: z.enum(['turned_away', 'no_face']).optional(),
     /** Away only: when the user first left (seconds since epoch), before the 3 s gaze hold. */
     since: z.number().finite().nonnegative().optional(),
@@ -133,7 +137,7 @@ export const ActionRequest = z.discriminatedUnion('action', [
       action: z.literal('show_fix'),
       problem: z.string().max(LIMITS.question * 2),
       fixLabel: z.string().max(60),
-      fixAction: z.enum(['switch_input_device', 'fix_mic', 'dismiss_card']),
+      fixAction: z.enum(['switch_input_device', 'fix_mic', 'dismiss_card', 'restart_camera']),
       // Optional second button (instead of "Not now"), e.g. "I'm muted on purpose".
       altLabel: z.string().max(60).optional(),
       altAction: z.enum(['snooze_mic_alerts', 'dismiss_card']).optional(),
@@ -160,6 +164,8 @@ export const ActionRequest = z.discriminatedUnion('action', [
     })
     .strict(),
   // Changes the user's own device: the gate allows it only from the user's own click.
+  // B: restart Tap's camera (the user's click on "Restart camera"); Tap checks it comes back.
+  z.object({ action: z.literal('restart_camera'), why: Why }).strict(),
   z.object({ action: z.literal('switch_input_device'), prefer: z.enum(['laptop', 'headset']), why: Why }).strict(),
   z.object({ action: z.literal('send_haptic'), waveform: z.enum(WAVEFORMS), why: Why }).strict(),
   z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict()

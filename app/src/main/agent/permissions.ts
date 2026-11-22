@@ -27,7 +27,8 @@ export const ACTION_TIER: Record<ActionRequest['action'], Tier> = {
   show_fix: 0,
   send_haptic: 0,
   dismiss_card: 0,
-  switch_input_device: 1, // your own mic
+  switch_input_device: 1,
+  restart_camera: 1, // B: the user's own device, on their click // your own mic
   fix_mic: 1, // your own mic, at the Windows level
   open_it_ticket: 1, // your own device facts, to your own IT
   // Device facts only (no meeting content) to the company's own IT, for every call. Started only by the user's

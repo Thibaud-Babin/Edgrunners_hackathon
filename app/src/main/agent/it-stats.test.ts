@@ -90,7 +90,7 @@ test('it-stats: no transcript ever stored (only counts, types, fixed reasons)', 
 
 test('it-stats: the same problem for the 3rd time this week → the card says so, and an automatic ticket is asked for', () => {
   const { s, at } = setup()
-  const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic is muted in Windows', fix_label: 'Unmute laptop mic', action_id: 'fix_mic' as const })
+  const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic sends no sound. Check its cable or Bluetooth connection.', fix_label: 'Got it', action_id: 'dismiss_card' as const })
   for (const [i, id] of ['a', 'b'].entries()) {
     at(1000 + i * 3600)
     const e = s.escalate(card(id))
@@ -101,10 +101,26 @@ test('it-stats: the same problem for the 3rd time this week → the card says so
   const third = s.escalate(card('c'))
   assert.equal(third.cmd.it_ticket, true)
   assert.match(third.cmd.problem, /3rd time this week: this may be a device problem/)
-  assert.deepEqual(third.auto, { reason: 'same problem 3 times this week (mic muted in windows)', key: 'repeat:Mic muted in Windows' })
+  assert.deepEqual(third.auto, { reason: 'same problem 3 times this week (mic sends no sound)', key: 'repeat:Mic sends no sound' })
   // more than a week later it starts again from 1
   at(1000 + 9 * 24 * 3600)
   assert.equal(s.escalate(card('d')).auto, undefined)
+})
+
+test("it-stats (B): muted / camera off in Meet or muted in Windows is the user's setting → never a ticket, however often", () => {
+  const { s, at } = setup()
+  const cards = [
+    { problem: `Someone said: "we can't hear you". Your mic works in Windows, so you are probably muted in Meet: press Ctrl+D in Meet.`, fix_label: 'Got it', action_id: 'dismiss_card' as const },
+    { problem: `Someone said: "we cannot see you". Your camera works (Tap sees you live), so it is probably off in Meet: press Ctrl+E in Meet.`, fix_label: 'Got it', action_id: 'dismiss_card' as const },
+    { problem: 'You are talking, but your laptop mic is muted in Windows', fix_label: 'Unmute laptop mic', action_id: 'fix_mic' as const }
+  ]
+  for (const [k, c] of cards.entries()) for (let i = 0; i < 5; i++) {
+    at(1000 + k * 100000 + i * 3600)
+    const e = s.escalate({ type: 'SHOW_FIX', id: `${k}-${i}`, ...c })
+    assert.equal(e.auto, undefined)
+    assert.equal(e.cmd.it_ticket, undefined)
+    s.onUi(e.cmd)
+  }
 })
 
 test('it-stats: ticket reason, ticketed problems are not "solved without a ticket"', () => {

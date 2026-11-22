@@ -266,3 +266,44 @@ test('B: a click can cancel an automatic ticket, but never create one', () => {
   assert.ok(r.blocked.some((b) => b.includes("auto_it_ticket comes only from Tap's own device checks")))
   assert.ok(r.actions.some((a) => (a as { action: string; cardId?: string }).action === 'cancel_it_ticket' && (a as { cardId?: string }).cardId === 'card-3'))
 })
+
+// ---------- B: "we can't see you" — Meet, or the camera itself? ----------
+const alive = (ts: number, face: boolean, frozen = false) => env('vision', { signal: 'camera_alive', face, frozen }, ts)
+const cantSee = (ts: number) => env('detector', { type: 'VIDEO_FROZEN_REPORTED', text: "Tibo, we can't see you" }, ts, 'detector')
+const fixOf = (r: ReturnType<typeof play>) => r.actions.find((a) => (a as { action: string }).action === 'show_fix') as { problem: string; fixLabel: string; fixAction: string; itTicket?: boolean }
+
+test("B: we can't see you + Tap sees you live → off in Meet (Ctrl+E), no ticket", () => {
+  const f = fixOf(play([[alive(100, true), 100], [cantSee(101), 101]]))
+  assert.match(f.problem, /Your camera works \(Tap sees you live\), so it is probably off in Meet: press Ctrl\+E/)
+  assert.equal(f.fixAction, 'dismiss_card')
+  assert.equal(f.itTicket, undefined)
+})
+
+test("B: we can't see you + Tap's camera stuck → Restart camera; no picture 10 s later → failed card with the ticket", () => {
+  const r = play([
+    [alive(100, false, true), 100],
+    [cantSee(101), 101],
+    [env('user', { input: 'click', actionId: 'restart_camera' }, 102, 'user'), 102],
+    [env('mic', { rms: 0.01 }, 113, 'detector'), 113]
+  ])
+  const cards = r.actions.filter((a) => (a as { action: string }).action === 'show_fix') as { problem: string; fixLabel: string; itTicket?: boolean }[]
+  assert.equal(cards[0]!.fixLabel, 'Restart camera')
+  assert.ok(r.actions.some((a) => (a as { action: string }).action === 'restart_camera'))
+  assert.match(cards[1]!.problem, /^Tap couldn't fix it \(the camera restart did not bring the picture back\)/)
+  assert.equal(cards[1]!.itTicket, true)
+})
+
+test('B: Restart camera that works → checked, no ticket; camera off in Tap → it says it cannot check', () => {
+  const r = play([
+    [alive(100, false, true), 100],
+    [cantSee(101), 101],
+    [env('user', { input: 'click', actionId: 'restart_camera' }, 102, 'user'), 102],
+    [alive(105, true), 105],
+    [env('mic', { rms: 0.01 }, 115, 'detector'), 115]
+  ])
+  assert.ok(r.log.includes('Camera restarted → live picture again (checked)'))
+  assert.equal(r.actions.filter((a) => (a as { action: string }).action === 'show_fix').length, 1)
+  assert.match(fixOf(play([[cantSee(50), 50]])).problem, /Tap's camera is off, so it can't check/)
+  // a heartbeat older than 6 s = stuck
+  assert.equal(fixOf(play([[alive(100, true), 100], [cantSee(110), 110]])).fixLabel, 'Restart camera')
+})

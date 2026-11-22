@@ -756,6 +756,10 @@ window.tap.onUi((cmd: UiCommand) => {
       $('side-counters').textContent = `AI calls ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
       $('badge-activity').textContent = `${cmd.events} events · ${cmd.blocked} blocked`
       break
+    case 'RESTART_CAMERA': // B: "Restart camera" on the "we can't see you" card; the rules check it comes back
+      stopCamera()
+      void startCamera().catch((e) => console.warn('[camera] restart failed:', e))
+      break
     case 'SWITCH_MIC':
       void switchMic(cmd.prefer)
       break
@@ -950,3 +954,8 @@ $<HTMLInputElement>('set-theme').onchange = () => {
 document.addEventListener('click', () => setTimeout(syncSettings, 0))
 syncSettings()
 sendMainSettings()
+
+// B: IT console "Reset IT data": the demo starts from zero (counts, tickets, call reports on this laptop)
+document.getElementById('itc-reset')?.addEventListener('click', () => {
+  if (confirm('Reset the IT data on this laptop? Counts, tickets and call reports are deleted.')) window.tap.emit(makeEvent('IT_STATS_RESET', 'ui'))
+})

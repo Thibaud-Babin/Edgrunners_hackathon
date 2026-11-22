@@ -45,6 +45,8 @@ export interface ItStatsState {
 const WEEK_S = 7 * 24 * 3600
 /** The same problem this many times in a week → the card also offers IT (a device problem, not a slip). */
 export const REPEAT_FOR_TICKET = 3
+/** B: only these repeat problems go to IT: Tap's own check shows the device itself misbehaving */
+export const DEVICE_FAULTS = new Set(['Mic sends no sound', 'Poor mic quality', 'Camera stuck'])
 
 const MAX_BLOCKED = 20
 const MAX_PROBLEMS = 500
@@ -61,6 +63,8 @@ export function problemType(problem: string, fixLabel: string): string {
   if (p.includes('muted in meet')) return 'Muted in the call app (Meet)'
   if (/^switch to/i.test(fixLabel) || p.includes('sends no sound') || p.includes('silent')) return 'Mic sends no sound'
   if (p.includes('quality') || p.includes('move closer') || p.includes('too quiet') || p.includes('noisy')) return 'Poor mic quality'
+  if (p.includes('camera') && p.includes('off in meet')) return 'Camera off in the call app (Meet)'
+  if (/^restart camera/i.test(fixLabel)) return 'Camera stuck'
   if (p.includes('camera')) return 'Camera problem'
   return 'Other device problem'
 }
@@ -72,6 +76,14 @@ export class ItStats {
   private lastFixLabel = ''
   private cardText = new Map<string, string>() // card id → its text (for the ticket's reason)
   private now: () => number
+
+  /** B: "Reset IT data" in the IT console (demo starts from zero). */
+  reset(): void {
+    this.state = emptyState(this.now())
+    this.fixCards.clear()
+    this.cardText.clear()
+    this.onChange?.()
+  }
 
   constructor(state: ItStatsState | null, now: () => number = () => Date.now() / 1000) {
     this.now = now
@@ -159,6 +171,8 @@ export class ItStats {
     const t = this.now()
     const n = this.state.problems.filter((p) => !p.onPurpose && p.type === type && t - p.at < WEEK_S).length + 1
     if (n < REPEAT_FOR_TICKET) return { cmd }
+    // B: a setting the user chose (muted / camera off in Meet, muted or low in Windows) is never a ticket, however often
+    if (!DEVICE_FAULTS.has(type)) return { cmd }
     // The card says why; index.ts then asks the executor for the automatic ticket (once a day per problem type).
     return {
       cmd: { ...cmd, it_ticket: true, problem: `${cmd.problem} · ${ordinal(n)} time this week: this may be a device problem.` },

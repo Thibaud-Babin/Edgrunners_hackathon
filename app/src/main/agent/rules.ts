@@ -62,6 +62,11 @@ export interface RulesState {
   micCardAt: number | null
   /** "I'm muted on purpose": no automatic mute alerts until this time, or until you unmute. */
   micSnoozeUntil: number | null
+  /** B: Tap's own camera (CAMERA_ALIVE every 2 s): when last heard, face seen, stuck. null = off / never started. */
+  camera: { at: number; face: boolean; frozen: boolean } | null
+  /** B: the user clicked "Restart camera" at this time; null when no restart is being checked. */
+  cameraRestartAt: number | null
+  cameraCardAt: number | null
 }
 
 export interface Decision {
@@ -84,7 +89,10 @@ export function initialState(): RulesState {
     micLoudAt: 0,
     micPlan: null,
     micCardAt: null,
-    micSnoozeUntil: null
+    micSnoozeUntil: null,
+    camera: null,
+    cameraRestartAt: null,
+    cameraCardAt: null
   }
 }
 
@@ -94,11 +102,17 @@ export function decide(state: RulesState, env: Envelope<unknown>, t: number): De
   else if (env.kind === 'user') onUser(d, env.payload as UserInput, t)
   else if (env.kind === 'detector') onDetector(d, env.payload as DetectorHit, env.ts, t)
   else if (env.kind === 'mic') onMicLevel(d, env.payload as { rms: number }, t) // every ~250 ms; also the mic timer's clock
+  checkCameraRestart(d, t)
   // 'transcript' and 'summary' never produce actions: speech and LLM output are display-only.
   return d
 }
 
 function onVision(d: Decision, v: VisionSignal, ts: number, t: number): void {
+  if (v.signal === 'camera_alive') return onCameraAlive(d, v, t)
+  if (v.signal === 'camera_frozen') {
+    if (d.state.camera) d.state.camera = { ...d.state.camera, frozen: true }
+    return
+  }
   if (v.signal === 'mouth') {
     if (v.active === true) {
       if (d.state.mouthSince === null) d.state.mouthSince = t
@@ -173,7 +187,8 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
       return onMicState(d, hit)
     case 'MIC_QUALITY': // F9
       return onMicQuality(d, hit.text, t)
-    // VIDEO_FROZEN_REPORTED: a device problem the checkup agent reports.
+    case 'VIDEO_FROZEN_REPORTED': // B: "we can't see you" / "you're frozen": Meet, or the camera itself?
+      return onCameraReported(d, hit.text, t)
   }
 }
 
@@ -277,6 +292,10 @@ function onUser(d: Decision, u: UserInput, t: number): void {
       d.state.micFixStage = 2
       d.state.micBad = { ...d.state.micBad, since: t } // give the fix 10 s before judging it
     }
+  } else if (actionId === 'restart_camera') {
+    d.actions.push({ action: 'restart_camera', why: 'you clicked "Restart camera"' })
+    d.state.cameraRestartAt = t
+    d.log.push({ kind: 'decision', text: `Camera restart clicked → checking the picture comes back within ${CAMERA_RESTART_CHECK_S} s` })
   } else if (actionId === 'cancel_it_ticket') {
     d.actions.push({ action: 'cancel_it_ticket', cardId: u.cardId ?? '', why: 'you clicked Undo' })
   } else if (actionId === 'auto_it_ticket') {
@@ -299,6 +318,71 @@ function onUser(d: Decision, u: UserInput, t: number): void {
   } else {
     d.log.push({ kind: 'action', text: `${actionId} (not used anymore)` })
   }
+}
+
+// ---------- camera doctor (B) ----------
+
+export const CAMERA_STALE_S = 6 // no heartbeat for this long → Tap's camera stopped getting frames
+export const CAMERA_RESTART_CHECK_S = 10 // after "Restart camera": the picture must be back within this
+export const CAMERA_CARD_COOLDOWN_S = 30
+
+function onCameraAlive(d: Decision, v: VisionSignal, t: number): void {
+  const s = d.state
+  if (v.stopped) {
+    // The user stopped Tap's camera (or a restart is in progress): Tap can't judge the camera now.
+    s.camera = null
+    return
+  }
+  s.camera = { at: t, face: v.face === true, frozen: v.frozen === true }
+  if (s.cameraRestartAt !== null && !s.camera.frozen) {
+    s.cameraRestartAt = null
+    d.log.push({ kind: 'decision', text: 'Camera restarted → live picture again (checked)' })
+  }
+}
+
+/** Runs on every event: the restart got no live picture in time → Tap couldn't fix it → IT, automatically. */
+function checkCameraRestart(d: Decision, t: number): void {
+  const s = d.state
+  if (s.cameraRestartAt === null || t - s.cameraRestartAt < CAMERA_RESTART_CHECK_S) return
+  s.cameraRestartAt = null
+  d.actions.push({
+    action: 'show_fix',
+    problem: "Tap couldn't fix it (the camera restart did not bring the picture back). This may be a device or driver problem.",
+    fixLabel: 'OK',
+    fixAction: 'dismiss_card',
+    itTicket: true,
+    why: 'the camera restart failed'
+  })
+  d.actions.push({ action: 'send_haptic', waveform: HAPTIC.problem, why: 'the camera restart failed' })
+}
+
+/**
+ * "We can't see you": Tap checks its OWN copy of the camera.
+ *  - live with your face → the camera works, so it is off (or stuck) in Meet: Ctrl+E. Never a ticket: your choice.
+ *  - live, no face → it works but doesn't see you (or Meet uses another camera).
+ *  - stuck (frozen / no frames) → the camera itself: "Restart camera"; a failed restart sends the ticket.
+ *  - Tap's camera off → Tap can't check: Meet's own camera button first.
+ */
+function onCameraReported(d: Decision, text: string, t: number): void {
+  const s = d.state
+  if (s.cameraCardAt !== null && t - s.cameraCardAt < CAMERA_CARD_COOLDOWN_S) return
+  s.cameraCardAt = t
+  const said = `Someone said: "${quote(text)}".`
+  const c = s.camera
+  const live = c !== null && t - c.at < CAMERA_STALE_S && !c.frozen
+  let problem: string
+  let fixLabel = 'Got it'
+  let fixAction: 'dismiss_card' | 'restart_camera' = 'dismiss_card'
+  if (c === null) problem = `${said} Tap's camera is off, so it can't check. If your camera is on in Meet, turn it off and on (Ctrl+E).`
+  else if (live && c.face) problem = `${said} Your camera works (Tap sees you live), so it is probably off in Meet: press Ctrl+E in Meet.`
+  else if (live) problem = `${said} Your camera works but doesn't see your face: sit in front of it, or check Meet uses the same camera.`
+  else {
+    problem = `${said} Tap's copy of your camera is stuck too: the camera itself is not sending a picture.`
+    fixLabel = 'Restart camera'
+    fixAction = 'restart_camera'
+  }
+  d.actions.push({ action: 'show_fix', problem, fixLabel, fixAction, why: 'others cannot see you' })
+  d.actions.push({ action: 'send_haptic', waveform: HAPTIC.problem, why: 'others cannot see you' })
 }
 
 // ---------- mic doctor ----------
