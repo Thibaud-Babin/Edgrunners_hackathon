@@ -49,7 +49,8 @@ function rig() {
     for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
   }
   const say = (text: string, ts: number) => events.publish({ type: 'TRANSCRIPT_FINAL', ts, source: 'call_audio', data: { text } })
-  const cam = (type: EventType) => events.publish({ type, ts: Date.now() / 1000, source: 'webcam' })
+  const cam = (type: EventType, data?: Record<string, unknown>) =>
+    events.publish({ type, ts: Date.now() / 1000, source: 'webcam', ...(data ? { data } : {}) })
   const wait = async (s: number) => {
     mock.timers.tick(s * 1000)
     await flush()
@@ -84,6 +85,22 @@ test('away → back: the recap covers only what was said while away', async (t) 
   assert.doesNotMatch(card.transcript, /Before|After/)
   assert.equal(card.question_to_you, 'Thibaud, are you OK with Friday?')
   assert.ok(r.logs.some((l) => l.startsWith('Looked back after 20 s away → "while you were away" card with those 20 s')))
+})
+
+test('gaze away uses data.since: a 3 s hold still becomes a card', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = rig()
+  r.cam('USER_AWAY', { since: T0 - 3, gaze: true })
+  await r.wait(1)
+  r.say('The release moves to Friday.', T0 - 2) // said after the real look-away, before the event
+  r.cam('USER_BACK')
+  await r.wait(STT_GRACE_MS / 1000 + 0.2)
+
+  const [card] = r.cards()
+  assert.ok(card && card.type === 'SHOW_AWAY_SUMMARY')
+  assert.equal(card.away_from, T0 - 3)
+  assert.equal(card.until, T0 + 1)
+  assert.match(card.transcript, /release moves to Friday/)
 })
 
 test('a glance under 2 s shows nothing', async (t) => {

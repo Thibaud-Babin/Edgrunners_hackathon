@@ -75,7 +75,7 @@ French clips with `multi`: names 2/2, trouble phrases 3/3, no false alert on "ta
 - Expect many `FLASH` commands when the mouse isn't connected: make the flash short and not annoying.
 
 **A (vision):**
-- **Gaze is the default away source (P2-11).** `USER_AWAY` now carries `data.since` = first off-screen timestamp; C uses it as `awayFrom` (a 3 s gaze hold would otherwise miss the 2 s card). Pose fallback is automatic; D adds the Check-up row/toggle. See [A-vision.md](A-vision.md).
+- **Gaze is the default away source (P2-11).** `USER_AWAY` now carries `data.since` = first off-screen timestamp; C uses it as `awayFrom` (a 3 s gaze hold would otherwise miss the 2 s card). Pose fallback is automatic; D added the Check-up row and Settings toggle. See [A-vision.md](A-vision.md).
 - On the real call, `MOUTH_MOVING` flapped on and off constantly. Please add hysteresis or debounce: about 300 ms to turn on and 800 ms to turn off.
 - The "mic sends nothing" alert now needs `MIC_LEVEL` events from the last 1.5 s ("Start mic" on). Without them it never fires, which fixes the false alerts we saw.
 

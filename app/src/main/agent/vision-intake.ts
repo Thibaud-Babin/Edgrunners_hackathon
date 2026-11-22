@@ -36,10 +36,13 @@ export function startVisionIntake(events: EventBus, bus: AgentBus, report: Repor
     const raw = parse(e)
     if (!raw) return
     const reason = raw.data?.reason
+    const since = raw.data?.since
     bus.publish('vision', 'vision', 'vision', {
       signal,
       ...(signal === 'mouth' ? { active: raw.data?.active === true } : {}),
       ...(typeof reason === 'string' && REASONS.includes(reason) ? { reason: reason as VisionSignal['reason'] } : {}),
+      // Gaze reports when the user first left, before its 3 s hold. Never accept a future timestamp.
+      ...(signal === 'away' && typeof since === 'number' && Number.isFinite(since) && since >= 0 && since <= raw.ts ? { since } : {}),
       ...(raw.confidence !== undefined ? { confidence: raw.confidence } : {})
     })
   }

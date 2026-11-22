@@ -13,7 +13,7 @@ cd app
 npm install
 npm test
 ```
-`npm test` must end with **`pass 145`, `fail 0`**. If you see "Cannot find module 'zod'", you skipped `npm install`.
+`npm test` must end with **`pass 147`, `fail 0`**. If you see "Cannot find module 'zod'", you skipped `npm install`.
 
 ## 1. Roles
 | Role | Who | Where | Job |

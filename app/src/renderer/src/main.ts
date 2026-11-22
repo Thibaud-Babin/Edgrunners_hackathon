@@ -2,7 +2,8 @@
 import type { EventType, LogEntry, Source, UiCommand } from '../../shared/events'
 import { HAPTIC_PATTERNS, makeEvent } from '../../shared/events'
 import { startCallAudio, startMic } from './audio'
-import { cameraHealth, startVision } from './vision'
+import { cameraHealth, getAwayMode, gazeStatus, setAwayMode, startVision } from './vision'
+import type { GazeFallbackReason } from './vision/gaze'
 import { el } from './ui/dom'
 import { currentTheme, initTheme, toggleTheme } from './ui/theme'
 import { playCue, SOUND_KEY, soundOn, soundVolume, VOLUME_KEY } from './ui/sound'
@@ -381,7 +382,7 @@ interface Row {
   set(status: Status, detail: string, hint?: string): void
 }
 
-function checkRow(label: string): Row {
+function checkRow(label: string, info = false): Row {
   const li = el('li', 'check')
   const st = el('span', 'st', '…')
   const mid = el('div')
@@ -395,7 +396,7 @@ function checkRow(label: string): Row {
     status: '',
     set(status, d, h = '') {
       row.status = status
-      li.className = `check${status ? ` ${status}` : ''}`
+      li.className = `check${info ? ' info' : ''}${status ? ` ${status}` : ''}`
       st.textContent = status === 'ok' ? '✓' : status === 'warn' ? '!' : status === 'bad' ? '✕' : '…'
       detail.textContent = d
       hint.textContent = h
@@ -403,6 +404,8 @@ function checkRow(label: string): Row {
   }
   return row
 }
+
+let gazeRow: Row | null = null
 
 $('btn-checkup').onclick = async () => {
   const btn = $<HTMLButtonElement>('btn-checkup')
@@ -415,8 +418,10 @@ $('btn-checkup').onclick = async () => {
     frozen: checkRow('Camera not frozen'),
     light: checkRow('Lighting'),
     mic: checkRow('Microphone level'),
-    inputs: checkRow('Input devices')
+    inputs: checkRow('Input devices'),
+    gaze: checkRow('Away detection', true)
   }
+  gazeRow = rows.gaze
   for (const r of Object.values(rows)) list.append(r.li)
 
   if (!cameraHealth().running) {
@@ -488,6 +493,7 @@ $('btn-checkup').onclick = async () => {
     const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput')
     devList.replaceChildren(...inputs.map((d) => el('li', '', d.label || `unnamed device ${d.deviceId.slice(0, 8)}`)))
     rows.inputs.set(inputs.length ? 'ok' : 'bad', `${inputs.length} input${inputs.length === 1 ? '' : 's'}`, inputs.length ? '' : 'No microphone found — plug one in.')
+    syncGazeUi(false)
   }
 
   void refresh()
@@ -505,7 +511,7 @@ $('btn-checkup').onclick = async () => {
         fix.onclick = () => window.tap.emit(makeEvent('USER_CLICK', 'ui', { action_id: 'switch_input_device', args: {} }))
         rows.mic.mid.append(fix)
       }
-      const ok = list.querySelectorAll('.check.ok').length
+      const ok = list.querySelectorAll('.check.ok:not(.info)').length
       $('score-num').textContent = `${ok}/6`
       $('score-bar').style.width = `${(ok / 6) * 100}%`
       const badge = $('badge-check')
@@ -518,6 +524,66 @@ $('btn-checkup').onclick = async () => {
   btn.textContent = 'Checking…'
 }
 $('btn-checkup-again').onclick = () => $('btn-checkup').click()
+
+// ---------- gaze status: Check-up row, Settings hint, one fallback toast (A's default away source) ----------
+const GAZE_FALLBACK_TEXT: Record<GazeFallbackReason, string> = {
+  'not-connected': 'not connected',
+  uncalibrated: 'not calibrated',
+  stale: 'not sending updates',
+  'no-face': 'no face in view'
+}
+const GAZE_FALLBACK_FIX: Record<GazeFallbackReason, string> = {
+  'not-connected': 'Start the Logi Gaze Tracker on the meeting display.',
+  uncalibrated: 'Calibrate the Gaze Tracker; the dot must follow your eyes.',
+  stale: 'The tracker stopped sending; restart it.',
+  'no-face': 'Look at the screen so the tracker can see your face.'
+}
+const gazeToast = $<HTMLDivElement>('app-toast')
+let lastGazeSource: ReturnType<typeof gazeStatus>['activeSource'] | null = null
+let gazeToastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showGazeToast(reason: GazeFallbackReason | null): void {
+  const why = reason ? GAZE_FALLBACK_TEXT[reason] : 'not available'
+  gazeToast.replaceChildren(
+    el('strong', '', 'Using head pose'),
+    el('div', '', `Gaze Tracker: ${why}. Tap switched automatically and will switch back when it is available.`)
+  )
+  gazeToast.hidden = false
+  if (gazeToastTimer) clearTimeout(gazeToastTimer)
+  gazeToastTimer = setTimeout(() => {
+    gazeToast.hidden = true
+  }, 8000)
+}
+gazeToast.onclick = () => {
+  gazeToast.hidden = true
+  if (gazeToastTimer) clearTimeout(gazeToastTimer)
+}
+
+/** Keep the Check-up row and Settings hint current; toast only on a real gaze → pose fallback. */
+function syncGazeUi(allowToast = true): void {
+  const g = gazeStatus()
+  const previous = lastGazeSource
+  lastGazeSource = g.activeSource
+  if (allowToast && previous === 'gaze' && g.activeSource === 'pose' && g.mode === 'gaze') showGazeToast(g.fallbackReason)
+
+  if (gazeRow) {
+    if (g.mode === 'pose') gazeRow.set('warn', 'head pose only', 'Settings → Use the Gaze Tracker to turn it back on.')
+    else if (g.activeSource === 'gaze') gazeRow.set('ok', g.calibrated ? 'Gaze Tracker · calibrated' : 'Gaze Tracker')
+    else
+      gazeRow.set(
+        'warn',
+        `head pose fallback · ${g.fallbackReason ? GAZE_FALLBACK_TEXT[g.fallbackReason] : 'not available'}`,
+        g.fallbackReason ? GAZE_FALLBACK_FIX[g.fallbackReason] : ''
+      )
+  }
+
+  const status = $('gaze-setting-status')
+  if (g.mode === 'pose') status.textContent = 'Away detection: head pose only (Gaze Tracker off).'
+  else if (g.activeSource === 'gaze') status.textContent = 'Away detection: Gaze Tracker · calibrated and receiving gaze.'
+  else status.textContent = `Away detection: head pose fallback · ${g.fallbackReason ? GAZE_FALLBACK_TEXT[g.fallbackReason] : 'not available'}.`
+}
+setInterval(() => syncGazeUi(), 1000)
+syncGazeUi(false)
 
 // ---------- activity log + counters (from the agent) ----------
 const ICONS: Record<LogEntry['kind'], string> = { event: '👁', decision: '⚖', llm: '✦', action: '⚡', blocked: '⛔', error: '⚠' }
@@ -785,6 +851,7 @@ function syncSettings(): void {
   $<HTMLInputElement>('set-volume').value = String(soundVolume())
   $('set-sound-more').classList.toggle('off', !soundOn())
   $<HTMLInputElement>('set-extra').checked = store.get(EXTRA_HAPTICS_KEY) === 'true'
+  $<HTMLInputElement>('set-gaze').checked = getAwayMode() === 'gaze'
   $<HTMLInputElement>('set-captions').checked = captionsEnabled()
   $<HTMLInputElement>('set-auto-summary').checked = store.get(AUTO_SUMMARY_KEY) !== 'false'
   $<HTMLInputElement>('set-theme').checked = currentTheme() === 'dark'
@@ -806,6 +873,10 @@ $('set-sound-test').onclick = () => {
 $<HTMLInputElement>('set-extra').onchange = (e) => {
   store.set(EXTRA_HAPTICS_KEY, String((e.target as HTMLInputElement).checked))
   sendMainSettings()
+}
+$<HTMLInputElement>('set-gaze').onchange = (e) => {
+  setAwayMode((e.target as HTMLInputElement).checked ? 'gaze' : 'pose')
+  syncGazeUi(false)
 }
 $<HTMLInputElement>('set-auto-summary').onchange = (e) => {
   store.set(AUTO_SUMMARY_KEY, String((e.target as HTMLInputElement).checked))

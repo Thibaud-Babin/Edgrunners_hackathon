@@ -156,6 +156,8 @@ body.main { background: var(--bg); height: 100vh; overflow: hidden; position: re
 .check .label { font-weight: 600; }
 .check .detail { color: var(--text-2); font-size: 12px; }
 .check .hint { color: var(--bad); font-size: 12px; margin-top: 2px; }
+.check.warn .hint { color: var(--warn); }
+.check.info { background: transparent; border-color: var(--line); }
 .meter { height: 10px; border-radius: 99px; background: var(--panel-2); overflow: hidden; margin-top: 8px; }
 .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--ok), var(--warn)); transition: width 0.1s; }
 .devices { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); font-size: 12px; }
@@ -337,6 +339,11 @@ body.overlay .toast button { text-shadow: none; }
 #summary-title { white-space: nowrap; }
 .summary-section { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(196, 181, 253, 0.95); }
 .summary-list { margin: 0; padding-left: 18px; display: grid; gap: 5px; line-height: 1.5; }
+
+/* Main-window toast: gaze fallback status (A's default away source) */
+.app-toast { position: fixed; right: 22px; bottom: 22px; z-index: 80; max-width: 380px; padding: 12px 16px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); color: var(--text); font-size: 13px; line-height: 1.45; cursor: pointer; animation: toastin 0.25s ease-out; }
+.app-toast strong { display: block; margin-bottom: 3px; color: var(--warn); }
+.app-toast[hidden] { display: none; }
 
 /* Overlay pill: "Summary" button (B) */
 .pill-btn { flex: none; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer; }
