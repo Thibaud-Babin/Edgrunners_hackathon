@@ -23,6 +23,8 @@ import { WinMic } from './audio/win-mic'
 import { RoleState, roleFromConfig } from './agent/permissions'
 import { ItStats, parseCallReports, parseTicket, type ItStatsState, type TicketFile } from './agent/it-stats'
 import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
+import { SpeakerNames } from './audio/speaker-names'
+import { others, startMeetBridge } from './audio/meet-bridge'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -207,6 +209,26 @@ app.whenReady().then(() => {
     sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
   })
   const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
+  // B: real names for Speaker 1, 2… from the Google Meet extension (extension/meet-names), on this laptop only
+  const speakerNames = new SpeakerNames()
+  audio.speakerNames = speakerNames
+  const meetLog = (text: string): void => sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
+  let meetWasConnected = false
+  startMeetBridge((u) => {
+    const changed = speakerNames.update(others(u))
+    if (!meetWasConnected) meetLog(`Meet names: extension connected (meeting ${u.meeting || '?'})`)
+    meetWasConnected = true
+    if (changed) {
+      const n = speakerNames.participants.length
+      meetLog(`Meet names: ${n} other ${n === 1 ? 'person' : 'people'} in the call${n ? ` (${speakerNames.participants.join(', ')})` : ''}`)
+    }
+  }, meetLog)
+  setInterval(() => {
+    if (meetWasConnected && !speakerNames.connected) {
+      meetWasConnected = false
+      meetLog('Meet names: extension stopped sending (tab closed?) → back to Speaker 1, 2…')
+    }
+  }, 3000)
   // Live captions (accessibility): what the others say, shown in the overlay as they speak. Display only, no decision,
   // so it goes straight to the UI. The user's name is highlighted. D renders CAPTION in overlay.ts.
   for (const type of ['TRANSCRIPT_PARTIAL', 'TRANSCRIPT_FINAL'] as const) {
