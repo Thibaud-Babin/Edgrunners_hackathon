@@ -502,10 +502,12 @@ $('btn-checkup').onclick = async () => {
       h.running ? `${h.fps} fps` : 'no video',
       h.running ? '' : 'Click "Start camera" and allow access.'
     )
+    // B: not just "a face was found": centered, not too far / close, not cut off (shared/framing.ts)
+    const f = h.framing
     rows.face.set(
-      !h.running ? 'warn' : h.faceInFrame ? 'ok' : 'bad',
-      !h.running ? 'camera off' : h.faceInFrame ? 'face detected' : 'no face found',
-      h.running && !h.faceInFrame ? 'Sit in front of the camera.' : ''
+      !h.running ? 'warn' : f.ok ? 'ok' : h.faceInFrame ? 'warn' : 'bad',
+      !h.running ? 'camera off' : f.text,
+      h.running && !f.ok ? f.hint : ''
     )
     rows.frozen.set(
       !h.running ? 'warn' : h.frozen ? 'bad' : 'ok',
