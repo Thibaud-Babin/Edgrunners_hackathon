@@ -166,6 +166,14 @@
             </label>
           </div>
         </div>
+        <div class="panel mt">
+          <h3>Attention</h3>
+          <label class="set-row">
+            <span class="set-text"><strong>Use the Gaze Tracker</strong><span>True look-away from the Logi Gaze Tracker. If it is not running or calibrated, Tap falls back to head pose automatically.</span></span>
+            <input type="checkbox" class="switch" id="set-gaze" />
+          </label>
+          <div class="haptic-hint" id="gaze-setting-status">Gaze: starting…</div>
+        </div>
       </section>
 
       <!-- ============ Activity ============ -->
@@ -251,6 +259,8 @@
         </div>
       </section>
     </div>
+
+    <div class="app-toast" id="app-toast" hidden></div>
 
     <script type="module" src="./src/main.ts"></script>
   </body>

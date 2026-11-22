@@ -12,6 +12,14 @@ You have full freedom on design, as long as you keep the two plugs below unchang
 >
 > Details: [team README](README.md#-update-from-b-audio-sat-1745--read-this).
 
+> 📣 **Update from A (gaze is the default away source):**
+> - Away decisions come from the Logi Gaze Tracker; MediaPipe head pose is the automatic fallback. MediaPipe still drives mouth, gestures, and camera health.
+> - **Implemented in `main.ts`:** a **Check-up** row (`Away detection`: Gaze Tracker / pose fallback + fix hint), a **one-time non-blocking toast** when `activeSource` becomes `'pose'` in gaze mode, and a **Settings → Attention → Use the Gaze Tracker** toggle. **No haptic** for tracker status — that channel is for meeting problems.
+> - Import from `./vision` (do not edit it): `getAwayMode()`, `setAwayMode('gaze' | 'pose')`, and `gazeStatus()` → `{ mode, activeSource, fallbackReason, connected, calibrated, lastSnapshotAt, lastFaceAt, lastGazeAt }`.
+> - Force pose for testing: `localStorage.setItem('tap:awayMode','pose'); location.reload()`.
+>
+> Details: [A-vision](A-vision.md).
+
 ## Your files
 - `app/src/renderer/index.html`, `overlay.html`, `src/style.css`, `src/main.ts`, `src/overlay.ts`
 - New UI files under `app/src/renderer/src/ui/` (components, icons, fonts in `public/`)

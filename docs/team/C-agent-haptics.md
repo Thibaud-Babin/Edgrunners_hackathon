@@ -31,6 +31,8 @@ B: transcript (text + timestamps) ─► [1] AUDIO AGENT ── Summary of the a
 
 **Core loop:** attention lost at `t0` (A: `USER_AWAY`, later also eyes closed / looking at phone) → attention back at `t1` (A: `USER_BACK`) → if away ≥ 2 s and something was said, the Audio agent summarises **only the transcript between `t0` and `t1`** → recap card + log line.
 
+> **A's gaze update (P2-11, gaze is the default away source):** gaze mode publishes `USER_AWAY` only after **3 s** off-screen, and `data.since` is the first off-screen timestamp. **Done:** `vision-intake.ts` validates and carries `since`, and `rules.ts` uses it as `awayFrom` (not the event publish time); the executor test covers the exact 3 s case. `USER_BACK`, `FACE_OUT_OF_FRAME` and the rest of the contract are unchanged; the tracker's automatic pose fallback is transparent to the agent.
+
 **Why only one LLM:** every LLM is an injection surface and adds latency and cost. Decisions are rules: fast, testable, explainable. Don't add a second LLM "to check the first". Checks are code.
 
 ---
