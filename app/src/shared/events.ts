@@ -41,7 +41,7 @@ export type EventType =
   | 'USER_CLICK'
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
   // D — UI, added Sun (C's role-based rights; additive)
-  | 'CALL_ENDED' // {} the user clicked "End call" (logged; hook for the end-of-call IT report)
+  | 'CALL_ENDED' // {} the user clicked "End call": the call's device health report goes to the IT log
   | 'USER_SET_ROLE' // { role: UserRole } DEV-ONLY role switch; main ignores it in packaged builds
 
 export interface TapEvent {
@@ -120,7 +120,8 @@ export const ALLOWED_ACTIONS = [
   'dismiss_card',
   // Sun (C): a card the agents already send, and the IT ticket
   'show_nudge',
-  'open_it_ticket' // send device diagnostics (never speech) to IT — anyone, on their own click
+  'open_it_ticket', // send device diagnostics (never speech) to IT — anyone, on their own click
+  'send_call_report' // End call → the call's device health report (never speech) to the IT log — every role // send device diagnostics (never speech) to IT — anyone, on their own click
 ] as const
 export type AllowedAction = (typeof ALLOWED_ACTIONS)[number]
 
