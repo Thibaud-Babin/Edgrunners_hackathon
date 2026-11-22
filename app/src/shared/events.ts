@@ -147,7 +147,7 @@ export const ALLOWED_ACTIONS = [
   // Sun (C): a card the agents already send, and the IT ticket
   'show_nudge',
   'open_it_ticket', // send device diagnostics (never speech) to IT — anyone, on their own click
-  'send_call_report' // End call → the call's device health report (never speech) to the IT log — every role // send device diagnostics (never speech) to IT — anyone, on their own click
+  'send_call_report' // End call → the call's device health report (never speech) to the IT log — every role
 ] as const
 export type AllowedAction = (typeof ALLOWED_ACTIONS)[number]
 

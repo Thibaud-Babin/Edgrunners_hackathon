@@ -88,8 +88,8 @@ export const MAY_TRIGGER: Record<Provenance, boolean> = {
 
 /**
  * Pure gate: (1) schema + allowlist, (2) provenance, (3) role × tier (permissions.ts).
- * "click" actions run only from the user's own click (provenance `user`): your own devices and data at any rank,
- * sharing outside the call only for executives and the CEO. Missing role → intern (least privilege).
+ * "click" actions run only from the user's own click (provenance `user`), e.g. your own devices and data at any
+ * rank. Missing role → intern (least privilege).
  */
 export function gate(req: unknown, provenance: Provenance, role: UserRole = 'intern'): Verdict {
   const parsed = ActionRequest.safeParse(req)

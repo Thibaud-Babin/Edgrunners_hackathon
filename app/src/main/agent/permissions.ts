@@ -1,7 +1,7 @@
 /**
  * OWNER: C. Role-based rights for Tap's agents (Nexthink): Tap never has more authority than the person it works for.
- * Two scales grow with rank: what the agent may do towards OTHER people (more), and how confidential the user's
- * meetings are (stricter). The policy is data in one place; every cell has a test. Never decided by an LLM.
+ * With rank, meetings get more confidential (no cloud AI, no recording) and IT support gets faster. The policy is
+ * data in one place; every cell has a test. Never decided by an LLM.
  * The role comes from config (company SSO in real life), never from speech, AI output or a production UI.
  */
 import { USER_ROLES, type UserRole } from '../../shared/events.ts'
