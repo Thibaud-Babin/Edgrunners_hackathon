@@ -33,6 +33,19 @@ Two windows open:
 - **Main window**: start camera / mic / call audio, check-up, **dev tools** (type what someone in the call says, fake any event), activity log + counters.
 - **Overlay**: transparent, always on top, on the right of the screen. Cards appear here, over Zoom/Meet/Teams. Clicks go through it except on cards.
 
+## Installer (Windows)
+
+```
+npm run dist        # → dist/Tap-Setup-0.1.0.exe (~600 MB: includes the local Parakeet speech model)
+```
+
+- No API key is ever put in the installer (the repo is public). After installing, put the keys in
+  `%APPDATA%\Tap\.env` (same lines as `app/.env`). Without keys Tap still works: local Parakeet speech,
+  template summaries.
+- Installed, Tap reads `models/`, `scripts/win-mic.ps1` and `extension/meet-names` from its resources
+  folder (`src/main/packaged-setup.ts`). The Meet extension is in `<install folder>\resources\extension\meet-names`.
+- Not signed: Windows SmartScreen shows "Windows protected your PC" → **More info → Run anyway**.
+
 ## How the pieces connect
 
 ```

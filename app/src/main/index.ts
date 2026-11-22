@@ -2,6 +2,7 @@
  * Electron main process: creates the two windows and wires senses → bus → agent → UI/haptics.
  * OWNER: D (windows), everyone reads it.
  */
+import './packaged-setup' // B: installed app → resources folder + %APPDATA%\Tap\.env (must stay first)
 import 'dotenv/config'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
