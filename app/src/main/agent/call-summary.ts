@@ -153,10 +153,12 @@ export function templateCallSummary(lines: CallLine[], names: string[]): Pick<Ca
   return { points: points.slice(0, 5), questionsToYou: questionsToYou.slice(-4), yourTasks: yourTasks.slice(-4), decisions: decisions.slice(-4) }
 }
 
-export async function summarizeCall(call: CallTranscript, llm: Llm, names: string[]): Promise<CallSummary> {
+/** `local`: confidential role (executive, CEO, permissions.ts) → made on this laptop, never sent to the cloud AI. */
+export async function summarizeCall(call: CallTranscript, llm: Llm, names: string[], opts: { local?: boolean } = {}): Promise<CallSummary> {
   const base = { lines: call.lines.length, minutes: call.minutes }
   const template = (fallback: string, costUsd = 0): CallSummary => ({ ...templateCallSummary(call.lines, names), source: 'template', costUsd, fallback, ...base })
   if (!call.lines.length) return template('empty')
+  if (opts.local) return template('confidential')
   const user = `<user_name>${escapeTags(cleanText(names[0] ?? '', MAX.speakerName))}</user_name>\n<transcript>\n${escapeTags(call.text())}\n</transcript>`
   const r = await llm.complete(CALL_SUMMARY_SYSTEM, user, AI_MAX_TOKENS, AI_TIMEOUT_MS)
   if ('fallback' in r) return template(r.fallback, r.costUsd)

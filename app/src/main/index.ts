@@ -3,7 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
@@ -20,6 +20,7 @@ import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
 import { cleanText, MAX } from './agent/sanitize'
 import { WinMic } from './audio/win-mic'
+import { RoleState, roleFromConfig } from './agent/permissions'
 import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
@@ -75,11 +76,13 @@ function sendUi(cmd: UiCommand): void {
   if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION' && cmd.type !== 'CUE') {
     if (cmd.type === 'LOG_ENTRY') {
       if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
-    } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
-    else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
+    } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP ${cmd.id}: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
+    else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY ${cmd.id} (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
     else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
     else if (cmd.type === 'CALL_SUMMARY') console.log(`[card] MEETING SUMMARY (${cmd.final ? 'meeting ended' : 'so far'}, ${cmd.from}, ${cmd.source}, ${cmd.minutes} min): ${cmd.points.length} points, ${cmd.questions_to_you.length} questions to you, ${cmd.your_tasks.length} tasks, ${cmd.decisions.length} decisions`)
     else if (cmd.type === 'SHOW_NUDGE') console.log(`[card] NUDGE: ${cmd.text}${cmd.question ? ` | ${cmd.question}` : ''}`)
+    else if (cmd.type === 'SHOW_NOTICE') console.log(`[card] NOTICE: ${cmd.text}`)
+    else if (cmd.type === 'ROLE') console.log(`[ui] ROLE ${cmd.role} (IT view ${cmd.sees_it_view ? 'shown' : 'hidden'}, ${cmd.confidential ? 'confidential' : 'not confidential'})`)
     else console.log(`[ui] ${cmd.type}`)
   }
   for (const w of [mainWin, overlayWin]) if (w && !w.isDestroyed()) w.webContents.send(IPC.ui, cmd)
@@ -99,12 +102,44 @@ app.whenReady().then(() => {
   const llm = new Llm()
   // B: Windows-level mic (state for the mic doctor, and the fixes a card names). Only a click runs a fix.
   const winMic = new WinMic()
-  const agent = new Agent(bus, sendUi, haptics, llm, names[0], winMic.available ? winMic : null)
+  // The user's role comes from config only (company SSO in real life); missing/invalid → intern.
+  // The UI may switch it only in dev builds (USER_SET_ROLE is ignored when packaged).
+  const roles = new RoleState(roleFromConfig(process.env.TAP_USER_ROLE))
+  const agent = new Agent(bus, sendUi, haptics, llm, names[0], {
+    mic: winMic.available ? winMic : null,
+    roles,
+    allowRoleSwitch: !app.isPackaged,
+    // Simulated helpdesk: tickets land as JSON in the app's data folder (outside the repo). No real IT system.
+    tickets: {
+      // Sync on purpose: one small file on a click. (fs/promises stalled late in a long mock run here.)
+      send: async (t) => {
+        const dir = join(app.getPath('userData'), 'it-tickets')
+        mkdirSync(dir, { recursive: true })
+        const file = join(dir, `${t.id}.json`)
+        writeFileSync(file, JSON.stringify(t, null, 2))
+        return { ok: true, where: file }
+      }
+    },
+    // Simulated IT log: one JSON line per ended call (device facts only).
+    itLog: {
+      add: async (r) => {
+        const dir = join(app.getPath('userData'), 'it-log')
+        mkdirSync(dir, { recursive: true })
+        const file = join(dir, 'calls.jsonl')
+        appendFileSync(file, `${JSON.stringify(r)}\n`)
+        return { ok: true, where: file }
+      }
+    }
+  })
   // Settings → "Sound with each vibration": the overlay plays the sound when the vibration is actually sent.
   haptics.onFire = (waveform) => sendUi({ type: 'CUE', waveform })
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
   // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
-  if (process.env.TAP_RECORD === '1' && !app.isPackaged) startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
+  // Never for confidential roles (executive, CEO): their meetings are not recorded.
+  if (process.env.TAP_RECORD === '1' && !app.isPackaged) {
+    if (roles.flags.confidential) console.log('[record] not recording: confidential role')
+    else startRecording(bus, join(app.getAppPath(), '..', 'demo', 'recordings'))
+  }
   // Speech engine status → activity panel. Lines from startup are replayed once the window has loaded.
   const sttStatus: string[] = []
   onSttStatus((text) => {
@@ -159,7 +194,7 @@ app.whenReady().then(() => {
       sendUi({ type: 'CALL_SUMMARY', id: `${call.id}-empty`, started_at: t, ended_at: t, final: false, from, points: [], questions_to_you: [], your_tasks: [], decisions: [], source: 'template', minutes: 0, lines: 0 })
       return
     }
-    const r = await summarizeCall(call, llm, names)
+    const r = await summarizeCall(call, llm, names, { local: roles.flags.confidential })
     call.markSummarized()
     if (r.costUsd > 0) agent.recordAiCall(r.costUsd)
     const why = final ? 'meeting ended' : from === 'auto' ? 'call quiet for a while' : 'you asked'
@@ -241,6 +276,7 @@ app.whenReady().then(() => {
   createWindows()
   mainWin?.webContents.once('did-finish-load', () => {
     for (const text of sttStatus) sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
+    agent.announceRole() // the UI learns the role once it can listen (shows or hides the IT view)
   })
   // Saved meeting summaries → the main window's Meeting Summary panel, oldest first (the panel puts the newest on top).
   mainWin?.webContents.on('did-finish-load', () => {

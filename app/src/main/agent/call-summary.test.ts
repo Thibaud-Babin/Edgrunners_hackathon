@@ -105,3 +105,11 @@ test('empty call → template with nothing, no AI call', async () => {
   assert.equal(r.fallback, 'empty')
   assert.equal(client.prompts.length, 0)
 })
+
+test('confidential role (executive, CEO) → meeting summary made on the laptop, no AI call', async () => {
+  const client = fake(ok('{}'))
+  const r = await summarizeCall(call(), new Llm({ client }), NAMES, { local: true })
+  assert.equal(r.source, 'template')
+  assert.equal(r.fallback, 'confidential')
+  assert.equal(client.prompts.length, 0)
+})

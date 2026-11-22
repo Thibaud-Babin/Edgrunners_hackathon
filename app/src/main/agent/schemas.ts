@@ -135,9 +135,15 @@ export const ActionRequest = z.discriminatedUnion('action', [
       // Optional second button (instead of "Not now"), e.g. "I'm muted on purpose".
       altLabel: z.string().max(60).optional(),
       altAction: z.enum(['snooze_mic_alerts', 'dismiss_card']).optional(),
+      // Device problem: also offer "Send diagnostics to IT".
+      itTicket: z.boolean().optional(),
       why: Why
     })
     .strict(),
+  // End call (the user's click): the call's device health report (never speech) to the IT log.
+  z.object({ action: z.literal('send_call_report'), why: Why }).strict(),
+  // The user's own device facts (never speech) to IT (T1, on click).
+  z.object({ action: z.literal('open_it_ticket'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
   // The exact mic fix the card named (Windows level, so Meet hears it too). Only the user's click runs it.
   z
     .object({
@@ -153,11 +159,8 @@ export const ActionRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('dismiss_card'), cardId: z.string().max(LIMITS.id), why: Why }).strict()
 ])
 
-/**
- * Every action the executor may run: the contract's allowlist plus `show_nudge`, which B added as a UI command
- * (SHOW_NUDGE) but not to ALLOWED_ACTIONS in events.ts. TODO(team): add 'show_nudge' there (contract PR).
- */
-export const AGENT_ACTIONS = [...ALLOWED_ACTIONS, 'show_nudge'] as const
+/** Every action the executor may run: the contract's allowlist (show_nudge is in it since the roles contract). */
+export const AGENT_ACTIONS = ALLOWED_ACTIONS
 export type ActionRequest = z.infer<typeof ActionRequest>
 
 /** A cleaned call-audio transcript line. Display and summaries only: it can never trigger anything. */
@@ -184,7 +187,7 @@ export const SummaryResult = z
     transcript: z.string().max(LIMITS.cardTranscript),
     costUsd: z.number().finite().nonnegative(),
     usedLlm: z.boolean(),
-    fallback: z.enum(['no_key', 'empty', 'short', 'timeout', 'auth', 'error', 'invalid', 'breaker']).optional()
+    fallback: z.enum(['no_key', 'empty', 'short', 'confidential', 'timeout', 'auth', 'error', 'invalid', 'breaker']).optional()
   })
   .strict()
 
@@ -203,7 +206,8 @@ export const KINDS = {
   user: { schema: UserInput, provenance: ['user'] },
   'summary.request': { schema: SummaryRequest, provenance: ['system'] },
   summary: { schema: SummaryResult, provenance: ['llm', 'transcript'] },
-  'action.result': { schema: ActionResult, provenance: ['system'] }
+  'action.result': { schema: ActionResult, provenance: ['system'] },
+
 } as const satisfies Record<string, { schema: z.ZodType; provenance: readonly Provenance[] }>
 export type Kind = keyof typeof KINDS
 export type PayloadOf<K extends Kind> = z.infer<(typeof KINDS)[K]['schema']>

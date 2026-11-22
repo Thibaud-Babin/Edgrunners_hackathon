@@ -7,6 +7,8 @@ import type { TapEvent, UiCommand, Waveform } from '../../shared/events.ts'
 import { now } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
+import type { Diagnostics } from './monitor.ts'
+import { ACTION_TIER, denyReason, permission, RoleState, type UserRole } from './permissions.ts'
 import { decide, initialState, type RulesState } from './rules.ts'
 import { ActionRequest, type Envelope, type PayloadOf, type Provenance, RawTapEvent } from './schemas.ts'
 import { cleanText } from './sanitize.ts'
@@ -24,8 +26,47 @@ export interface MicPort {
   fix(fix: 'unmute' | 'switch' | 'volume', mic: 'laptop' | 'headset'): Promise<{ ok: boolean; text: string }>
 }
 
+/** An IT ticket: device facts only. No transcript, no names (not even the mic's device name, which can hold one). */
+export interface ItTicket {
+  id: string
+  createdAt: string
+  priority: 'normal' | 'priority'
+  requesterRole: string
+  diagnostics: Diagnostics | null
+  mic: { kind: 'laptop' | 'headset'; muted: boolean; volume: number; otherKind?: 'laptop' | 'headset' } | null
+}
+
+/** Where tickets go: a simulated helpdesk (index.ts writes JSON files). Returns where it was stored. */
+export interface TicketPort {
+  send(ticket: ItTicket): Promise<{ ok: boolean; where: string }>
+}
+
+/**
+ * End of call: the call's device health report for the IT log. Device facts only, like a ticket.
+ * Priority: no problem → log only · problems → priority · problems for an executive/CEO → urgent.
+ */
+export interface CallReport {
+  id: string
+  endedAt: string
+  priority: 'log' | 'priority' | 'urgent'
+  requesterRole: string
+  diagnostics: Diagnostics | null
+  mic: ItTicket['mic']
+}
+
+export interface ExecutorPorts {
+  tickets?: TicketPort
+  /** The IT log (simulated: index.ts appends JSON lines). */
+  itLog?: { add(report: CallReport): Promise<{ ok: boolean; where: string }> }
+  diagnostics?: () => Diagnostics
+  /** Start a new call in the checkup after the report (problems, fixes, duration). */
+  resetCall?: () => void
+}
+
 type SummaryResult = PayloadOf<'summary'>
-export type Verdict = { verdict: 'run'; req: ActionRequest } | { verdict: 'block'; reason: string; category: 'allowlist' | 'provenance' }
+export type Verdict =
+  | { verdict: 'run'; req: ActionRequest }
+  | { verdict: 'block'; reason: string; category: 'allowlist' | 'provenance' | 'permission' }
 
 const SUMMARY_WAIT_MS = 5000 // the LLM itself gives up after 3 s; this only guards against a lost reply
 // shortcut: slices by when B published each line, plus this grace for the STT delay; switch to B's start/end
@@ -45,16 +86,21 @@ export const MAY_TRIGGER: Record<Provenance, boolean> = {
   llm: false // AI output is display-only
 }
 
-/** Actions that change the user's own setup: only the user's own click may start them, never a detector. */
-export const USER_ONLY_ACTIONS: readonly ActionRequest['action'][] = ['switch_input_device', 'fix_mic']
-
-/** Pure gate: (1) schema + allowlist, (2) provenance, (3) user-only actions. */
-export function gate(req: unknown, provenance: Provenance): Verdict {
+/**
+ * Pure gate: (1) schema + allowlist, (2) provenance, (3) role × tier (permissions.ts).
+ * "click" actions run only from the user's own click (provenance `user`), e.g. your own devices and data at any
+ * rank. Missing role → intern (least privilege).
+ */
+export function gate(req: unknown, provenance: Provenance, role: UserRole = 'intern'): Verdict {
   const parsed = ActionRequest.safeParse(req)
   if (!parsed.success) return { verdict: 'block', reason: 'not a valid, allowlisted action', category: 'allowlist' }
   if (!MAY_TRIGGER[provenance]) return { verdict: 'block', reason: "speech and AI output can't trigger actions", category: 'provenance' }
-  if (USER_ONLY_ACTIONS.includes(parsed.data.action) && provenance !== 'user')
-    return { verdict: 'block', reason: 'only your own click can change your devices', category: 'provenance' }
+  const p = permission(role, parsed.data.action)
+  if (p === 'deny') return { verdict: 'block', reason: denyReason(role, parsed.data.action), category: 'permission' }
+  if (p === 'click' && provenance !== 'user') {
+    const reason = ACTION_TIER[parsed.data.action] === 1 ? 'only your own click can change your devices' : 'only your own click can do this'
+    return { verdict: 'block', reason, category: 'provenance' }
+  }
   return { verdict: 'run', req: parsed.data }
 }
 
@@ -73,14 +119,30 @@ export class Executor {
   private pausedUntil = 0
   private hapticsDisabled = false
   private mic: MicPort | null
+  private roles: RoleState
+  private ports: ExecutorPorts
+  private ticketSeq = 0
+  private reportSeq = 0
 
-  constructor(events: EventBus, bus: AgentBus, ui: (cmd: UiCommand) => void, haptics: HapticsPort, report: Reporter, mic: MicPort | null = null) {
+  constructor(
+    events: EventBus,
+    bus: AgentBus,
+    ui: (cmd: UiCommand) => void,
+    haptics: HapticsPort,
+    report: Reporter,
+    mic: MicPort | null = null,
+    roles: RoleState = new RoleState(),
+    ports: ExecutorPorts = {}
+  ) {
     this.mic = mic
+    this.roles = roles
+    this.ports = ports
     this.bus = bus
     this.ui = ui
     this.haptics = haptics
     this.report = report
     events.on('USER_CLICK', (e) => this.onClick(e))
+    events.on('CALL_ENDED', (e) => this.onCallEnded(e))
     bus.on('vision', (e) => this.handle(e))
     bus.on('detector', (e) => this.handle(e))
     bus.on('user', (e) => this.handle(e))
@@ -95,6 +157,13 @@ export class Executor {
       this.pending.delete(e.payload.requestId)
       done?.(e.payload)
     })
+  }
+
+  /** D's "End call" button (the user's own click): the call's device health report goes to the IT log. */
+  private onCallEnded(e: TapEvent): void {
+    const raw = RawTapEvent.safeParse(e)
+    if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('CALL_ENDED with a bad shape or source')
+    void this.run([{ action: 'send_call_report', why: 'you ended the call' }], 'user', now())
   }
 
   /** Intake for D's clicks: the user's own deliberate input. */
@@ -122,7 +191,7 @@ export class Executor {
   /** Actions from one decision run in order (e.g. the knock first, then the card). */
   private async run(actions: unknown[], provenance: Provenance, decidedAt: number): Promise<void> {
     for (const a of actions) {
-      const g = gate(a, provenance)
+      const g = gate(a, provenance, this.roles.role)
       if (g.verdict === 'block') {
         const name = (a as { action?: unknown })?.action
         this.report.blocked(`${typeof name === 'string' ? name : 'action'} blocked (${g.reason})`, g.category)
@@ -206,7 +275,8 @@ export class Executor {
           problem: a.problem,
           fix_label: a.fixLabel,
           action_id: a.fixAction,
-          ...(a.altLabel && a.altAction ? { alt_label: a.altLabel, alt_action_id: a.altAction } : {})
+          ...(a.altLabel && a.altAction ? { alt_label: a.altLabel, alt_action_id: a.altAction } : {}),
+          ...(a.itTicket ? { it_ticket: true } : {})
         })
         this.report.log('action', `${capitalise(a.why)} → fix card shown ("${a.fixLabel}"; nothing changes until you click)`)
         return true
@@ -229,6 +299,10 @@ export class Executor {
       case 'dismiss_card':
         this.ui({ type: 'DISMISS', id: a.cardId })
         return true
+      case 'open_it_ticket':
+        return this.sendTicket()
+      case 'send_call_report':
+        return this.sendCallReport()
       case 'send_haptic': {
         if (this.hapticsDisabled) {
           this.ui({ type: 'FLASH', reason: a.waveform })
@@ -241,6 +315,67 @@ export class Executor {
         return ok
       }
     }
+  }
+
+  /** The user's click: their own device facts (no speech, no names) to IT, with priority by role (VIP support). */
+  private async sendTicket(): Promise<boolean> {
+    const flags = this.roles.flags
+    const ticket: ItTicket = {
+      id: `T-${String(++this.ticketSeq).padStart(4, '0')}`,
+      createdAt: new Date(now() * 1000).toISOString(),
+      priority: flags.ticketPriority,
+      requesterRole: flags.label,
+      diagnostics: this.ports.diagnostics?.() ?? null,
+      mic: this.micFacts()
+    }
+    const sent = this.ports.tickets
+      ? await this.ports.tickets.send(ticket).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
+      : { ok: true, where: 'log only' }
+    if (!sent.ok) {
+      this.report.log('error', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} could not be saved (${sent.where})`)
+      return false
+    }
+    const queue = ticket.priority === 'priority' ? 'priority: executive support' : 'normal queue'
+    this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk)` })
+    this.report.log('action', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent (${queue}; device facts only, no speech; ${sent.where})`)
+    return true
+  }
+
+  private async sendCallReport(): Promise<boolean> {
+    const flags = this.roles.flags
+    const diagnostics = this.ports.diagnostics?.() ?? null
+    const problems = diagnostics?.problems.length ?? 0
+    const priority = problems === 0 ? 'log' : flags.ticketPriority === 'priority' ? 'urgent' : 'priority'
+    const report: CallReport = {
+      id: `R-${String(++this.reportSeq).padStart(4, '0')}`,
+      endedAt: new Date(now() * 1000).toISOString(),
+      priority,
+      requesterRole: flags.label,
+      diagnostics,
+      mic: this.micFacts()
+    }
+    const saved = this.ports.itLog
+      ? await this.ports.itLog.add(report).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
+      : { ok: true, where: 'log only' }
+    this.ports.resetCall?.()
+    const fixes = diagnostics?.fixesApplied.length ?? 0
+    if (!saved.ok) {
+      this.report.log('error', `Call ended → device report ${report.id} could not be saved (${saved.where})`)
+      return false
+    }
+    const level = priority === 'urgent' ? 'urgent: executive support' : priority === 'priority' ? 'priority: device problems' : 'log only: no problem'
+    this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Call report added to the IT log (${level})` })
+    this.report.log(
+      'action',
+      `Call ended → device report ${report.id} added to the IT log (${problems} problems, ${fixes} fixes; ${level}; device facts only, no speech; ${saved.where})`
+    )
+    return true
+  }
+
+  /** The Windows mic state without its name (a device name can hold a person's name). */
+  private micFacts(): ItTicket['mic'] {
+    const m = this.state.mic
+    return m ? { kind: m.kind, muted: m.muted, volume: m.volume, ...(m.otherKind ? { otherKind: m.otherKind } : {}) } : null
   }
 
   /**
@@ -283,6 +418,7 @@ export class Executor {
   private cardId(): string {
     return `card-${++this.cardSeq}`
   }
+
 }
 
 function sleep(ms: number): Promise<void> {

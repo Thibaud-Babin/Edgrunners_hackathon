@@ -43,6 +43,9 @@ export type EventType =
   | 'CALL_SUMMARY_REQUEST' // { from: 'main' | 'overlay' } "Summarize" button (Meeting Summary panel, overlay pill)
   | 'OPEN_SUMMARY' // overlay "Open" on the call-summary card → show the main window's Meeting Summary panel
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
+  // D — UI, added Sun (C's role-based rights; additive)
+  | 'CALL_ENDED' // {} the user clicked "End call": the call's device health report goes to the IT log
+  | 'USER_SET_ROLE' // { role: UserRole } DEV-ONLY role switch; main ignores it in packaged builds
 
 export interface TapEvent {
   type: EventType
@@ -81,12 +84,18 @@ export type UiCommand =
       /** Optional second button instead of "Not now", e.g. "I'm muted on purpose" → snooze_mic_alerts */
       alt_label?: string
       alt_action_id?: AllowedAction
+      /** Show a "Send diagnostics to IT" button (USER_CLICK open_it_ticket { id }) */
+      it_ticket?: boolean
     }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
   | { type: 'SHOW_NUDGE'; id: string; text: string; question?: string } // "They're waiting for your answer"
   | { type: 'CAPTION'; text: string; final: boolean; speaker?: string; highlight?: string } // live captions (overlay)
+  /** The user's role and what it shows (C's permissions.ts). D hides the IT view when sees_it_view is false. */
+  | { type: 'ROLE'; role: UserRole; sees_it_view: boolean; confidential: boolean }
+  /** A short confirmation toast ("Ticket T-0001 sent to IT"). */
+  | { type: 'SHOW_NOTICE'; id: string; text: string }
   | { type: 'DISMISS'; id: string }
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }
@@ -134,9 +143,17 @@ export const ALLOWED_ACTIONS = [
   'speak_reply',
   'send_haptic',
   'raise_hand_overlay',
-  'dismiss_card'
+  'dismiss_card',
+  // Sun (C): a card the agents already send, and the IT ticket
+  'show_nudge',
+  'open_it_ticket', // send device diagnostics (never speech) to IT — anyone, on their own click
+  'send_call_report' // End call → the call's device health report (never speech) to the IT log — every role
 ] as const
 export type AllowedAction = (typeof ALLOWED_ACTIONS)[number]
+
+/** Roles in the company, lowest to highest authority. The role comes from config (SSO in real life), never from speech. */
+export const USER_ROLES = ['intern', 'senior', 'executive', 'ceo'] as const
+export type UserRole = (typeof USER_ROLES)[number]
 
 /**
  * The 15 MX Master 4 waveforms (Actions SDK docs). We fire them BY NAME (HapticWeb REST / our plugin).

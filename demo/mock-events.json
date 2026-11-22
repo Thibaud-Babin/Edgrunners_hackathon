@@ -35,5 +35,8 @@
   {"t": 60, "event": {"type": "MIC_LEVEL", "source": "mic", "data": {"rms": 0.05}}},
   {"t": 61, "event": {"type": "MIC_LEVEL", "source": "mic", "data": {"rms": 0.05}}},
   {"t": 62, "event": {"type": "MIC_LEVEL", "source": "mic", "data": {"rms": 0.05}}},
-  {"t": 63, "event": {"type": "MIC_QUALITY", "source": "mic", "data": {"level": "ok", "speech_rms": 0.03, "noise_rms": 0.005, "clipped_pct": 0}}}
+  {"t": 63, "event": {"type": "MIC_QUALITY", "source": "mic", "data": {"level": "ok", "speech_rms": 0.03, "noise_rms": 0.005, "clipped_pct": 0}}},
+  {"t": 64, "event": {"type": "USER_CLICK", "source": "ui", "data": {"action_id": "open_it_ticket"}}},
+  {"t": 65, "speech": "We decided to keep the Friday date. Marc will send the test plan by Monday."},
+  {"t": 67, "event": {"type": "CALL_ENDED", "source": "ui"}}
 ]
