@@ -27,7 +27,7 @@ The overlay remains click-through outside its cards, so Tap stays visible withou
 - **Real-time transcription and captions** — meeting audio is captured through Electron loopback and displayed as readable live captions.
 - **Name and question detection** — recognizes the user's name, configured variants, direct questions, and moments when the conversation may be waiting for a response.
 - **Contextual recaps** — summarizes the relevant conversation window and retains the recent transcript. Anthropic-powered summaries are optional; a local template fallback works without an API key.
-- **Attention awareness** — MediaPipe face landmarks detect when the user looks away and returns, allowing recaps to cover the missed interval.
+- **Attention awareness** — the Logitech Gaze Tracker follows screen-space gaze to detect true look-aways and returns, with automatic MediaPipe head-pose fallback, allowing recaps to cover the missed interval.
 - **Microphone issue detection** — combines microphone levels, mouth movement, Windows microphone state, and phrases such as “we can't hear you” to identify likely audio problems.
 - **Desktop overlay notifications** — prioritized, deduplicated notification cards stay above the meeting while preserving click-through interaction elsewhere.
 - **Optional haptic cues** — supports a four-signal haptic vocabulary through the configured HapticWeb endpoint, with a screen flash fallback.
@@ -38,7 +38,8 @@ The overlay remains click-through outside its cards, so Tap stays visible withou
 ```mermaid
 flowchart LR
     A[Meeting audio] --> B[Speech-to-text pipeline]
-    C[Webcam] --> D[MediaPipe vision]
+    C[Webcam] --> D[MediaPipe face and pose]
+    L[Logi Gaze Tracker] --> D
     E[Mic and UI events] --> F[Typed event bus]
     B --> F
     D --> F
@@ -52,7 +53,7 @@ flowchart LR
 
 Tap is split into two Electron windows and a typed main-process pipeline:
 
-- The **main window** starts camera, microphone, and call-audio capture and provides Check-up, Activity, IT, and development views.
+- The **main window** starts camera, microphone, and call-audio capture, connects to the local Gaze Tracker when it is available, and provides Check-up, Activity, IT, and development views.
 - Renderer sensors emit typed events through the preload bridge defined in [`app/src/shared/events.ts`](app/src/shared/events.ts).
 - The **main process** validates and routes events through the event bus, detectors, monitoring rules, and agent executor.
 - The **overlay window** renders captions, recaps, warnings, and actions. Meeting transcript text is treated as untrusted data and cannot trigger actions.
@@ -65,7 +66,7 @@ For the detailed event flow and developer notes, see [`app/README.md`](app/READM
 |---|---|
 | Desktop application | Electron 45, TypeScript 5, HTML and CSS |
 | Build tooling | electron-vite 6 and Vite 7 |
-| Vision | MediaPipe Tasks Vision |
+| Vision | Logitech Gaze Tracker (default away source) with MediaPipe Tasks Vision for head-pose fallback, mouth, gestures, and camera health |
 | Local speech-to-text | sherpa-onnx-node with Parakeet and Silero VAD |
 | Cloud speech-to-text | Deepgram streaming API |
 | Contextual summaries | Anthropic SDK, with a no-key template fallback |
@@ -171,7 +172,7 @@ Tap was created for **LauzHack 2026** by contributors verified in the repository
 - [Thibaud-Babin](https://github.com/Thibaud-Babin)
 - [unusedusername01](https://github.com/unusedusername01)
 
-We acknowledge the open-source projects and services that made the prototype possible, including Electron, MediaPipe, sherpa-onnx, Vite, Zod, Anthropic, and Deepgram, as well as the LauzHack organizers and mentors.
+We acknowledge the open-source projects and services that made the prototype possible, including Electron, MediaPipe, the Logitech Gaze Tracker, sherpa-onnx, Vite, Zod, Anthropic, and Deepgram, as well as the LauzHack organizers and mentors.
 
 ---
 

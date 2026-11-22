@@ -35,11 +35,11 @@ Who uses your events: C's agent (away summary P0-3, mic-silent P0-4, gestures P1
 **Camera sharing (the Block-2 answer):** out of the box the RGB interface is **single-consumer** — Zoom/Meet/Windows Camera fail while Tap holds it, and the IR interface keeps working because it is a separate USB interface. **Fixed** with Windows 11 → Settings → Bluetooth & devices → Cameras → **LVNext Camera** → Advanced camera options → **"Allow multiple apps to use camera at the same time"**. Verified: Zoom + Tap live at the same time. Keep this setting on the demo laptop and re-check after Windows/driver updates.
 If it ever resets: (1) Tap owns the RGB camera and the call runs camera-off (a second laptop joins with video), (2) the call uses the IR or CPD camera, (3) OBS Virtual Camera as last resort (not installed — avoid).
 
-**Demo consequence:** the away detector watches **yaw AND pitch**, so the phone glance triggers it. Rehearse PRD section 10 step 2 (look down at the phone) and confirm `USER_AWAY` within ~2 s.
+**Demo consequence:** the away detector watches **yaw AND pitch**, so the phone glance triggers it. Rehearse PRD section 10 step 2 (look down at the phone) and confirm `USER_AWAY` in about **3 s in gaze mode** (1–2 s in pose fallback).
 
-## Gaze mode - true look-away (P2, optional)
+## Gaze mode - true look-away (P2, default)
 
-The **Logi Gaze Tracker** (separate Logitech tray app) can drive `USER_AWAY`/`USER_BACK` from screen gaze instead of head pose. It streams over `ws://127.0.0.1:8964`; our client lives in `vision/gaze.ts` + `vision/gazeClient.ts`.
+The **Logi Gaze Tracker** (separate Logitech tray app) drives `USER_AWAY`/`USER_BACK` from screen gaze instead of head pose. It streams over `ws://127.0.0.1:8964`; our client lives in `vision/gaze.ts` + `vision/gazeClient.ts`.
 
 - **Default is `gaze`**; MediaPipe remains the head-pose fallback when the tracker is unavailable.
 - **D's later toggle:** import `{ getAwayMode, setAwayMode, gazeStatus }` from `./vision`; `setAwayMode('gaze' | 'pose')`; `gazeStatus()` returns `{ mode, connected, calibrated, lastSnapshotAt, lastFaceAt, lastGazeAt, activeSource, fallbackReason }`.
@@ -59,7 +59,7 @@ The **Logi Gaze Tracker** (separate Logitech tray app) can drive `USER_AWAY`/`US
 | 15:00-19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). `MOUTH_MOVING` is debounced (300 ms on / 800 ms off); tune so talking = active, smiling/yawning does not (yawns/laughs accepted). | 10 tries, >= 8 correct, no flicker |
 | 20:00-02:00 | Camera health: frozen (64x48 canvas diff), brightness, tooBright, faceInFrame, `CAMERA_FROZEN` / `LOW_LIGHT` - **done** (`vision/health.ts`). Next: 10 s neutral-face calibration (needed by P1 gestures). | D's check-up shows real values |
 | 02:00–09:00 (P1) | Gestures: nod = two pitch reversals of ±8–10° within ~1.2 s; shake = same on yaw; brow raise = `browInnerUp` ≈ +0.3 over baseline held 300–500 ms; tilt = ±15° roll held 400 ms. Cooldown ~1 s. | 8/10 correct per gesture after calibration |
-| If time (P2) | Gaze mode is the default away source. Install/calibrate the Logi Gaze Tracker on the meeting display; verify the dot; `setAwayMode('pose')` switches back. | off-screen 3 s -> USER_AWAY; return -> USER_BACK/card; missing tracker -> pose fallback + status |
+| P2-11 (done) | Gaze mode is the default away source. Install/calibrate the Logi Gaze Tracker on the meeting display; verify the dot; `setAwayMode('pose')` switches back. | off-screen 3 s -> USER_AWAY; return -> USER_BACK/card; missing tracker -> pose fallback + status |
 | If UI stutters | Move the landmarker into a Web Worker. | UI smooth |
 
 ## How to test alone

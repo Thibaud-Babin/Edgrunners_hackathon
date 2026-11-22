@@ -13,7 +13,7 @@ cd app
 npm install
 npm test
 ```
-`npm test` must end with **`pass 82`, `fail 0`**. If you see "Cannot find module 'zod'", you skipped `npm install`.
+`npm test` must end with **`pass 145`, `fail 0`**. If you see "Cannot find module 'zod'", you skipped `npm install`.
 
 ## 1. Roles
 | Role | Who | Where | Job |
@@ -31,13 +31,14 @@ With only 3 people, Speaker 1 also reads the Speaker 2 lines.
 2. **Mouse:** Logi Options+ is running and the HapticWeb plugin is installed. Test it:
    `curl.exe -X POST -d '""' https://local.jmw.nz:41443/haptic/knock`. You must **feel** a knock.
 3. **Headphones** connected. **Close Teams, Zoom and any other app using the camera.**
-4. **Google Meet** in Chrome: start a meeting.
+4. **Gaze Tracker:** start the Logi Gaze Tracker on the **meeting display** and calibrate it; the dot must follow your eyes. Tap uses gaze by default and falls back to head pose automatically. If the tracker is unavailable, note "pose fallback" and continue — the away test still works.
+5. **Google Meet** in Chrome: start a meeting.
    - Microphone: **Default** (Meet's setting). Then Meet always uses the Windows default mic, so Tap's
      "Switch to … mic" fix also switches Meet. Check in Windows sound settings that the default input is the **laptop mic**.
    - Speakers: the **headphones**.
    - Send the link to the speakers and check "can you hear me?" in both directions.
    - If Meet and Tap fight over the camera, turn the camera off **in Meet**.
-5. **Start Tap:**
+6. **Start Tap:**
    ```
    cd lauzhack-2026\app
    npm run dev
@@ -45,8 +46,8 @@ With only 3 people, Speaker 1 also reads the Speaker 2 lines.
    Two windows open:
    - **Main window:** a circle with Check-up, Activity, IT view, Dev tools and Settings.
    - **Overlay:** transparent and always on top. It shows a **status pill** top right, **cards** bottom right and **captions** at the bottom.
-6. In the main window: **Check-up** → **Start camera**, **Start mic**, **Start call audio**.
-7. **Learn the vibrations (User, 1 min):** on the **Check-up** page, panel **"Try the vibrations"**, click each of the 4
+7. In the main window: **Check-up** → **Start camera**, **Start mic**, **Start call audio**.
+8. **Learn the vibrations (User, 1 min):** on the **Check-up** page, panel **"Try the vibrations"**, click each of the 4
    buttons and feel the signal. Tap only uses these 4:
 
    | Signal | Pattern | Means |
@@ -59,7 +60,7 @@ With only 3 people, Speaker 1 also reads the Speaker 2 lines.
    Then open **Settings** (hub → Settings → Open Settings) and check: **Sound with each vibration ON** for this
    rehearsal (step S tests it), **Extra vibrations OFF**, **Live captions ON**, **Summary at the end of the meeting ON**.
    Click **Play the 4 sounds**: you hear tock · tock tock · buzz-buzz · a rising chime in the headphones.
-8. **Ready check:**
+9. **Ready check:**
    - The terminal shows `Speech: Deepgram (cloud), local Parakeet ready as fallback`.
    - The pill says **Listening**.
    - When a speaker talks, the **captions show their words within about 1 s**.
@@ -72,7 +73,7 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | Step | Who | Says or does | Must happen |
 |---|---|---|---|
 | **A**: captions | Speaker 1 | "OK, let's start. Today we need to decide on the release date and the budget for the launch." | The words appear in the captions. **No** knock. |
-| **B**: look away | User | Turns their head to the side and looks at their phone. **Stays turned away until step C.** | Within about 2 s, the pill shows **"Away · catching up 0:0x"** and keeps counting. |
+| **B**: look away | User | Looks at the phone **off the side of the tracked display** (in pose mode, turn the head too). **Stays away until step C.** | Within about **3 s** in gaze mode (sooner in pose fallback), the pill shows **"Away · catching up 0:0x"** and keeps counting. The terminal shows the active source if fallback is on. |
 | | Speakers 1 and 2, about 20 s | S1: "I think Friday works for the release, the tests are almost done." S2: "Yes, but marketing needs two more days for the video." S1: "Then let's say Friday for the code, Monday for the announcement." | Nothing yet. |
 | **C**: name while away | Speaker 2 | "**So Thibaud, are you OK with Friday?**" (the User keeps looking away) | 1. **Knock** in the mouse, about 1–2 s after "Thibaud". 2. A 🔔 **"While you were away · N s"** card with the question and 2–3 points (Friday code, Monday announcement). 3. The terminal shows `Knock X s after your name was said`; **write down X**. |
 | **D**: silence | User | Looks back at the screen, reads the card, **says nothing for 4 s**. The speakers stay silent too. | **Two quick knocks** + a **"They're waiting for your answer"** card with the question. It closes after about 12 s. |
@@ -101,6 +102,8 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | **U**: a second meeting | Speaker 2 | Starts a new short call: "Hi, this is the design review. Lea will redo the icons before Wednesday." | — |
 | | User | Clicks **📝 Summary** on the overlay pill (top of the screen), without leaving Meet. | A card **"Meeting summary so far"**. In the panel: **two separate meetings**; the new one has **nothing from the first** (no budget, no Monday task). |
 | | User | Restarts Tap (Ctrl+C, `npm run dev`), opens Meeting Summary. | Both meetings are still there. |
+
+**Gaze fallback check (optional, 20 s):** quit the Gaze Tracker (tray → Quit), then look away and back. The terminal must show `[gaze] pose fallback (not-connected)`; the away/back flow must still work. Restart and recalibrate the tracker before the demo.
 
 **After the end, the User:**
 1. Opens **Activity** in the main window and takes a screenshot of the log and the AI cost.

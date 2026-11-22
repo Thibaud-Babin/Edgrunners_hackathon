@@ -88,7 +88,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 ### Non-functional requirements
 
 - **Latency:** name → haptic ≤ 1.5 s (p50), measured with local STT on the demo laptop; gesture → haptic ≤ 300 ms.
-- **Performance:** at most **one** heavy in-browser model (Face Landmarker) + cloud STT; UI stays ≥ 24 fps.
+- **Performance:** Tap's renderer runs at most **one** heavy model (Face Landmarker) + cloud STT; **gaze mode adds the Gaze Tracker's own MediaPipe process**, so measure CPU and FPS with both running. UI stays ≥ 24 fps; if it drops, use pose mode or lower the vision FPS.
 - **Sensing:** face tracking runs on the laptop (video never leaves it). Call audio is transcribed by **Deepgram** (cloud): on a real call it caught the name 6/7 vs 5/7 for the best local model, and the team chose a working proof of concept over full on-device privacy (decision Sat 21 Nov). A local engine (sherpa-onnx) remains as fallback; only short text goes to the cloud LLM.
 - **Frugality (AXA):** LLM called only on events; target < $0.01 per meeting; cost shown live.
 - **Reliability:** demo mode can replay recorded call audio through the pipeline (no Wi-Fi dependency for the detection demo).
@@ -202,6 +202,8 @@ Sources: [logitech.github.io/hackathons](https://logitech.github.io/hackathons/)
 
 **What Logitech provides for hackathons:** links to the Actions SDK (haptics tutorial, the [Logitech/actions-sdk](https://github.com/Logitech/actions-sdk) repo with a ready **`HapticsPlugin` sample**), a documentation bundle for AI coding agents (`llms.txt`, agent doc zip), the **LogiInsight webcam Python SDK**, Gaze Tracker and Hands Tracker apps, a community **WebHID** library for MX Master 4 haptics, and Discord servers. Nothing about judging, mentors or hardware loans.
 
+**Gaze Tracker (used):** the separate tray app streams screen-space gaze over `ws://127.0.0.1:8964` and needs calibration on the meeting display. It is the **default away source** (P2-11), with automatic MediaPipe head-pose fallback; setup and limits are in [team/A-vision.md](team/A-vision.md).
+
 ### Haptics: three routes, in order
 
 | Route | How | Pros | Risks |
@@ -280,6 +282,7 @@ Links not shown were not confirmed by the research; look them up before relying 
 | Loopback capture | Electron docs pattern; `electron-audio-loopback` | MIT | Resampling, local STT pipeline, detectors |
 | Speech-to-text | sherpa-onnx (+ pretrained model) | Apache-2.0 | Name variants, detectors, away-segment buffering |
 | Face tracking | `@mediapipe/tasks-vision`; `vladmandic/human` angles | Apache-2.0 / MIT | All gesture logic, calibration, events |
+| Gaze look-away | Logi Gaze Tracker (external Logitech app; MIT sample code) | MIT (samples); the tracker is Logitech's app | Our `vision/gaze.ts` state machine (3 s away / 700 ms back / 100 px tolerance), WebSocket client, availability + automatic head-pose fallback, tests; the tracker itself is unmodified |
 | Haptics plugin | Logitech `HapticsPlugin` sample | (check) | Localhost listener, event mapping |
 | Mic meter | webrtc/samples | BSD-3 | Silence-while-speaking detector |
 | Message validation | `zod` | MIT | Envelope, Summary and VisionSignal schemas; validation at every agent boundary |
@@ -333,6 +336,8 @@ Each person owns a mock of the others' events from hour 1 (replay a JSON file), 
 
 Steps marked **(P1)** are shown only if that feature is done; the demo works without them.
 
+**Demo setup:** start and calibrate the Logi Gaze Tracker on the meeting display (the dot must follow your eyes); Tap uses it by default. If the tracker is unavailable, the automatic head-pose fallback still demonstrates step 2 — say which source is active if asked (Check-up shows it).
+
 1. **Check-up** — "Your headset mic sends silence — switch to the laptop mic?" → fixed. *(Nexthink)*
 2. **Away, then called** — the demoer wears headphones and turns to their phone. Colleagues talk about the Friday release for ~20 s, then: "…so Thibaud, OK with Friday?" → **knock** → card: *"While you were away (25 s): release moved to Friday, Marc owns the tests. **Question to you:** OK with Friday?"* *(Logitech, IMC)* — **(P1)** demoer nods → "Yes" posted.
 3. **Talking into a dead mic** — the demoer starts speaking with the headset mic silenced → buzz → "Your mic sends nothing". *(Nexthink, Logitech)*
@@ -360,6 +365,8 @@ Prepare a 30-second, 2-minute and per-sponsor 60-second version.
 | Venue Wi-Fi breaks the cloud LLM | Medium | Phone hotspot; template recap (raw transcript) if the LLM is unreachable |
 | Name mis-recognised | Medium | Keyword spotting + phonetic match + nicknames; rehearse with the actual name |
 | Gesture false positives | Medium | Hold timers, "arming" indicator, per-user calibration |
+| Gaze Tracker missing, uncalibrated, stale or no face | Medium | Automatic head-pose fallback (mode stays `gaze`); `gazeStatus()` shows `activeSource`/`fallbackReason`; Check-up row; run/calibrate the tracker on the meeting display before the demo; test by quitting the tracker |
+| Two MediaPipe processes (Tap + Gaze Tracker) overload the laptop | Medium | Measure CPU/FPS on the demo laptop; pose mode is one toggle; close other apps; fallback is automatic |
 | Haptics plugin issues / old firmware | Low–medium | Update Options+ Saturday morning; HapticWeb → own plugin → WebHID; visual flash |
 | HapticWeb needs DNS + a certificate download (venue Wi-Fi) | Medium | Hosts-file entry `127.0.0.1 local.jmw.nz`; first run at home; own plugin over plain localhost HTTP |
 | Licence contamination (GPL code copied) | Low | Copy only MIT/Apache/BSD; GPL repos read-only; Rule 30 table |
