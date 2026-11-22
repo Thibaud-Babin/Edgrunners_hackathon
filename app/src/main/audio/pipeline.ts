@@ -18,6 +18,7 @@ import { Recorder } from './recorder'
 import { createDeepgramEngine, deepgramAvailable } from './deepgram'
 import { createParakeetEngine, loadParakeet, parakeetInstalled } from './parakeet'
 import { MicQualityMeter } from './mic-quality'
+import type { SpeakerNames } from './speaker-names'
 
 export interface SttEngine {
   /** feed 16 kHz mono Int16 PCM */
@@ -159,6 +160,9 @@ export class AudioPipeline {
     private stt: SttFactory | null
   ) {}
 
+  /** B: real names from Google Meet (speaker-names.ts), when the extension is connected. */
+  speakerNames: SpeakerNames | null = null
+
   // Audio level check — prints once per second per source, only with TAP_DEBUG_LEVELS=1 (it flooded the terminal)
   private stats = new Map<Source, { bytes: number; peak: number; since: number }>()
 
@@ -204,7 +208,14 @@ export class AudioPipeline {
   /** Called by the STT engine (or the dev text box / mock) for every result. */
   onText(source: Source, text: string, final: boolean, meta?: SttMeta): void {
     if (!text.trim()) return
-    const speaker = meta?.speaker !== undefined ? `Speaker ${meta.speaker + 1}` : undefined
+    let speaker = meta?.speaker !== undefined ? `Speaker ${meta.speaker + 1}` : undefined
+    // B: a finished sentence gets the name Meet showed as speaking during it (partials keep the number)
+    if (final && this.speakerNames) {
+      const w = meta?.words
+      const from = w?.length && meta?.wallAt ? meta.wallAt(w[0]!.start) : (meta?.speechStartWall ?? Date.now() - 2000)
+      const to = w?.length && meta?.wallAt ? meta.wallAt(w[w.length - 1]!.end) : Date.now()
+      speaker = this.speakerNames.label(meta?.speaker, from, to)
+    }
     if (final) debug(`${source} FINAL${speaker ? ` [${speaker}]` : ''}: ${text}`)
     this.bus.publish(makeEvent(final ? 'TRANSCRIPT_FINAL' : 'TRANSCRIPT_PARTIAL', source, { text, speaker }))
     // Detectors only look at OTHER people (call audio).
