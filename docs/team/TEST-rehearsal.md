@@ -169,3 +169,56 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 - **`npm run dev:e2e`**: starts call audio and clicks "Look away" by itself. Then play a recorded call through the speakers (ask B for `session-2026-11-21T15-58-43-call_audio.wav`, which is not in git).
 - **`npx tsx scripts/test-win-mic.mts`** (in `app`): real Windows test of the mic fixes on this laptop (mute → unmute, volume 15 % → 80 %). It mutes your mic for about 2 s and restores everything.
 - **Dev tools page**: buttons that fake events (Look away, Look back, Nod, Mic silent…) and a box to type a sentence as if someone had said it.
+
+## 8. Role-based agents (Nexthink): intern vs CEO (C, 10 min)
+Tap's rights depend on the user's role: `intern`, `senior`, `executive` or `ceo`. The role comes from `TAP_USER_ROLE` in
+`app\.env`. If it is missing or wrong, the role is **intern**. Executive and CEO meetings are **confidential**: no cloud AI, no recording.
+`npm test` must end with **`fail 0`** (145 tests when this section was written).
+
+### 8a. Without a call (any laptop, 5 min)
+Run the fake meeting twice, once per role (PowerShell, in `app`):
+```
+$env:TAP_STT="none"; $env:TAP_USER_ROLE="intern"; npm run mock
+$env:TAP_STT="none"; $env:TAP_USER_ROLE="ceo"; npm run mock
+```
+Wait about 90 s for each run: the mock clicks "Send diagnostics to IT" at 64 s and "End call" at 67 s. Then press Ctrl+C.
+
+| Check | Intern: must see | CEO: must see |
+|---|---|---|
+| Role at start | `Role: intern (from config) → cards and own-device fixes; IT view hidden; normal IT queue` and `[ui] ROLE intern (IT view hidden, not confidential)` | `Role: CEO (from config) → … confidential meetings (no cloud AI, no recording); priority IT support` and `[ui] ROLE ceo (IT view shown, confidential)` |
+| Recaps | `AI recap of … chars (…) → cost …` (cloud AI) | `Confidential (CEO): summary made on this laptop (no cloud AI)`, and **no** `AI recap` line |
+| IT ticket | `[card] NOTICE: Ticket T-0001 sent to IT (normal queue, simulated helpdesk)` | `… (priority: executive support, simulated helpdesk)` |
+| End call | `[card] NOTICE: Call report added to the IT log (priority: device problems)` | `… (urgent: executive support)` |
+
+Then open the files Tap wrote: `%APPDATA%\tap\it-tickets\T-0001.json` and `%APPDATA%\tap\it-log\calls.jsonl`. On a Mac they are in `~/Library/Application Support/tap/`.
+They must contain **only device facts**: problem names such as `mic_silent`, times, counts, feed states and the mic kind or mute state.
+**No words from the call and no device name.**
+
+### 8b. In the live rehearsal (after step U, demo laptop)
+| Step | Who | Does | Must happen |
+|---|---|---|---|
+| **R1**: intern | User | Sets `TAP_USER_ROLE=intern` in `app\.env` and restarts Tap (`npm run dev`). | The terminal shows `Role: intern (from config) …`. The **IT view** is hidden in the main window (needs D's change). |
+| **R2**: CEO | User | Sets `TAP_USER_ROLE=ceo` in `app\.env` and restarts Tap. Keep `TAP_RECORD=1`. | The terminal shows `Role: CEO (from config) …` and `[record] not recording: confidential role`. No new `session-…` file appears in `demo\recordings`. |
+| **R3**: confidential recap | User + Speaker 1 | Repeat steps B and C: the User looks away, Speaker 1 talks for 10 s, then says the User's name. | The "While you were away" card appears. The terminal shows `Confidential (CEO): summary made on this laptop (no cloud AI)`. The **AI cost in Activity does not change**. |
+| **R4**: confidential meeting summary | User | Clicks **📝 Summary** on the overlay pill. | The summary card appears. The terminal shows `Meeting summary (…) · without AI (confidential)`. |
+| **R5**: IT ticket | User | Mutes the laptop mic in Windows and talks for 3 s (like step L). On the mic card, clicks **"Send diagnostics to IT"** (needs D's button). | A notice: `Ticket T-0001 sent to IT (priority: executive support, simulated helpdesk)`. The file `%APPDATA%\tap\it-tickets\T-0001.json` exists and holds no speech. |
+| **R6**: end of call | User | Clicks **End call** (needs D's button). | A notice: `Call report added to the IT log (urgent: executive support)`, or `(log only: no problem)` if nothing went wrong. A new line in `%APPDATA%\tap\it-log\calls.jsonl`. |
+| **R7**: back to intern | User | Sets `TAP_USER_ROLE=intern` and restarts. Repeats R5 and R6. | The ticket shows `normal queue`. The call report shows `priority: device problems`. Recaps use the cloud AI again. |
+
+If D's **Send diagnostics to IT** or **End call** button isn't there yet, skip R5–R6 and rely on 8a, which clicks both for you.
+Set `TAP_USER_ROLE` back to the role you want for the demo when you're done.
+
+**Observer, add these rows to the sheet in section 5:**
+
+| Step | ✅ / ❌ | Notes |
+|---|---|---|
+| R1 intern role line · IT view hidden | | |
+| R2 CEO role line · no recording | | |
+| R3 recap made on the laptop · AI cost unchanged | | |
+| R4 meeting summary "without AI (confidential)" | | |
+| R5 ticket priority by role · file has no speech | | |
+| R6 call report added · priority right | | |
+| R7 intern: normal queue · cloud AI again | | |
+
+**Who fixes what:** role lines, priorities, tickets, call reports and confidential mode belong to **C** (`app/src/main/agent/permissions.ts`, `executor.ts`).
+The buttons, the notice cards and hiding the IT view belong to **D** (`app/src/renderer/`).
