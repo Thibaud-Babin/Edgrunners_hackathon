@@ -27,6 +27,32 @@ function click(action_id: AllowedAction, args: Record<string, unknown> = {}): vo
   window.tap.emit(makeEvent('USER_CLICK', 'ui', { action_id, args }))
 }
 
+// ---------- click-through (B, Sun 03:00) ----------
+// The overlay is an invisible strip down the right of the screen. It must take clicks ONLY over a card or the pill
+// button; everywhere else clicks go to Meet / Tap's main window. It used to switch on mouseenter/mouseleave, and a
+// card closing under the mouse never fired mouseleave: the strip then swallowed every click (summary panel's ✕,
+// Meet's buttons). Now the mouse position decides, on every move (the window forwards moves while click-through).
+let interactive = false
+let mouseX = -1
+let mouseY = -1
+function refreshInteractive(): void {
+  const over = mouseX >= 0 && !!document.elementFromPoint(mouseX, mouseY)?.closest('.toast:not(.out), .pill-btn')
+  if (over !== interactive) {
+    interactive = over
+    document.body.dataset.interactive = String(over) // for tests
+    window.tap.setOverlayInteractive(over)
+  }
+}
+document.addEventListener('mousemove', (e) => {
+  mouseX = e.clientX
+  mouseY = e.clientY
+  refreshInteractive()
+})
+document.addEventListener('mouseleave', () => {
+  mouseX = mouseY = -1
+  refreshInteractive()
+})
+
 function removeToast(id: string): void {
   clearTimeout(toastTimers.get(id))
   toastTimers.delete(id)
@@ -41,10 +67,10 @@ function removeToast(id: string): void {
   if (toast) {
     toast.removeAttribute('id') // a new card may reuse this id while this one fades out
     toast.classList.add('out')
-    setTimeout(() => toast.remove(), 250)
+    setTimeout(() => (toast.remove(), refreshInteractive()), 250)
   }
   showNextToast()
-  if (!document.querySelector('.toast:hover, .pill-btn:hover')) window.tap.setOverlayInteractive(false)
+  refreshInteractive() // the card under the mouse may just have gone
 }
 
 /** User pressed ✕ / Got it / Not now: tell the agent (it logs it and sends DISMISS back), and hide right away. */
@@ -136,8 +162,6 @@ function renderToast(o: ToastOpts): HTMLElement {
     row.append(...o.actions)
     toast.append(row)
   }
-  toast.onmouseenter = () => window.tap.setOverlayInteractive(true)
-  toast.onmouseleave = () => window.tap.setOverlayInteractive(false)
   toasts.append(toast) // newest at the bottom, like Windows
   visibleToastIds.add(o.id)
   visibleToasts.set(o.id, o)
@@ -275,8 +299,6 @@ function checkIcon(): SVGSVGElement {
 
 // ---------- pill "Summary" button: summarize this meeting without leaving the call (B) ----------
 const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
-pillSummary.onmouseenter = () => window.tap.setOverlayInteractive(true)
-pillSummary.onmouseleave = () => window.tap.setOverlayInteractive(false)
 pillSummary.onclick = () => {
   pillSummary.disabled = true
   pillSummary.textContent = '📝 Summarizing…'
