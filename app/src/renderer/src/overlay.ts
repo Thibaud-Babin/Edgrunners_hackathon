@@ -169,9 +169,9 @@ function renderToast(o: ToastOpts): HTMLElement {
   return toast
 }
 
-function button(label: string, cls: string, fn: () => void): HTMLButtonElement {
+function button(label: string, cls: string, fn: (b: HTMLButtonElement) => void): HTMLButtonElement {
   const b = el('button', `btn ${cls}`, label)
-  b.onclick = fn
+  b.onclick = () => fn(b)
   return b
 }
 
@@ -299,6 +299,37 @@ function checkIcon(): SVGSVGElement {
 
 // ---------- pill "Summary" button: summarize this meeting without leaving the call (B) ----------
 const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
+// B: "End call" → C's call report to the IT log (device facts only; CALL_ENDED must come from a click in the UI).
+const pillEnd = document.getElementById('pill-end') as HTMLButtonElement
+pillEnd.onclick = () => {
+  window.tap.emit(makeEvent('CALL_ENDED', 'ui'))
+  pillEnd.textContent = 'Ending…'
+  pillEnd.disabled = true
+}
+/** "Send to IT" / "End call" confirm on the button itself, only once main says it was really saved. */
+function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
+  const b = cmd.what === 'call_report' ? pillEnd : document.querySelector<HTMLButtonElement>(`.it-send[data-card="${CSS.escape(cmd.card_id ?? '')}"]`)
+  if (!b) return
+  b.title = cmd.text
+  if (cmd.what === 'call_report') {
+    b.textContent = cmd.ok ? '✓ Sent to IT' : "Couldn't save"
+    setTimeout(() => {
+      b.textContent = '⏹ End call'
+      b.disabled = false
+    }, 3000)
+  } else {
+    b.textContent = cmd.ok ? 'Sent to IT ✓' : 'Send to IT'
+    b.disabled = cmd.ok
+    // One line inside the same card: what was sent, and what happens next (no extra card)
+    const card = document.getElementById(cmd.card_id ?? '')
+    if (card) {
+      const note = card.querySelector<HTMLElement>('.it-note') ?? card.appendChild(el('div'))
+      note.className = `it-note ${cmd.ok ? 'ok' : 'bad'}`
+      if (cmd.ok) note.replaceChildren(el('b', '', `✓ Ticket ${cmd.ref ?? ''} sent to IT.`), document.createTextNode(' Only device facts (mic, camera, settings), nothing you said. IT will contact you if needed.'))
+      else note.textContent = "Couldn't send the ticket. Try again, or tell IT yourself."
+    }
+  }
+}
 pillSummary.onclick = () => {
   pillSummary.disabled = true
   pillSummary.textContent = '📝 Summarizing…'
@@ -355,7 +386,18 @@ window.tap.onUi((cmd: UiCommand) => {
                 click(cmd.alt_action_id!)
                 removeToast(cmd.id)
               })
-            : button('Not now', 'ghost', () => userDismiss(cmd.id))
+            : button('Not now', 'ghost', () => userDismiss(cmd.id)),
+          // B: C's "Send diagnostics to IT" (device facts only) had no button. The card stays; the button confirms.
+          ...(cmd.it_ticket
+            ? [
+                button('Send to IT', 'ghost it-send', (b) => {
+                  click('open_it_ticket', { id: cmd.id })
+                  b.textContent = 'Sending…'
+                  b.disabled = true
+                  b.dataset.card = cmd.id
+                })
+              ]
+            : [])
         ]
       })
       break
@@ -414,6 +456,9 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
       break
     }
+    case 'IT_SENT':
+      itSent(cmd)
+      break
     case 'SHOW_NOTICE':
       // C's notices (e.g. IT ticket sent): they were silently dropped here.
       addToast({ id: cmd.id, kind: 'nudge', icon: 'ℹ', title: cmd.text, body: [], actions: [button('Got it', 'primary', () => removeToast(cmd.id))], autoDismissMs: 10000 })

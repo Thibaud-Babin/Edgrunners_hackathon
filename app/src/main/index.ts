@@ -3,7 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
@@ -21,6 +21,7 @@ import { findName } from './detectors/text'
 import { cleanText, MAX } from './agent/sanitize'
 import { WinMic } from './audio/win-mic'
 import { RoleState, roleFromConfig } from './agent/permissions'
+import { ItStats, parseCallReports, parseTicket, type ItStatsState, type TicketFile } from './agent/it-stats'
 import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
@@ -78,9 +79,15 @@ function createWindows(): void {
   })
 }
 
+// B: IT console numbers (Nexthink). Observes what the agent shows; device facts and counts only. Kept across restarts.
+let itStats: ItStats | null = null
+
 function sendUi(cmd: UiCommand): void {
+  // The same problem for the 3rd time this week → the card also offers IT (it-stats.ts)
+  if (cmd.type === 'SHOW_FIX' && itStats) cmd = itStats.escalate(cmd)
+  itStats?.onUi(cmd)
   // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
-  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION' && cmd.type !== 'CUE') {
+  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION' && cmd.type !== 'CUE' && cmd.type !== 'IT_STATS') {
     if (cmd.type === 'LOG_ENTRY') {
       if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
     } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP ${cmd.id}: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
@@ -105,6 +112,39 @@ app.whenReady().then(() => {
   })
 
   const bus = new EventBus()
+  // IT console: counts in userData/it-stats.json; tickets and call reports read from the simulated helpdesk.
+  const dataDir = app.getPath('userData')
+  const statsFile = join(dataDir, 'it-stats.json')
+  let savedStats: ItStatsState | null = null
+  try {
+    if (existsSync(statsFile)) savedStats = JSON.parse(readFileSync(statsFile, 'utf8')) as ItStatsState
+  } catch {
+    savedStats = null
+  }
+  itStats = new ItStats(savedStats)
+  const itSnapshot = () => {
+    const ticketDir = join(dataDir, 'it-tickets')
+    const tickets = existsSync(ticketDir)
+      ? readdirSync(ticketDir).filter((f) => f.endsWith('.json')).map((f) => parseTicket(readFileSync(join(ticketDir, f), 'utf8'))).filter((t): t is TicketFile => t !== null)
+      : []
+    const logFile = join(dataDir, 'it-log', 'calls.jsonl')
+    const reports = existsSync(logFile) ? parseCallReports(readFileSync(logFile, 'utf8')) : []
+    return itStats!.snapshot(tickets, reports)
+  }
+  let itTimer: ReturnType<typeof setTimeout> | undefined
+  const pushItStats = () => {
+    clearTimeout(itTimer)
+    itTimer = setTimeout(() => {
+      try {
+        writeFileSync(statsFile, JSON.stringify(itStats!.state))
+        if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(IPC.ui, { type: 'IT_STATS', stats: itSnapshot() } satisfies UiCommand)
+      } catch (e) {
+        console.warn('[it] could not update the IT console:', e instanceof Error ? e.message : e)
+      }
+    }, 500)
+  }
+  itStats.onChange = pushItStats
+  bus.on('USER_CLICK', (e: TapEvent) => itStats?.onEvent(e))
   const haptics = new Haptics(undefined, (reason) => console.warn('[haptics]', reason))
   const llm = new Llm()
   // B: Windows-level mic (state for the mic doctor, and the fixes a card names). Only a click runs a fix.
@@ -239,6 +279,10 @@ app.whenReady().then(() => {
       hapticSettings.optional = extra
       settings.autoSummary = auto
       meetings.autoSummary = auto
+      return
+    }
+    if (ev.type === 'IT_STATS_REQUEST' && ev.source === 'ui') {
+      pushItStats()
       return
     }
     if (ev.type === 'CALL_SUMMARY_REQUEST' && ev.source === 'ui') {

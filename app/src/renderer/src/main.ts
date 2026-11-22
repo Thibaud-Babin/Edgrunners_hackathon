@@ -5,6 +5,7 @@ import { startCallAudio, startMic } from './audio'
 import { cameraHealth, getAwayMode, gazeStatus, setAwayMode, startVision } from './vision'
 import type { GazeFallbackReason } from './vision/gaze'
 import { el } from './ui/dom'
+import { renderItConsole } from './ui/it-console'
 import { currentTheme, initTheme, toggleTheme } from './ui/theme'
 import { playCue, SOUND_KEY, soundOn, soundVolume, VOLUME_KEY } from './ui/sound'
 
@@ -37,7 +38,7 @@ interface OrbNode {
 const ORBIT: OrbNode[] = [
   { page: 'check', icon: '✓', name: 'Check-up', color: 'rgba(52, 211, 153, 0.9)', desc: 'Camera, mic and playback test before the call.', rel: ['activity'] },
   { page: 'activity', icon: '≡', name: 'Activity', color: 'rgba(96, 165, 250, 0.9)', desc: 'Everything Tap saw, decided and did — plus cost.', rel: ['check', 'it', 'dev'] },
-  { page: 'it', icon: '▦', name: 'IT view', color: 'rgba(251, 191, 36, 0.9)', desc: 'Team impact metrics — simulated data.', rel: ['activity'] },
+  { page: 'it', icon: '▦', name: 'IT console', color: 'rgba(251, 191, 36, 0.9)', desc: 'Real meeting problems, checked fixes and agent actions on this laptop — what IT sees. Plus company-wide (simulated)', rel: ['activity'] },
   { page: 'dev', icon: '⚙', name: 'Dev tools', color: 'rgba(192, 132, 252, 0.9)', desc: 'Replay fake meeting events for the demo.', rel: ['activity'] },
   { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Sound with each vibration, extra vibrations, captions, end-of-call summary, theme.', rel: ['check'] },
   { page: 'captions', icon: '', name: 'Live Captions', color: 'rgba(34, 211, 238, 0.88)', desc: 'Show or hide live captions without stopping transcription.', rel: ['activity'], action: 'captions' },
@@ -121,6 +122,7 @@ function openPage(p: string): void {
   stopRot()
   hub.classList.add('hidden')
   document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === `page-${p}`))
+  if (p === 'it') window.tap.emit(makeEvent('IT_STATS_REQUEST', 'ui')) // B: fresh numbers each time it opens
   if (p === 'settings') syncSettings() // a setting may have changed from the hub (captions node) or the theme switch
   document.querySelectorAll<HTMLElement>('.mini-graph button').forEach((b) => b.classList.toggle('active', b.dataset.page === p))
 }
@@ -691,6 +693,9 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     case 'LOG_ENTRY':
       addLog(cmd.entry)
+      break
+    case 'IT_STATS':
+      renderItConsole(cmd.stats) // B: IT console, real data
       break
     case 'COUNTERS':
       $('c-ai').textContent = String(cmd.aiCalls)
