@@ -11,7 +11,7 @@ const env = (kind: string, payload: unknown, ts: number, provenance: Envelope['p
   kind,
   payload
 })
-const away = (ts: number) => env('vision', { signal: 'away' }, ts)
+const away = (ts: number, since?: number) => env('vision', { signal: 'away', ...(since !== undefined ? { since } : {}) }, ts)
 const back = (ts: number) => env('vision', { signal: 'back' }, ts)
 
 function play(steps: [Envelope<unknown>, number][]) {
@@ -31,6 +31,15 @@ test('away then back → one recap of exactly that window', () => {
   const r = play([[away(100), 100], [back(130), 130]])
   assert.deepEqual(r.actions, [
     { action: 'show_away_summary', fromTs: 100, untilTs: 130, trigger: 'looked_back', waitSentenceEnd: false, why: 'you looked back after 30 s away' }
+  ])
+})
+
+test('gaze away uses data.since, so a 3 s hold still produces a recap', () => {
+  // The event arrives at 103 after the 3 s gaze hold, but the user left at 100.
+  // Using the publish time would make this 0.5 s glance and lose the card.
+  const r = play([[away(103, 100), 103], [back(103.5), 103.5]])
+  assert.deepEqual(r.actions, [
+    { action: 'show_away_summary', fromTs: 100, untilTs: 103.5, trigger: 'looked_back', waitSentenceEnd: false, why: 'you looked back after 4 s away' }
   ])
 })
 

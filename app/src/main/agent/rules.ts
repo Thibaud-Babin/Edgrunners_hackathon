@@ -107,7 +107,8 @@ function onVision(d: Decision, v: VisionSignal, ts: number, t: number): void {
     return
   }
   if (v.signal === 'away') {
-    if (d.state.awayFrom === null) d.state.awayFrom = ts
+    // Gaze carries the first off-screen moment, before its 3 s hold. Pose has no `since`: use the event time.
+    if (d.state.awayFrom === null) d.state.awayFrom = v.since ?? ts
   } else if (v.signal === 'back') {
     const away = d.state.awayFrom
     if (away === null) return

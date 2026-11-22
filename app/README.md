@@ -27,6 +27,8 @@ If you see `Error: Electron uninstall`: `node node_modules/electron/install.js`.
 
 **Camera sharing (Windows 11):** by default the demo laptop's Logitech LVNext camera allows one app at a time — Zoom/Meet/Windows Camera fail while Tap holds it. Enable **Settings → Bluetooth & devices → Cameras → LVNext Camera → Advanced camera options → "Allow multiple apps to use camera at the same time"**. Verified: Zoom + Tap both live at the same time (see `docs/team/A-vision.md`).
 
+**Gaze mode (default, P2):** true look-away with the Logi Gaze Tracker. Run/calibrate the tracker on the meeting display; Tap uses it by default and **falls back to head pose automatically** if it is missing, uncalibrated, stale or sees no face. `gazeStatus()` reports `activeSource`/`fallbackReason`; the Settings → Attention toggle calls `setAwayMode/getAwayMode/gazeStatus`. MediaPipe still runs for mouth/gestures/camera health, so keep the Windows multi-app camera setting on. To force pose: `localStorage.setItem('tap:awayMode','pose'); location.reload()` (back with `'gaze'`).
+
 Two windows open:
 - **Main window**: start camera / mic / call audio, check-up, **dev tools** (type what someone in the call says, fake any event), activity log + counters.
 - **Overlay**: transparent, always on top, on the right of the screen. Cards appear here, over Zoom/Meet/Teams. Clicks go through it except on cards.
@@ -47,7 +49,7 @@ D  dev tools, card clicks ──┘
 
 | Person | Files | Produces | Test without the others |
 |---|---|---|---|
-| **A** vision | `src/renderer/src/vision.ts`, `src/renderer/src/vision/` | `USER_AWAY/BACK`, `MOUTH_MOVING`, `FACE_OUT_OF_FRAME`, `CAMERA_FROZEN`, `LOW_LIGHT`, `cameraHealth()`, gestures (P1) | "Start camera" -> pose/blendshape readout + events in the log |
+| **A** vision | `src/renderer/src/vision.ts`, `src/renderer/src/vision/` | `USER_AWAY/BACK`, `MOUTH_MOVING`, `FACE_OUT_OF_FRAME`, `CAMERA_FROZEN`, `LOW_LIGHT`, `cameraHealth()`, gaze mode (default, P2), gestures (P1) | "Start camera" -> pose/blendshape readout + events in the log |
 | **B** audio | `src/renderer/src/audio.ts`, `src/main/audio/`, `src/main/detectors/` | transcripts, `NAME_MENTIONED`, `QUESTION_*`, `OTHERS_CANT_HEAR`, `MIC_LEVEL` | `npm test`; "Start call audio"; plug STT into `createStt()` |
 | **C** agent + haptics | `src/main/agent/`, `src/main/haptics.ts`, `plugins/haptics/` | cards, log, counters, haptics | `npm run mock` or the dev text box |
 | **D** integration + UI | `src/main/index.ts`, `src/renderer/*.html`, `main.ts`, `overlay.ts`, `style.css` | windows, cards, `USER_CLICK` | `npm run mock` |

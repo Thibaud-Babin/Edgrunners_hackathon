@@ -56,6 +56,8 @@ export const VisionSignal = z
     signal: z.enum(['away', 'back', 'mouth', 'camera_frozen', 'face_out_of_frame', 'low_light']),
     active: z.boolean().optional(),
     reason: z.enum(['turned_away', 'no_face']).optional(),
+    /** Away only: when the user first left (seconds since epoch), before the 3 s gaze hold. */
+    since: z.number().finite().nonnegative().optional(),
     confidence: z.number().min(0).max(1).optional()
   })
   .strict()
