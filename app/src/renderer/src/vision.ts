@@ -9,6 +9,7 @@ import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from '@med
 import type { EventType } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { countChangedPixels, createFrameHealth, meanLuma } from './vision/health'
+import { mouthMoving, mouthSignal } from './vision/mouth'
 import { createGazeAway, gazeAvailability, type GazeFallbackReason } from './vision/gaze'
 import { startGazeClient, type GazeClientStatus } from './vision/gazeClient'
 
@@ -20,10 +21,6 @@ const AWAY_PITCH_EXIT_DEG = 14
 const AWAY_AFTER_MS = 2000
 const FRAME_MS = 50 // camera analysis period (B: a timer keeps running when Tap is minimized)
 const MOUTH_WINDOW_MS = 1000
-// B (Sun 03:00): 0.06 on jawOpen alone needed an exaggerated wide-open mouth. Normal speech moves the lips more
-// than the jaw, so the signal is jaw + lower lip, and the bar is lower. The 300 ms debounce + the rules' 1.5 s of
-// talking still filter a single lip movement.
-const MOUTH_STD_MIN = 0.03
 const MOUTH_ON_MS = 300 // debounce: raw active must hold this long (B's request)
 const MOUTH_OFF_MS = 800 // debounce: raw inactive must hold this long
 
@@ -39,11 +36,11 @@ const TOO_BRIGHT_ENTER = 190 // labelled light test images: 202.3-206.8
 const TOO_BRIGHT_EXIT = 170
 const LIGHTING_HOLD_MS = 800
 
-// Gaze mode: 3 s hold, outward 100 px tolerance; pose is the automatic fallback.
+// Gaze mode: 3 s hold, outward 64 px tolerance; pose is the automatic fallback.
 // The tracker runs its own camera; both apps need the Windows multi-app camera setting.
 const GAZE_AWAY_AFTER_MS = 3000
 const GAZE_BACK_AFTER_MS = 700
-const GAZE_TOLERANCE_PX = 100
+const GAZE_TOLERANCE_PX = 64
 const GAZE_SMOOTHING = 0.25
 const GAZE_STALE_MS = 3000
 const GAZE_NO_FACE_MS = 3000
@@ -359,15 +356,13 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
         }
       }
 
-      // Mouth moving = jawOpen varies over the last second (talking, not just an open mouth).
-      // Only trust it at a usable head pose: at a big pitch/yaw the jawOpen blendshape drifts.
+      // Mouth moving = jaw + lower lip vary over the last second (talking, not just an open mouth).
+      // Only trust it at a usable head pose: at a big pitch/yaw the mouth blendshapes drift.
       const poseOkForMouth = face && pose !== undefined && Math.abs(pose.yaw) < AWAY_YAW_ENTER_DEG && Math.abs(pose.pitch) < AWAY_PITCH_ENTER_DEG
       if (poseOkForMouth) {
-        jaw.push({ t, v: (blend['jawOpen'] ?? 0) + ((blend['mouthLowerDownLeft'] ?? 0) + (blend['mouthLowerDownRight'] ?? 0)) / 2 })
+        jaw.push({ t, v: mouthSignal(blend) })
         while (jaw.length && t - jaw[0].t > MOUTH_WINDOW_MS) jaw.shift()
-        const mean = jaw.reduce((s, x) => s + x.v, 0) / jaw.length
-        const std = Math.sqrt(jaw.reduce((s, x) => s + (x.v - mean) ** 2, 0) / jaw.length)
-        const rawActive = std > MOUTH_STD_MIN
+        const rawActive = mouthMoving(jaw)
 
         // B's request (real call): debounce the flaps - 300 ms to turn on, 800 ms to turn off.
         if (rawActive === mouthActive) {

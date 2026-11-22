@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createGazeAway, gazeAvailability, parseGazeSnapshot, type GazeSnapshot } from './gaze.ts'
 
-const cfg = { awayAfterMs: 3000, backAfterMs: 700, tolerancePx: 100, smoothing: 0.25 }
+const cfg = { awayAfterMs: 3000, backAfterMs: 700, tolerancePx: 64, smoothing: 0.25 }
 
 const snap = (over: Partial<GazeSnapshot> = {}): GazeSnapshot => ({
   timestampMs: 1,
@@ -107,20 +107,20 @@ test('uncalibrated or tracking off produces no events', () => {
   assert.equal(g.away, false)
 })
 
-test('100 px outward tolerance: 10 and -90 are on-screen, -120 is off-screen', () => {
+test('64 px outward tolerance: 10 and -60 are on-screen, -70 is off-screen', () => {
   const g1 = createGazeAway(cfg)
   assert.equal(g1.update(0, snap({ gaze: { x: 10, y: 500 } })), null)
   assert.equal(g1.update(3000, snap({ gaze: { x: 10, y: 500 } })), null)
   assert.equal(g1.away, false)
 
   const g2 = createGazeAway(cfg)
-  assert.equal(g2.update(0, snap({ gaze: { x: -90, y: 500 } })), null)
-  assert.equal(g2.update(3000, snap({ gaze: { x: -90, y: 500 } })), null)
+  assert.equal(g2.update(0, snap({ gaze: { x: -60, y: 500 } })), null)
+  assert.equal(g2.update(3000, snap({ gaze: { x: -60, y: 500 } })), null)
   assert.equal(g2.away, false)
 
   const g3 = createGazeAway(cfg)
-  g3.update(0, snap({ gaze: { x: -120, y: 500 } }))
-  assert.equal(g3.update(3000, snap({ gaze: { x: -120, y: 500 } }))?.kind, 'away')
+  g3.update(0, snap({ gaze: { x: -70, y: 500 } }))
+  assert.equal(g3.update(3000, snap({ gaze: { x: -70, y: 500 } }))?.kind, 'away')
 })
 
 test('reset clears the away state', () => {
