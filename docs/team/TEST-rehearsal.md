@@ -13,7 +13,7 @@ cd app
 npm install
 npm test
 ```
-`npm test` must end with **`pass 82`, `fail 0`**. If you see "Cannot find module 'zod'", you skipped `npm install`.
+`npm test` must end with **`pass 145`, `fail 0`**. If you see "Cannot find module 'zod'", you skipped `npm install`.
 
 ## 1. Roles
 | Role | Who | Where | Job |
@@ -27,7 +27,7 @@ The speakers **must not** be in the User's room: the laptop mic would hear them 
 With only 3 people, Speaker 1 also reads the Speaker 2 lines.
 
 ## 2. Demo laptop setup (User, 10 min before)
-1. **Keys:** `app\.env` has `TAP_STT=deepgram`, `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `TAP_USER_NAMES=Thibaud,Thibault,Tibo,Teebo` and `TAP_RECORD=1`. Keys are shared in person only, never in chat or git.
+1. **Keys:** `app\.env` has `TAP_STT=deepgram`, `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `TAP_USER_NAMES=Thibaud,Thibault,Tibo,Teebo`, `TAP_RECORD=1` and `TAP_USER_ROLE=intern` (section 8 switches it to `ceo`). Keys are shared in person only, never in chat or git.
 2. **Mouse:** Logi Options+ is running and the HapticWeb plugin is installed. Test it:
    `curl.exe -X POST -d '""' https://local.jmw.nz:41443/haptic/knock`. You must **feel** a knock.
 3. **Headphones** connected. **Close Teams, Zoom and any other app using the camera.**
@@ -144,6 +144,13 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | J no card | | | |
 | K "too dark" logged + Check-up row | | | |
 | L card while talking muted; "muted on purpose" silences it; "Unmute" fixes it | | | |
+| R1 intern role line · IT view hidden | | | |
+| R2 CEO role line · no recording | | | |
+| R3 recap made on the laptop · AI cost unchanged | | | |
+| R4 meeting summary "without AI (confidential)" | | | |
+| R5 ticket priority by role · file has no speech | | | |
+| R6 call report added · priority right | | | |
+| R7 intern: normal queue · cloud AI again | | | |
 
 **Also write down:**
 - 🔴 **Any knock when nobody said the name**, with the sentence that was said.
@@ -159,6 +166,8 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | Pill "Away" wrong or late, camera, too dark / frozen, mouth | **A** | `app/src/renderer/src/vision.ts`, `app/src/renderer/src/vision/health.ts` |
 | Wrong card, wrong timing, wrong or bad summary, wrong vibration | **C** | `app/src/main/agent/` |
 | Settings, sound cues, end-of-call summary | **B** | `app/src/renderer/src/ui/sound.ts`, Settings in `app/src/renderer/src/main.ts`, `app/src/main/agent/call-summary.ts` |
+| Wrong role line, ticket or call-report priority, confidential mode (cloud AI used or recording made for the CEO) | **C** | `app/src/main/agent/permissions.ts`, `app/src/main/agent/executor.ts`, `app/src/main/index.ts` |
+| Missing "Send diagnostics to IT" / "End call" button, notice card, IT view not hidden for interns | **D** | `app/src/renderer/` |
 | Mic card wrong, or the fix does nothing in Windows | **B** (Windows side) + **C** (which card) | `app/src/main/audio/win-mic.ts`, `app/scripts/win-mic.ps1`, the mic doctor in `app/src/main/agent/rules.ts` |
 | Card looks or layout, captions hidden, button doesn't work | **D** | `app/src/renderer/` |
 
@@ -208,17 +217,7 @@ They must contain **only device facts**: problem names such as `mic_silent`, tim
 If D's **Send diagnostics to IT** or **End call** button isn't there yet, skip R5–R6 and rely on 8a, which clicks both for you.
 Set `TAP_USER_ROLE` back to the role you want for the demo when you're done.
 
-**Observer, add these rows to the sheet in section 5:**
-
-| Step | ✅ / ❌ | Notes |
-|---|---|---|
-| R1 intern role line · IT view hidden | | |
-| R2 CEO role line · no recording | | |
-| R3 recap made on the laptop · AI cost unchanged | | |
-| R4 meeting summary "without AI (confidential)" | | |
-| R5 ticket priority by role · file has no speech | | |
-| R6 call report added · priority right | | |
-| R7 intern: normal queue · cloud AI again | | |
+The observer fills in rows **R1–R7** of the sheet in section 5.
 
 **Who fixes what:** role lines, priorities, tickets, call reports and confidential mode belong to **C** (`app/src/main/agent/permissions.ts`, `executor.ts`).
 The buttons, the notice cards and hiding the IT view belong to **D** (`app/src/renderer/`).
