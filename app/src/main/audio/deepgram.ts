@@ -12,6 +12,9 @@ import type { OnText, SttEngine, SttMeta } from './pipeline'
 import { sentenceDone } from './sentence'
 
 const KEY = process.env.DEEPGRAM_API_KEY || ''
+/** B: stall check: loud audio (RMS) with no words back for this long → reconnect */
+export const STALL_MS = 12000
+const SPEECH_RMS = 0.02
 const TERMS = (process.env.TAP_HOTWORDS || process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim()).filter(Boolean)
 
 function url(): string {
@@ -99,6 +102,12 @@ export function createDeepgramEngine(
   }
   const meta = (words: DgWord[]): SttMeta => ({ words, speaker: mainSpeaker(words), wallAt })
   let keepAlive: ReturnType<typeof setInterval> | null = null
+  // B (Sun 11:30, live call): Deepgram kept answering with EMPTY results for 3.5 min while someone talked: no
+  // captions, no name. The watchdog above only saw "no message at all". Now: speech in the audio but no words for
+  // STALL_S → reconnect (a fresh stream).
+  let lastWordsAt = Date.now()
+  let speechSince: number | null = null // loud audio sent since this time, with no words back
+  let lastLoudAt = 0
 
   const flushSentence = (): void => {
     const text = stable.trim()
@@ -126,6 +135,12 @@ export function createDeepgramEngine(
   const watchdog = setInterval(() => {
     const t = Date.now()
     if (open && t - lastSentAt < 2000 && t - lastMsgAt > 6000) die('no answer from Deepgram for 6 s')
+    if (open && speechSince !== null && t - lastLoudAt < 2000 && t - speechSince > STALL_MS && t - lastWordsAt > STALL_MS) {
+      console.warn(`[stt] deepgram stalled (${source}): speech in the audio but no words for ${STALL_MS / 1000} s → reconnecting`)
+      speechSince = null
+      lastWordsAt = t
+      ws?.close() // onclose reconnects in 1 s
+    }
   }, 2000)
 
   const connect = (): void => {
@@ -156,6 +171,10 @@ export function createDeepgramEngine(
       if (m.type !== 'Results') return
       const alt = m.channel?.alternatives?.[0]
       const t = (alt?.transcript ?? '').trim()
+      if (t) {
+        lastWordsAt = Date.now()
+        speechSince = null
+      }
       const words = alt?.words ?? []
       if (m.is_final) {
         if (t) {
@@ -188,6 +207,12 @@ export function createDeepgramEngine(
       const buf = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength) as ArrayBuffer
       if (dead) return
       lastSentAt = Date.now()
+      let sum = 0
+      for (let i = 0; i < pcm.length; i++) sum += pcm[i]! * pcm[i]!
+      if (Math.sqrt(sum / Math.max(1, pcm.length)) / 32768 > SPEECH_RMS) {
+        speechSince ??= lastSentAt
+        lastLoudAt = lastSentAt
+      }
       if (open && ws?.readyState === WebSocket.OPEN) send(buf, lastSentAt)
       else if (queue.length < 50) queue.push({ buf, wall: lastSentAt }) // keep ≤ 5 s while connecting
     },
