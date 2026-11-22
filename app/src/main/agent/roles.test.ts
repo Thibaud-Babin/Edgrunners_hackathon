@@ -99,7 +99,8 @@ async function mutedMicTicket(r: ReturnType<typeof roleRig>) {
   r.events.publish({ type: 'MIC_LEVEL', ts: at(), source: 'mic', data: { rms: 0 } })
   await r.flush()
   const card = r.ui.find((c) => c.type === 'SHOW_FIX')
-  assert.ok(card && card.type === 'SHOW_FIX' && card.it_ticket === true, 'device fix cards offer the IT ticket')
+  // B: muted = one-click fix, so the card has no ticket button (IT only gets what the user can't fix); the click still works.
+  assert.ok(card && card.type === 'SHOW_FIX' && card.it_ticket !== true, 'one-click fix: no ticket button')
   r.ui_('USER_CLICK', { action_id: 'open_it_ticket', args: { id: card.id } })
   await r.flush()
 }

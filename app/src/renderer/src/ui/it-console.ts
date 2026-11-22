@@ -31,8 +31,8 @@ export function renderItConsole(s: ItSnapshot): void {
   $('itc-tiles').replaceChildren(
     tile('Meeting problems caught', String(t.caught), t.caught ? `${t.fixed} fixed` : 'none yet'),
     tile('Caught before anyone noticed', String(t.beforeNoticed), `${t.reported} reported by a coworker${unknown > 0 ? ` · ${unknown} other` : ''}`, 'ok'),
+    tile('Solved without a ticket', t.caught ? `${t.solvedWithoutTicket} of ${t.caught}` : '0', 'fixed on the spot, IT never had to step in', 'ok'),
     tile('Time lost to problems', t.secondsLost < 120 ? `${t.secondsLost} s` : `${Math.round(t.secondsLost / 6) / 10} min`, t.medianFixS !== null ? `median ${t.medianFixS} s from detection to fix` : 'detection → fix'),
-    tile('AI cost', `$${s.agent.costUsd.toFixed(4)}`, `${s.agent.aiCalls} AI calls`)
   )
 
   const max = Math.max(1, ...s.byType.map((b) => b.count))
@@ -59,7 +59,7 @@ export function renderItConsole(s: ItSnapshot): void {
 
   const json = $('itc-json') as HTMLPreElement
   const items = [
-    ...s.tickets.map((k) => ({ id: k.id, label: `Ticket ${k.id}`, when: k.createdAt, prio: k.priority, json: k.json })),
+    ...s.tickets.map((k) => ({ id: k.id, label: `Ticket ${k.id}${k.reason ? ` · ${k.reason}` : ''}`, when: k.createdAt, prio: k.priority, json: k.json })),
     ...s.reports.map((r) => ({ id: r.id, label: `Call report ${r.id}${r.problems.length ? ` · ${r.problems.length} problem${r.problems.length > 1 ? 's' : ''}` : ''}`, when: r.endedAt, prio: r.priority, json: r.json }))
   ]
     .sort((a, b) => b.when.localeCompare(a.when))
@@ -92,7 +92,8 @@ export function renderItConsole(s: ItSnapshot): void {
     stat(String(a.actions), 'actions taken'),
     stat(String(a.blockedCount), 'requests refused'),
     stat(String(a.misfires), 'alerts dismissed (misfires)'),
-    stat(String(a.notNeeded), '"muted on purpose"')
+    stat(String(a.notNeeded), '"muted on purpose"'),
+    stat(`$${a.costUsd.toFixed(4)}`, `AI cost · ${a.aiCalls} calls`)
   )
   $('itc-blocked').replaceChildren(
     ...(a.blocked.length

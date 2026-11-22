@@ -19,6 +19,8 @@ export interface ProblemRec {
   type: string
   reported: boolean | null // null = not known yet
   fixedAt: number | null
+  /** Ticket sent for it (id), if any */
+  ticket?: string
 }
 
 export interface ItStatsState {
@@ -32,7 +34,13 @@ export interface ItStatsState {
   blockedCount: number
   aiCalls: number
   costUsd: number
+  /** Why each ticket was sent (ticket id → reason), shown to IT */
+  ticketReasons?: Record<string, string>
 }
+
+const WEEK_S = 7 * 24 * 3600
+/** The same problem this many times in a week → the card also offers IT (a device problem, not a slip). */
+export const REPEAT_FOR_TICKET = 3
 
 const MAX_BLOCKED = 20
 const MAX_PROBLEMS = 500
@@ -58,6 +66,7 @@ export class ItStats {
   onChange: (() => void) | null = null
   private fixCards = new Map<string, number>() // card id → index in problems
   private lastFixLabel = ''
+  private cardText = new Map<string, string>() // card id → its text (for the ticket's reason)
   private now: () => number
 
   constructor(state: ItStatsState | null, now: () => number = () => Date.now() / 1000) {
@@ -71,6 +80,13 @@ export class ItStats {
     const t = this.now()
     switch (cmd.type) {
       case 'SHOW_FIX': {
+        // The follow-up card of a failed fix is the same problem, not a new one
+        if (cmd.problem.startsWith("Tap couldn't fix it")) {
+          if (s.problems.length) this.fixCards.set(cmd.id, s.problems.length - 1)
+          this.cardText.set(cmd.id, cmd.problem)
+          break
+        }
+        this.cardText.set(cmd.id, cmd.problem)
         s.problems.push({ at: t, type: problemType(cmd.problem, cmd.fix_label), reported: null, fixedAt: null })
         if (s.problems.length > MAX_PROBLEMS) s.problems.splice(0, s.problems.length - MAX_PROBLEMS)
         this.fixCards.set(cmd.id, s.problems.length - 1)
@@ -111,6 +127,13 @@ export class ItStats {
         }
         break
       }
+      case 'IT_SENT': {
+        if (cmd.what !== 'ticket' || !cmd.ok || !cmd.ref) return
+        const idx = cmd.card_id ? this.fixCards.get(cmd.card_id) : undefined
+        if (idx !== undefined && s.problems[idx]) s.problems[idx]!.ticket = cmd.ref
+        ;(s.ticketReasons ??= {})[cmd.ref] = ticketReason(cmd.card_id ? (this.cardText.get(cmd.card_id) ?? '') : '')
+        break
+      }
       case 'COUNTERS':
         s.aiCalls = cmd.aiCalls
         s.costUsd = cmd.costUsd
@@ -119,6 +142,19 @@ export class ItStats {
         return
     }
     this.onChange?.()
+  }
+
+  /**
+   * Before a fix card is shown (index.ts): the same problem for the 3rd time this week → also offer IT, and say why.
+   * Returns the card to show (unchanged otherwise).
+   */
+  escalate(cmd: Extract<UiCommand, { type: 'SHOW_FIX' }>): Extract<UiCommand, { type: 'SHOW_FIX' }> {
+    if (cmd.it_ticket || cmd.problem.startsWith("Tap couldn't fix it")) return cmd
+    const type = problemType(cmd.problem, cmd.fix_label)
+    const t = this.now()
+    const n = this.state.problems.filter((p) => p.type === type && t - p.at < WEEK_S).length + 1
+    if (n < REPEAT_FOR_TICKET) return cmd
+    return { ...cmd, it_ticket: true, problem: `${cmd.problem} · ${ordinal(n)} time this week: this may be a device problem.` }
   }
 
   /** The user's clicks on the cards (TapEvent USER_CLICK from the overlay). */
@@ -141,6 +177,8 @@ export class ItStats {
     const s = this.state
     const fixed = s.problems.filter((p) => p.fixedAt !== null)
     const durations = fixed.map((p) => p.fixedAt! - p.at).sort((a, b) => a - b)
+    const solved = s.problems.filter((p) => p.fixedAt !== null && !p.ticket).length
+    const reasons = s.ticketReasons ?? {}
     const types = new Map<string, number>()
     for (const p of s.problems) types.set(p.type, (types.get(p.type) ?? 0) + 1)
     return {
@@ -151,7 +189,8 @@ export class ItStats {
         reported: s.problems.filter((p) => p.reported === true).length,
         fixed: fixed.length,
         secondsLost: Math.round(durations.reduce((a, b) => a + b, 0)),
-        medianFixS: durations.length ? Math.round(durations[Math.floor(durations.length / 2)]!) : null
+        medianFixS: durations.length ? Math.round(durations[Math.floor(durations.length / 2)]!) : null,
+        solvedWithoutTicket: solved
       },
       byType: [...types].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count),
       fixes: Object.entries(s.fixes).map(([label, f]) => ({ label, ...f })),
@@ -164,11 +203,26 @@ export class ItStats {
         aiCalls: s.aiCalls,
         costUsd: s.costUsd
       },
-      tickets: tickets.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      tickets: tickets.map((k) => ({ ...k, reason: reasons[k.id] ?? 'sent by the user' })).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       reports: reports.slice().sort((a, b) => b.endedAt.localeCompare(a.endedAt)),
       recurring: recurring(reports)
     }
   }
+}
+
+/** Why a ticket was sent, from the card it was sent from. Shown to IT next to the ticket. */
+export function ticketReason(cardText: string): string {
+  const rep = /(\d+)(st|nd|rd|th) time this week/.exec(cardText)
+  if (rep) return `same problem ${rep[1]} times this week`
+  if (cardText.startsWith("Tap couldn't fix it")) return 'the one-click fix failed'
+  if (/still .* after switching/i.test(cardText)) return 'still bad after switching mics'
+  if (/sends no sound\. Check its cable/i.test(cardText)) return 'no other mic to switch to'
+  return 'sent by the user'
+}
+
+function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+  return `${n}${s}`
 }
 
 function fixLabelFor(type: string | undefined): string {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { TapEvent, UiCommand } from '../../shared/events.ts'
-import { ItStats, parseCallReports, parseTicket, problemType, recurring } from './it-stats.ts'
+import { ItStats, parseCallReports, parseTicket, problemType, recurring, ticketReason } from './it-stats.ts'
 
 function setup() {
   let t = 1000
@@ -21,7 +21,7 @@ test('it-stats: muted while talking, caught by Tap, fixed and checked → before
   s.onUi(log('decision', 'Mic problem fixed before anyone noticed'))
   s.onUi(log('action', 'You clicked the fix → laptop mic "X" unmuted (checked)'))
   const snap = s.snapshot([], [])
-  assert.deepEqual(snap.tiles, { caught: 1, beforeNoticed: 1, reported: 0, fixed: 1, secondsLost: 4, medianFixS: 4 })
+  assert.deepEqual(snap.tiles, { caught: 1, beforeNoticed: 1, reported: 0, fixed: 1, secondsLost: 4, medianFixS: 4, solvedWithoutTicket: 1 })
   assert.deepEqual(snap.byType, [{ type: 'Mic muted in Windows', count: 1 }])
   assert.deepEqual(snap.fixes, [{ label: 'Unmute mic', used: 1, checked: 1, failed: 0 }])
 })
@@ -86,4 +86,44 @@ test('it-stats: no transcript ever stored (only counts, types, fixed reasons)', 
   s.onUi({ type: 'CAPTION', text: 'secret project budget', final: true } as unknown as UiCommand)
   s.onUi({ type: 'SHOW_RECAP', id: 'r', summary: 'secret project budget' } as unknown as UiCommand)
   assert.ok(!JSON.stringify(s.state).includes('secret'))
+})
+
+test('it-stats: the same problem for the 3rd time this week → the card also offers IT, and says why', () => {
+  const { s, at } = setup()
+  const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic is muted in Windows', fix_label: 'Unmute laptop mic', action_id: 'fix_mic' as const })
+  for (const [i, id] of ['a', 'b'].entries()) {
+    at(1000 + i * 3600)
+    const c = s.escalate(card(id))
+    assert.equal(c.it_ticket, undefined, `${id}: 1st/2nd time → no ticket button`)
+    s.onUi(c)
+  }
+  at(1000 + 2 * 3600)
+  const third = s.escalate(card('c'))
+  assert.equal(third.it_ticket, true)
+  assert.match(third.problem, /3rd time this week: this may be a device problem/)
+  // more than a week later it starts again from 1
+  at(1000 + 9 * 24 * 3600)
+  assert.equal(s.escalate(card('d')).it_ticket, undefined)
+})
+
+test('it-stats: ticket reason, ticketed problems are not "solved without a ticket"', () => {
+  assert.equal(ticketReason("Tap couldn't fix it (could not unmute laptop mic). This may be a device or driver problem."), 'the one-click fix failed')
+  assert.equal(ticketReason('Mic still too quiet after switching. Check it is not muted, move closer, or plug in a headset.'), 'still bad after switching mics')
+  assert.equal(ticketReason('You are talking, but your laptop mic sends no sound. Check its cable or Bluetooth connection.'), 'no other mic to switch to')
+  assert.equal(ticketReason('…muted in Windows · 3rd time this week: this may be a device problem.'), 'same problem 3 times this week')
+  const { s } = setup()
+  // problem 1: fixed in one click
+  s.onUi(fix('c1', 'You are talking, but your laptop mic is muted in Windows', 'Unmute laptop mic'))
+  s.onEvent(clickEv('fix_mic'))
+  s.onUi(log('action', 'You clicked the fix → laptop mic "X" unmuted (checked)'))
+  // problem 2: the fix fails → follow-up card (same problem) → ticket
+  s.onUi(fix('c2', 'You are talking, but your laptop mic is muted in Windows', 'Unmute laptop mic'))
+  s.onEvent(clickEv('fix_mic'))
+  s.onUi(log('error', 'You clicked the fix → could not unmute laptop mic "X"'))
+  s.onUi({ type: 'SHOW_FIX', id: 'c3', problem: "Tap couldn't fix it (could not unmute laptop mic \"X\"). This may be a device or driver problem.", fix_label: 'OK', action_id: 'dismiss_card', it_ticket: true })
+  s.onUi({ type: 'IT_SENT', what: 'ticket', card_id: 'c3', ok: true, ref: 'T-0001', text: 'Ticket T-0001 sent' })
+  const snap = s.snapshot([{ id: 'T-0001', createdAt: '2026-11-22T04:00:00Z', priority: 'normal', requesterRole: 'intern', json: '{}' }], [])
+  assert.equal(snap.tiles.caught, 2, 'the follow-up card is not a new problem')
+  assert.equal(snap.tiles.solvedWithoutTicket, 1)
+  assert.equal(snap.tickets[0]!.reason, 'the one-click fix failed')
 })

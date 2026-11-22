@@ -164,7 +164,7 @@ function onDetector(d: Decision, hit: DetectorHit, ts: number, t: number): void 
           problem: `Someone said: "${quote(hit.text)}"`,
           fixLabel: 'Switch to laptop mic',
           fixAction: 'switch_input_device',
-          itTicket: true,
+          // B (Sun 04:00): no ticket while a one-click fix exists; IT only gets what the user can't fix.
           why: 'others cannot hear you'
         })
       d.actions.push({ action: 'send_haptic', waveform: HAPTIC.problem, why: 'others cannot hear you' })
@@ -238,7 +238,6 @@ function checkMicFix(d: Decision, t: number): void {
       problem: `Your mic has been ${what} for over ${MIC_BAD_FOR_S} s`,
       fixLabel: 'Switch to laptop mic',
       fixAction: 'switch_input_device',
-      itTicket: true,
       why: `mic ${what} for over ${MIC_BAD_FOR_S} s`
     })
   } else if (s.micFixStage === 2) {
@@ -248,7 +247,7 @@ function checkMicFix(d: Decision, t: number): void {
       problem: `Mic still ${what} after switching. Check it is not muted, move closer, or plug in a headset.`,
       fixLabel: 'OK',
       fixAction: 'dismiss_card',
-      itTicket: true,
+      itTicket: true, // still bad after switching: likely hardware or driver → IT
       why: `mic still ${what} ${MIC_BAD_FOR_S} s after switching`
     })
   }
@@ -362,6 +361,7 @@ function micCard(d: Decision, t: number, reported: boolean, context: string, qua
   const mic = s.mic!
   let problem: string
   let plan: { fix: MicFix; mic: MicKind } | null = null
+  let noOtherMic = false
   if (mic.muted) {
     problem = `${context}, but your ${mic.kind} mic is muted in Windows`
     plan = { fix: 'unmute', mic: mic.kind }
@@ -373,6 +373,7 @@ function micCard(d: Decision, t: number, reported: boolean, context: string, qua
     plan = { fix: 'switch', mic: mic.otherKind }
   } else if (micSilent(s, t)) {
     problem = `${context}, but your ${mic.kind} mic sends no sound. Check its cable or Bluetooth connection.`
+    noOtherMic = true
   } else if (quality) {
     problem = `${context}. Move closer to the mic, or plug in a headset.`
   } else if (reported) {
@@ -385,7 +386,10 @@ function micCard(d: Decision, t: number, reported: boolean, context: string, qua
     problem: problem.slice(0, 280),
     fixLabel: plan ? FIX_LABEL[plan.fix](plan.mic) : 'Got it',
     fixAction: plan ? 'fix_mic' : 'dismiss_card',
-    itTicket: true, // a device problem: the user may also send the diagnostics to IT
+    // B (Sun 04:00): a ticket only when no click can fix it (silent mic, no other mic). Muted, quiet, muted in Meet,
+    // switch: one-click fixes on the user's side, IT would drown in them. (A failed fix and a problem that keeps
+    // coming back also offer the ticket: executor.ts and it-stats.ts.)
+    ...(noOtherMic ? { itTicket: true } : {}),
     // Muted while talking, found by Tap itself: you may be muted on purpose.
     ...(plan?.fix === 'unmute' && !reported ? { altLabel: "I'm muted on purpose", altAction: 'snooze_mic_alerts' as const } : {}),
     why: reported ? 'others cannot hear you' : quality ? 'mic quality bad' : mic.muted ? 'you are talking while muted' : 'you are talking but your mic sends nothing'

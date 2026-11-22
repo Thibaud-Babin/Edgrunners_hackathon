@@ -126,7 +126,7 @@ export type UiCommand =
   | { type: 'OPEN_SUMMARY' }
   | { type: 'IT_STATS'; stats: ItSnapshot }
   /** Result of a click on "Send to IT" (card_id) or "End call": the button itself confirms, no extra card (B). */
-  | { type: 'IT_SENT'; what: 'ticket' | 'call_report'; card_id?: string; ok: boolean; text: string }
+  | { type: 'IT_SENT'; what: 'ticket' | 'call_report'; card_id?: string; ok: boolean; ref?: string; text: string }
 
 export interface LogEntry {
   ts: number
@@ -216,6 +216,8 @@ export interface TicketFile {
   priority: string
   requesterRole: string
   json: string
+  /** Why it was sent (B: fix failed, still bad after switching, no other mic, repeats) */
+  reason?: string
 }
 export interface CallReportFile {
   id: string
@@ -228,7 +230,7 @@ export interface CallReportFile {
 
 export interface ItSnapshot {
   since: string
-  tiles: { caught: number; beforeNoticed: number; reported: number; fixed: number; secondsLost: number; medianFixS: number | null }
+  tiles: { caught: number; beforeNoticed: number; reported: number; fixed: number; secondsLost: number; medianFixS: number | null; solvedWithoutTicket: number }
   byType: { type: string; count: number }[]
   fixes: { label: string; used: number; checked: number; failed: number }[]
   agent: { actions: number; blockedCount: number; blocked: { at: string; text: string }[]; misfires: number; notNeeded: number; aiCalls: number; costUsd: number }

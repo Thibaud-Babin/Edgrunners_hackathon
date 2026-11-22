@@ -318,8 +318,16 @@ function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
       b.disabled = false
     }, 3000)
   } else {
-    b.textContent = cmd.ok ? 'Sent to IT ✓' : "Couldn't send, retry"
+    b.textContent = cmd.ok ? 'Sent to IT ✓' : 'Send to IT'
     b.disabled = cmd.ok
+    // One line inside the same card: what was sent, and what happens next (no extra card)
+    const card = document.getElementById(cmd.card_id ?? '')
+    if (card) {
+      const note = card.querySelector<HTMLElement>('.it-note') ?? card.appendChild(el('div'))
+      note.className = `it-note ${cmd.ok ? 'ok' : 'bad'}`
+      if (cmd.ok) note.replaceChildren(el('b', '', `✓ Ticket ${cmd.ref ?? ''} sent to IT.`), document.createTextNode(' Only device facts (mic, camera, settings), nothing you said. IT will contact you if needed.'))
+      else note.textContent = "Couldn't send the ticket. Try again, or tell IT yourself."
+    }
   }
 }
 pillSummary.onclick = () => {

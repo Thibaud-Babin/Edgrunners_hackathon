@@ -83,6 +83,8 @@ function createWindows(): void {
 let itStats: ItStats | null = null
 
 function sendUi(cmd: UiCommand): void {
+  // The same problem for the 3rd time this week → the card also offers IT (it-stats.ts)
+  if (cmd.type === 'SHOW_FIX' && itStats) cmd = itStats.escalate(cmd)
   itStats?.onUi(cmd)
   // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
   if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION' && cmd.type !== 'CUE' && cmd.type !== 'IT_STATS') {

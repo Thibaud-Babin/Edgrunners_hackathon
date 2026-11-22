@@ -305,6 +305,16 @@ export class Executor {
         }
         const r = await this.mic.fix(a.fix, a.mic)
         this.report.log(r.ok ? 'action' : 'error', `You clicked the fix → ${r.text}`)
+        // B (Sun 04:00): the fix did not work → say so, and now offer IT (a device problem the user can't fix).
+        if (!r.ok)
+          this.ui({
+            type: 'SHOW_FIX',
+            id: this.cardId(),
+            problem: `Tap couldn't fix it (${r.text}). This may be a device or driver problem.`,
+            fix_label: 'OK',
+            action_id: 'dismiss_card',
+            it_ticket: true
+          })
         if (r.ok && a.fix === 'switch') this.ui({ type: 'SWITCH_MIC', prefer: a.mic }) // Tap's own capture follows
         return r.ok
       }
@@ -344,13 +354,13 @@ export class Executor {
       ? await this.ports.tickets.send(ticket).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
       : { ok: true, where: 'log only' }
     if (!sent.ok) {
-      this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: false, text: `Ticket ${ticket.id} could not be sent` })
+      this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: false, ref: ticket.id, text: `Ticket ${ticket.id} could not be sent` })
       this.report.log('error', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} could not be saved (${sent.where})`)
       return false
     }
     const queue = ticket.priority === 'priority' ? 'priority: executive support' : 'normal queue'
     // B: the user clicked, so the button confirms ("Sent to IT ✓"); no extra card to read in the middle of a call.
-    this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: true, text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk): device facts only, nothing you said` })
+    this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: true, ref: ticket.id, text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk): device facts only, nothing you said` })
     this.report.log('action', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent (${queue}; device facts only, no speech; ${sent.where})`)
     return true
   }
