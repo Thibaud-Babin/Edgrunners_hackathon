@@ -3,6 +3,20 @@
 One live test of the whole of Tap in a real Google Meet call, about 20 min in total.
 Everyone reads this before we start.
 
+## 🔁 RETEST NOW (after fix PR #18, Sun 02:30): only the steps marked 🔁
+The rest of the sheet passed. These 3 failed and were fixed. Look for **🔁 RETEST** in the tables below.
+
+**Setup:** close Tap, `git pull`, `npm run dev` in `app`. Check-up: **Start camera**, **Start mic**, **Start call audio**.
+Join Meet, then **minimize Tap's main window**: Meet stays in front for every retest (that is what was broken).
+
+| # | Who | Do | ✅ Expected |
+|---|---|---|---|
+| 🔁 1 = step **L** | User | Mute the laptop mic **in Windows**, talk 3 s facing the camera. Then "I'm muted on purpose" + talk again; unmute, mute, talk; then "Unmute laptop mic" + keep talking. | Within ~2 s: **"Problem" vibration** + card **"You are talking, but your laptop mic is muted in Windows"**. No card after "on purpose"; it comes back after unmute + mute; **Unmute** unmutes Windows and **the speakers hear you**. |
+| 🔁 2 = step **A** | Speaker 1 | Talks, then stops. | Captions appear while talking and **disappear ~6 s after** the silence. |
+| 🔁 3 = step **R** | Speaker 1 | "Thibaud, what do you think about X?" **4 times**, ~10 s apart, a different X each time. | A card **for each** question, including the 4th. Never more than 3 on screen; the newest is always shown. |
+
+If one fails: write ❌ in the observer sheet (section 5) and copy the red terminal lines.
+
 ## 0. Everyone: update first (2 min)
 On **every** laptop that runs Tap code:
 ```
@@ -71,7 +85,7 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 
 | Step | Who | Says or does | Must happen |
 |---|---|---|---|
-| **A**: captions | Speaker 1 | "OK, let's start. Today we need to decide on the release date and the budget for the launch." | The words appear in the captions. **No** knock. |
+| 🔁 **RETEST** **A**: captions | Speaker 1 | "OK, let's start. Today we need to decide on the release date and the budget for the launch." | The words appear in the captions. **No** knock. 🔁 Then, after the speaker stops: the captions **disappear after ~6 s**. |
 | **B**: look away | User | Turns their head to the side and looks at their phone. **Stays turned away until step C.** | Within about 2 s, the pill shows **"Away · catching up 0:0x"** and keeps counting. |
 | | Speakers 1 and 2, about 20 s | S1: "I think Friday works for the release, the tests are almost done." S2: "Yes, but marketing needs two more days for the video." S1: "Then let's say Friday for the code, Monday for the announcement." | Nothing yet. |
 | **C**: name while away | Speaker 2 | "**So Thibaud, are you OK with Friday?**" (the User keeps looking away) | 1. **Knock** in the mouse, about 1–2 s after "Thibaud". 2. A 🔔 **"While you were away · N s"** card with the question and 2–3 points (Friday code, Monday announcement). 3. The terminal shows `Knock X s after your name was said`; **write down X**. |
@@ -88,10 +102,11 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | **V**: blind test of the 4 signals | User, eyes closed; Observer | The Observer opens **Check-up → Try the vibrations** and clicks the 4 buttons **in a random order**, 3 s apart. The User says which signal each one is. | The User names **4 out of 4** correctly. If not, note which two were confused. |
 | **J**: glance | User | Looks away for **1 s only**, then back. | **No** card. The terminal shows `Looked away 1 s → no recap`. |
 | **K**: dark room (camera check, A) | User | **Covers the webcam with a hand for about 5 s**, then uncovers it. A quick hand pass must **not** trigger it. | The Activity log or terminal shows `Room too dark for the camera → attention detection may fail`. The **Check-up** page shows **Lighting: bad**, then **ok** again after uncovering. |
-| **L**: talking while muted, before anyone notices (mic doctor) | User | Mutes the laptop mic **in Windows**, then **talks for 3 s facing the camera** (no one has complained yet). | Within about 2 s: a ⚠ card **"You are talking, but your laptop mic is muted in Windows"** with **[Unmute laptop mic] [I'm muted on purpose]**. Moving the lips once must **not** trigger it. |
+| 🔁 **RETEST** **L**: talking while muted, before anyone notices (mic doctor) | User | 🔁 **Tap's main window minimized, Meet in front.** Mutes the laptop mic **in Windows**, then **talks for 3 s facing the camera** (no one has complained yet). | Within about 2 s: a ⚠ card **"You are talking, but your laptop mic is muted in Windows"** with **[Unmute laptop mic] [I'm muted on purpose]**. Moving the lips once must **not** trigger it. |
 | | User | Clicks **"I'm muted on purpose"**, then talks again for 3 s. | The card closes. **No new card** while you stay muted. The terminal shows `Muted on purpose → no mute alerts until you unmute`. |
 | | User | Unmutes in Windows, mutes again, talks for 3 s. | The card comes back (unmuting ended "on purpose"). |
 | | User | Clicks **"Unmute laptop mic"** and keeps talking. | `unmuted (checked)` and **`Mic problem fixed before anyone noticed`** in the terminal. **The speakers hear you.** |
+| 🔁 **RETEST** **R**: cards keep coming | Speaker 1 | "Thibaud, what do you think about X?" **4 times**, ~10 s apart, a different X each time (Tap minimized). | A card **for each** question, including the 4th. Never more than 3 on screen; the newest is always shown. |
 | **S**: hand off the mouse (sound cues) | User | Takes the hand **off the mouse** and types in a text file. | — |
 | | Speaker 1 | "Thibaud, quick question: did you get my email?" | In the **headphones**: a short **"tock"** at the same moment as the knock on the mouse. |
 | | User | Settings → turns **Sound with each vibration OFF**; Speaker 1 says the name again. | Knock on the mouse, **no sound**. Turn it back on afterwards if you like. |
@@ -127,7 +142,7 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 ## 5. Observer sheet (copy into the team chat after the test)
 | Step | ✅ / ❌ | Time | Notes (card text right? question right? late?) |
 |---|---|---|---|
-| A captions | | | |
+| 🔁 A captions (+ disappear ~6 s after silence) | | | |
 | B "Away" pill | | | |
 | C knock + away card | | knock __ s | |
 | D two **distinct** knocks + waiting card | | | |
@@ -143,7 +158,8 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | U second meeting separate (nothing from the first) · pill button works · still there after restart | | | |
 | J no card | | | |
 | K "too dark" logged + Check-up row | | | |
-| L card while talking muted; "muted on purpose" silences it; "Unmute" fixes it | | | |
+| 🔁 L card while talking muted (Tap minimized); "muted on purpose" silences it; "Unmute" fixes it | | | |
+| 🔁 R a card for each of 4 questions, newest always shown | | | |
 
 **Also write down:**
 - 🔴 **Any knock when nobody said the name**, with the sentence that was said.
