@@ -31,7 +31,7 @@ export function renderItConsole(s: ItSnapshot): void {
   $('itc-tiles').replaceChildren(
     tile('Meeting problems caught', String(t.caught), t.caught ? `${t.fixed} fixed` : 'none yet'),
     tile('Caught before anyone noticed', String(t.beforeNoticed), `${t.reported} reported by a coworker${unknown > 0 ? ` · ${unknown} other` : ''}`, 'ok'),
-    tile('Solved without a ticket', t.caught ? `${t.solvedWithoutTicket} of ${t.caught}` : '0', 'fixed on the spot, IT never had to step in', 'ok'),
+    tile('Solved without a ticket', t.caught ? `${t.solvedWithoutTicket} of ${t.caught}` : '0', t.autoTickets ? `${t.autoTickets} ticket${t.autoTickets > 1 ? 's' : ''} sent automatically` : 'fixed on the spot, IT never had to step in', 'ok'),
     tile('Time lost to problems', t.secondsLost < 120 ? `${t.secondsLost} s` : `${Math.round(t.secondsLost / 6) / 10} min`, t.medianFixS !== null ? `median ${t.medianFixS} s from detection to fix` : 'detection → fix'),
   )
 
@@ -59,7 +59,7 @@ export function renderItConsole(s: ItSnapshot): void {
 
   const json = $('itc-json') as HTMLPreElement
   const items = [
-    ...s.tickets.map((k) => ({ id: k.id, label: `Ticket ${k.id}${k.reason ? ` · ${k.reason}` : ''}`, when: k.createdAt, prio: k.priority, json: k.json })),
+    ...s.tickets.map((k) => ({ id: k.id, label: `Ticket ${k.id}${k.auto ? ' (automatic)' : ''}${k.reason ? ` · ${k.reason}` : ''}`, when: k.createdAt, prio: k.priority, json: k.json })),
     ...s.reports.map((r) => ({ id: r.id, label: `Call report ${r.id}${r.problems.length ? ` · ${r.problems.length} problem${r.problems.length > 1 ? 's' : ''}` : ''}`, when: r.endedAt, prio: r.priority, json: r.json }))
   ]
     .sort((a, b) => b.when.localeCompare(a.when))

@@ -38,6 +38,8 @@ export interface ItStatsState {
   costUsd: number
   /** Why each ticket was sent (ticket id → reason), shown to IT */
   ticketReasons?: Record<string, string>
+  /** Tickets Tap sent by itself */
+  autoTickets?: number
 }
 
 const WEEK_S = 7 * 24 * 3600
@@ -129,11 +131,12 @@ export class ItStats {
         }
         break
       }
-      case 'IT_SENT': {
-        if (cmd.what !== 'ticket' || !cmd.ok || !cmd.ref) return
-        const idx = cmd.card_id ? this.fixCards.get(cmd.card_id) : undefined
+      case 'IT_TICKET': {
+        if (cmd.state !== 'sent' || !cmd.ref) return
+        const idx = this.fixCards.get(cmd.card_id)
         if (idx !== undefined && s.problems[idx]) s.problems[idx]!.ticket = cmd.ref
-        ;(s.ticketReasons ??= {})[cmd.ref] = ticketReason(cmd.card_id ? (this.cardText.get(cmd.card_id) ?? '') : '')
+        ;(s.ticketReasons ??= {})[cmd.ref] = cmd.reason || ticketReason(this.cardText.get(cmd.card_id) ?? '')
+        if (cmd.auto) s.autoTickets = (s.autoTickets ?? 0) + 1
         break
       }
       case 'COUNTERS':
@@ -150,13 +153,17 @@ export class ItStats {
    * Before a fix card is shown (index.ts): the same problem for the 3rd time this week → also offer IT, and say why.
    * Returns the card to show (unchanged otherwise).
    */
-  escalate(cmd: Extract<UiCommand, { type: 'SHOW_FIX' }>): Extract<UiCommand, { type: 'SHOW_FIX' }> {
-    if (cmd.it_ticket || cmd.problem.startsWith("Tap couldn't fix it")) return cmd
+  escalate(cmd: Extract<UiCommand, { type: 'SHOW_FIX' }>): { cmd: Extract<UiCommand, { type: 'SHOW_FIX' }>; auto?: { reason: string; key: string } } {
+    if (cmd.it_ticket || cmd.problem.startsWith("Tap couldn't fix it")) return { cmd }
     const type = problemType(cmd.problem, cmd.fix_label)
     const t = this.now()
     const n = this.state.problems.filter((p) => !p.onPurpose && p.type === type && t - p.at < WEEK_S).length + 1
-    if (n < REPEAT_FOR_TICKET) return cmd
-    return { ...cmd, it_ticket: true, problem: `${cmd.problem} · ${ordinal(n)} time this week: this may be a device problem.` }
+    if (n < REPEAT_FOR_TICKET) return { cmd }
+    // The card says why; index.ts then asks the executor for the automatic ticket (once a day per problem type).
+    return {
+      cmd: { ...cmd, it_ticket: true, problem: `${cmd.problem} · ${ordinal(n)} time this week: this may be a device problem.` },
+      auto: { reason: `same problem ${n} times this week (${type.toLowerCase()})`, key: `repeat:${type}` }
+    }
   }
 
   /** The user's clicks on the cards (TapEvent USER_CLICK from the overlay). */
@@ -198,7 +205,8 @@ export class ItStats {
         fixed: fixed.length,
         secondsLost: Math.round(durations.reduce((a, b) => a + b, 0)),
         medianFixS: durations.length ? Math.round(durations[Math.floor(durations.length / 2)]!) : null,
-        solvedWithoutTicket: solved
+        solvedWithoutTicket: solved,
+        autoTickets: s.autoTickets ?? 0
       },
       byType: [...types].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count),
       fixes: Object.entries(s.fixes).map(([label, f]) => ({ label, ...f })),
@@ -211,7 +219,7 @@ export class ItStats {
         aiCalls: s.aiCalls,
         costUsd: s.costUsd
       },
-      tickets: tickets.map((k) => ({ ...k, reason: reasons[k.id] ?? 'sent by the user' })).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      tickets: tickets.map((k) => ({ ...k, reason: k.reason ?? reasons[k.id] ?? 'sent by the user' })).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       reports: reports.slice().sort((a, b) => b.endedAt.localeCompare(a.endedAt)),
       recurring: recurring(reports)
     }
@@ -273,9 +281,17 @@ export function recurring(reports: CallReportFile[]): ItSnapshot['recurring'] {
 /** Parse the simulated helpdesk files (index.ts reads them). Bad lines are skipped. */
 export function parseTicket(json: string): TicketFile | null {
   try {
-    const t = JSON.parse(json) as { id?: string; createdAt?: string; priority?: string; requesterRole?: string }
+    const t = JSON.parse(json) as { id?: string; createdAt?: string; priority?: string; requesterRole?: string; reason?: string; automatic?: boolean }
     if (typeof t.id !== 'string') return null
-    return { id: t.id, createdAt: t.createdAt ?? '', priority: t.priority ?? 'normal', requesterRole: t.requesterRole ?? '', json }
+    return {
+      id: t.id,
+      createdAt: t.createdAt ?? '',
+      priority: t.priority ?? 'normal',
+      requesterRole: t.requesterRole ?? '',
+      json,
+      ...(typeof t.reason === 'string' ? { reason: t.reason } : {}),
+      ...(t.automatic === true ? { auto: true } : {})
+    }
   } catch {
     return null
   }

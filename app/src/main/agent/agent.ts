@@ -47,6 +47,8 @@ export class Agent {
   /** The judges' log, and the AI cost counter, for work done outside the four agents (B: end-of-call summary). */
   readonly report: Reporter
   readonly recordAiCall: (costUsd: number) => void
+  /** B: automatic IT ticket for a card (index.ts: a problem's 3rd time this week). Goes through the executor's gate. */
+  readonly autoTicket: (cardId: string, reason: string, key: string) => void
 
   constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string, opts: AgentOptions = {}) {
     this.ui = ui
@@ -66,6 +68,7 @@ export class Agent {
       resetCall: () => monitor.resetCall()
     })
     monitor.start({ llm, executor, haptics })
+    this.autoTicket = (cardId, reason, key) => executor.scheduleAutoTicket(cardId, reason, key)
 
     report.log('decision', `Role: ${this.roles.flags.label} (from config) → ${roleSummary(this.roles.role)}`)
     this.roles.onChange((role) => {

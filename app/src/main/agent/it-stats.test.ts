@@ -21,7 +21,7 @@ test('it-stats: muted while talking, caught by Tap, fixed and checked → before
   s.onUi(log('decision', 'Mic problem fixed before anyone noticed'))
   s.onUi(log('action', 'You clicked the fix → laptop mic "X" unmuted (checked)'))
   const snap = s.snapshot([], [])
-  assert.deepEqual(snap.tiles, { caught: 1, beforeNoticed: 1, reported: 0, fixed: 1, secondsLost: 4, medianFixS: 4, solvedWithoutTicket: 1 })
+  assert.deepEqual(snap.tiles, { caught: 1, beforeNoticed: 1, reported: 0, fixed: 1, secondsLost: 4, medianFixS: 4, solvedWithoutTicket: 1, autoTickets: 0 })
   assert.deepEqual(snap.byType, [{ type: 'Mic muted in Windows', count: 1 }])
   assert.deepEqual(snap.fixes, [{ label: 'Unmute mic', used: 1, checked: 1, failed: 0 }])
 })
@@ -88,22 +88,23 @@ test('it-stats: no transcript ever stored (only counts, types, fixed reasons)', 
   assert.ok(!JSON.stringify(s.state).includes('secret'))
 })
 
-test('it-stats: the same problem for the 3rd time this week → the card also offers IT, and says why', () => {
+test('it-stats: the same problem for the 3rd time this week → the card says so, and an automatic ticket is asked for', () => {
   const { s, at } = setup()
   const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic is muted in Windows', fix_label: 'Unmute laptop mic', action_id: 'fix_mic' as const })
   for (const [i, id] of ['a', 'b'].entries()) {
     at(1000 + i * 3600)
-    const c = s.escalate(card(id))
-    assert.equal(c.it_ticket, undefined, `${id}: 1st/2nd time → no ticket button`)
-    s.onUi(c)
+    const e = s.escalate(card(id))
+    assert.equal(e.auto, undefined, `${id}: 1st/2nd time → no ticket`)
+    s.onUi(e.cmd)
   }
   at(1000 + 2 * 3600)
   const third = s.escalate(card('c'))
-  assert.equal(third.it_ticket, true)
-  assert.match(third.problem, /3rd time this week: this may be a device problem/)
+  assert.equal(third.cmd.it_ticket, true)
+  assert.match(third.cmd.problem, /3rd time this week: this may be a device problem/)
+  assert.deepEqual(third.auto, { reason: 'same problem 3 times this week (mic muted in windows)', key: 'repeat:Mic muted in Windows' })
   // more than a week later it starts again from 1
   at(1000 + 9 * 24 * 3600)
-  assert.equal(s.escalate(card('d')).it_ticket, undefined)
+  assert.equal(s.escalate(card('d')).auto, undefined)
 })
 
 test('it-stats: ticket reason, ticketed problems are not "solved without a ticket"', () => {
@@ -121,21 +122,22 @@ test('it-stats: ticket reason, ticketed problems are not "solved without a ticke
   s.onEvent(clickEv('fix_mic'))
   s.onUi(log('error', 'You clicked the fix → could not unmute laptop mic "X"'))
   s.onUi({ type: 'SHOW_FIX', id: 'c3', problem: "Tap couldn't fix it (could not unmute laptop mic \"X\"). This may be a device or driver problem.", fix_label: 'OK', action_id: 'dismiss_card', it_ticket: true })
-  s.onUi({ type: 'IT_SENT', what: 'ticket', card_id: 'c3', ok: true, ref: 'T-0001', text: 'Ticket T-0001 sent' })
+  s.onUi({ type: 'IT_TICKET', card_id: 'c3', state: 'sent', reason: 'the one-click fix failed', auto: true, ref: 'T-0001' })
   const snap = s.snapshot([{ id: 'T-0001', createdAt: '2026-11-22T04:00:00Z', priority: 'normal', requesterRole: 'intern', json: '{}' }], [])
   assert.equal(snap.tiles.caught, 2, 'the follow-up card is not a new problem')
   assert.equal(snap.tiles.solvedWithoutTicket, 1)
   assert.equal(snap.tickets[0]!.reason, 'the one-click fix failed')
+  assert.equal(snap.tiles.autoTickets, 1)
 })
 
 test("it-stats: 'I'm muted on purpose' is not a problem: not counted, never escalates to IT", () => {
   const { s } = setup()
   const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic is muted in Windows', fix_label: 'Unmute laptop mic', action_id: 'fix_mic' as const })
   for (const id of ['a', 'b']) {
-    s.onUi(s.escalate(card(id)))
+    s.onUi(s.escalate(card(id)).cmd)
     s.onEvent(clickEv('snooze_mic_alerts'))
   }
-  assert.equal(s.escalate(card('c')).it_ticket, undefined, '2 on purpose + this one = 1 real → no ticket button')
+  assert.equal(s.escalate(card('c')).auto, undefined, '2 on purpose + this one = 1 real → no ticket')
   assert.equal(s.snapshot([], []).tiles.caught, 0)
   assert.equal(s.snapshot([], []).agent.notNeeded, 2)
 })
