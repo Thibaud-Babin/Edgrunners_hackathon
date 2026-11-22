@@ -15,6 +15,7 @@
     let self = false
     let presenting = false
     let name = null
+    let named = null
     for (const raw of lines) {
       let line = String(raw).replace(/\s+/g, ' ').trim()
       if (!line) continue
@@ -32,8 +33,12 @@
         continue
       }
       if (UI_WORDS.has(line.toLowerCase()) || line.includes('_') || line.length > 60 || !/\p{L}/u.test(line)) continue
-      if (name === null) name = line
+      // Names usually start with a capital (Meet shows account names); other tile text is usually lowercase
+      if (/^\p{Lu}/u.test(line)) {
+        if (named === null) named = line
+      } else if (name === null) name = line
     }
+    name = named ?? name
     return name ? { name, self, presenting } : null
   }
 

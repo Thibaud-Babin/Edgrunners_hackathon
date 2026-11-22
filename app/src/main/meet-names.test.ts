@@ -71,6 +71,7 @@ test('meet bridge: only our extension, only JSON, only a valid update; your own 
 
 test('extension: the name on a tile, you, presentations, icon text', () => {
   assert.deepEqual(P.pickName(['mic_off', 'Sarah Martin', 'more_vert']), { name: 'Sarah Martin', self: false, presenting: false })
+  assert.equal(P.pickName(['bars', 'Sarah Martin'])?.name, 'Sarah Martin', 'a lowercase line before the name is not the name')
   assert.deepEqual(P.pickName(['Thibaud Babin (You)']), { name: 'Thibaud Babin', self: true, presenting: false })
   assert.equal(P.pickName(['You', 'Thibaud'])?.self, true)
   assert.equal(P.pickName(['Sarah Martin (Presentation)'])?.presenting ?? true, true)
