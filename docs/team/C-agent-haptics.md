@@ -129,9 +129,9 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 | F3 | same, while away ≥ 2 s | "while you were away" card at once, no need to look back; the away period restarts there, so looking back later recaps only the rest |
 | F4 | `WAITING_FOR_YOU` | nudge card "They're waiting for your answer" + two knocks |
 | F5 | `NAME_MENTIONED.latency_s` | log "Knock X s after your name was said" |
-| F6 | `QUESTION_TO_GROUP` | log only; `ringing` only with `TAP_OPTIONAL_HAPTICS=1` (Sat 22:30: only 4 vibrations, see below) |
+| F6 | `QUESTION_TO_GROUP` | log only; `ringing` only with Settings → Extra vibrations (or `TAP_OPTIONAL_HAPTICS=1`) (Sat 22:30: only 4 vibrations, see below) |
 | F7 | `OTHERS_CANT_HEAR` | fix card "Switch to laptop mic" + angry_alert; only the user's click switches the mic (gate: T1 = click only, `permissions.ts`) |
-| F8 | `TOPIC_MENTIONED` | log only; `damp_state_change` only with `TAP_OPTIONAL_HAPTICS=1` |
+| F8 | `TOPIC_MENTIONED` | log only; `damp_state_change` only with Settings → Extra vibrations (or `TAP_OPTIONAL_HAPTICS=1`) |
 | F9 | `MIC_QUALITY` bad > 10 s | fix card "Switch to laptop mic"; if still bad 10 s after the user switched, a card with what else to try (unmute, move closer, headset) |
 | F10 | `STT_USAGE` | speech-to-text cost added to the cost counter (checkup) |
 | F11 | `speaker` on transcripts | "Speaker N:" prefix once 2+ voices were heard |
@@ -172,7 +172,7 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 | IT ticket queue | normal | normal | priority | priority |
 
 **Features:**
-- **Confidential mode (8):** executive/CEO recaps are made on the laptop (template, fallback `confidential`, not counted as an AI failure); `TAP_RECORD` does not record them.
+- **Confidential mode (8):** executive/CEO recaps and meeting summaries (`summarizeCall(..., { local: true })`) are made on the laptop (template, fallback `confidential`, not counted as an AI failure); `TAP_RECORD` does not record them.
 - **End-of-call IT report:** `CALL_ENDED` (D's button, source `ui` only) → `send_call_report` for every role: problems seen, feed health, fixes clicked, call length, mic state without its name. Never speech. Appended to `<userData>/it-log/calls.jsonl` (simulated IT log). Priority: no problem → log only; problems → priority; problems for an executive/CEO → urgent.
 - Dropped after review: sharing recaps, minutes to attendees, wiping the transcript at call end.
 - **IT ticket (10) + VIP priority (11):** device fix cards carry `it_ticket: true`. Click → a ticket with device facts and the checkup's problem history (no speech, no device name) is written to `<userData>/it-tickets/T-NNNN.json` (simulated helpdesk).

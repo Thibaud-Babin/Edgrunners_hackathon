@@ -3,8 +3,8 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
 import { IPC } from '../shared/events'
@@ -12,6 +12,9 @@ import { EventBus } from './bus'
 import { Haptics } from './haptics'
 import { Agent } from './agent/agent'
 import { Llm } from './agent/llm'
+import { summarizeCall } from './agent/call-summary'
+import { DEFAULT_TIMES, Meetings } from './agent/meetings'
+import { hapticSettings } from './agent/rules'
 import { AudioPipeline, createStt, onSttStatus } from './audio/pipeline'
 import { runMock, startRecording } from './mock'
 import { findName } from './detectors/text'
@@ -70,12 +73,13 @@ function createWindows(): void {
 
 function sendUi(cmd: UiCommand): void {
   // Terminal trace of what the agent does (cards, haptics, decisions). TAP_DEBUG_AUDIO=0 silences it.
-  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION') {
+  if (process.env.TAP_DEBUG_AUDIO !== '0' && cmd.type !== 'COUNTERS' && cmd.type !== 'CAPTION' && cmd.type !== 'CUE') {
     if (cmd.type === 'LOG_ENTRY') {
       if (cmd.entry.kind !== 'event') console.log(`[agent] ${cmd.entry.kind}: ${cmd.entry.text}`)
     } else if (cmd.type === 'SHOW_RECAP') console.log(`[card] RECAP ${cmd.id}: ${cmd.summary}${cmd.question ? ` | QUESTION: ${cmd.question}` : ''}`)
     else if (cmd.type === 'SHOW_AWAY_SUMMARY') console.log(`[card] WHILE YOU WERE AWAY ${cmd.id} (${Math.round(cmd.until - cmd.away_from)} s, ${cmd.trigger}): ${cmd.summary}${cmd.question_to_you ? ` | QUESTION: ${cmd.question_to_you}` : ''}`)
     else if (cmd.type === 'SHOW_FIX') console.log(`[card] FIX: ${cmd.problem} → ${cmd.fix_label}`)
+    else if (cmd.type === 'CALL_SUMMARY') console.log(`[card] MEETING SUMMARY (${cmd.final ? 'meeting ended' : 'so far'}, ${cmd.from}, ${cmd.source}, ${cmd.minutes} min): ${cmd.points.length} points, ${cmd.questions_to_you.length} questions to you, ${cmd.your_tasks.length} tasks, ${cmd.decisions.length} decisions`)
     else if (cmd.type === 'SHOW_NUDGE') console.log(`[card] NUDGE: ${cmd.text}${cmd.question ? ` | ${cmd.question}` : ''}`)
     else if (cmd.type === 'SHOW_NOTICE') console.log(`[card] NOTICE: ${cmd.text}`)
     else if (cmd.type === 'ROLE') console.log(`[ui] ROLE ${cmd.role} (IT view ${cmd.sees_it_view ? 'shown' : 'hidden'}, ${cmd.confidential ? 'confidential' : 'not confidential'})`)
@@ -127,6 +131,8 @@ app.whenReady().then(() => {
       }
     }
   })
+  // Settings → "Sound with each vibration": the overlay plays the sound when the vibration is actually sent.
+  haptics.onFire = (waveform) => sendUi({ type: 'CUE', waveform })
   // Dev only: TAP_RECORD=1 records every event to demo/recordings/ (gitignored) for replay with TAP_MOCK_FILE.
   // B's recorder writes the call audio of the same session there too (audio/recorder.ts).
   // Never for confidential roles (executive, CEO): their meetings are not recorded.
@@ -153,9 +159,63 @@ app.whenReady().then(() => {
       sendUi({ type: 'CAPTION', text, final: type === 'TRANSCRIPT_FINAL', speaker, highlight: findName(text, names)?.word })
     })
   }
+  // ---------- Meeting summaries (B, agent/meetings.ts + agent/call-summary.ts) ----------
+  // Meet's "Leave call" is invisible to Tap, so meetings are split by the audio: goodbye + 15 s of silence ends one
+  // (final summary), 2 min of silence gives a summary so far, speech after 5 min starts a new meeting. The
+  // "Summarize" buttons (main window panel, overlay pill) summarize the current meeting at any time.
+  // Summaries are saved on this laptop (userData/meeting-summaries.json) and shown again after a restart.
+  const settings = { autoSummary: true }
+  const summaryFile = join(app.getPath('userData'), 'meeting-summaries.json')
+  const MAX_SAVED = 30
+  const saved: Extract<UiCommand, { type: 'CALL_SUMMARY' }>[] = (() => {
+    try {
+      const list = JSON.parse(readFileSync(summaryFile, 'utf8')) as unknown
+      return Array.isArray(list) ? (list.filter((x) => x && typeof x === 'object' && x.type === 'CALL_SUMMARY' && typeof x.id === 'string') as typeof saved) : []
+    } catch {
+      return []
+    }
+  })()
+  const save = (cmd: Extract<UiCommand, { type: 'CALL_SUMMARY' }>): void => {
+    const i = saved.findIndex((x) => x.id === cmd.id)
+    if (i >= 0) saved.splice(i, 1)
+    saved.push(cmd)
+    while (saved.length > MAX_SAVED) saved.shift()
+    try {
+      mkdirSync(dirname(summaryFile), { recursive: true })
+      writeFileSync(summaryFile, JSON.stringify(saved))
+    } catch (err) {
+      console.warn('[summary] could not save:', (err as Error).message)
+    }
+  }
+  const meetings = new Meetings(async (call, final, from) => {
+    if (!call.lines.length) {
+      sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text: 'Meeting summary: nothing was said in the call yet' } })
+      const t = Date.now() / 1000
+      sendUi({ type: 'CALL_SUMMARY', id: `${call.id}-empty`, started_at: t, ended_at: t, final: false, from, points: [], questions_to_you: [], your_tasks: [], decisions: [], source: 'template', minutes: 0, lines: 0 })
+      return
+    }
+    const r = await summarizeCall(call, llm, names, { local: roles.flags.confidential })
+    call.markSummarized()
+    if (r.costUsd > 0) agent.recordAiCall(r.costUsd)
+    const why = final ? 'meeting ended' : from === 'auto' ? 'call quiet for a while' : 'you asked'
+    const how = r.source === 'cloud' ? 'AI' : `without AI (${r.fallback})`
+    sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: r.source === 'cloud' ? 'llm' : 'decision', text: `Meeting summary (${why}): ${r.minutes} min, ${r.points.length} talking points, ${r.questionsToYou.length} questions to you, ${r.yourTasks.length} tasks, ${r.decisions.length} decisions · ${how}`, ...(r.costUsd ? { costUsd: r.costUsd } : {}) } })
+    const cmd: Extract<UiCommand, { type: 'CALL_SUMMARY' }> = { type: 'CALL_SUMMARY', id: call.id, started_at: call.startedAt, ended_at: call.endedAt, final, from, points: r.points, questions_to_you: r.questionsToYou, your_tasks: r.yourTasks, decisions: r.decisions, source: r.source, minutes: r.minutes, lines: r.lines }
+    save(cmd)
+    sendUi(cmd)
+  }, {
+    byeQuietS: Number(process.env.TAP_SUMMARY_AFTER_BYE_S ?? DEFAULT_TIMES.byeQuietS),
+    quietS: Number(process.env.TAP_SUMMARY_AFTER_S ?? DEFAULT_TIMES.quietS),
+    newMeetingGapS: Number(process.env.TAP_NEW_MEETING_AFTER_S ?? DEFAULT_TIMES.newMeetingGapS)
+  })
+  bus.on('TRANSCRIPT_FINAL', (e) => {
+    if (e.source !== 'call_audio') return
+    meetings.onLine(cleanText(e.data?.text, MAX.transcriptChunk), e.ts, cleanText(e.data?.speaker, MAX.speakerName) || undefined)
+  })
   app.on('before-quit', () => {
     audio.stop() // closes recordings cleanly
     winMic.stop()
+    meetings.stop()
   })
   // The Windows default mic, on every change → MIC_STATE (the agent's mic doctor uses it).
   winMic.watch((m) => {
@@ -164,6 +224,29 @@ app.whenReady().then(() => {
   })
 
   ipcMain.on(IPC.event, (_e, ev: TapEvent) => {
+    // Settings page (main window): the two settings the main process needs. The others stay in the UI.
+    if (ev.type === 'SETTINGS' && ev.source === 'ui') {
+      const extra = ev.data?.optional_haptics === true
+      const auto = ev.data?.auto_summary !== false
+      if (extra !== hapticSettings.optional || auto !== settings.autoSummary) console.log(`[settings] extra vibrations ${extra ? 'on' : 'off'} · summary when the call goes quiet ${auto ? 'on' : 'off'}`)
+      hapticSettings.optional = extra
+      settings.autoSummary = auto
+      meetings.autoSummary = auto
+      return
+    }
+    if (ev.type === 'CALL_SUMMARY_REQUEST' && ev.source === 'ui') {
+      void meetings.request(ev.data?.from === 'overlay' ? 'overlay' : 'main')
+      return
+    }
+    if (ev.type === 'OPEN_SUMMARY' && ev.source === 'ui') {
+      if (mainWin && !mainWin.isDestroyed()) {
+        if (mainWin.isMinimized()) mainWin.restore()
+        mainWin.show()
+        mainWin.focus()
+        mainWin.webContents.send(IPC.ui, { type: 'OPEN_SUMMARY' } satisfies UiCommand)
+      }
+      return
+    }
     // Check-up "Try the vibrations": the user learns the 4 signals. Fires only a known pattern, decides nothing.
     if (ev.type === 'HAPTIC_TEST' && ev.source === 'ui') {
       const key = String(ev.data?.pattern ?? '')
@@ -194,6 +277,10 @@ app.whenReady().then(() => {
   mainWin?.webContents.once('did-finish-load', () => {
     for (const text of sttStatus) sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
     agent.announceRole() // the UI learns the role once it can listen (shows or hides the IT view)
+  })
+  // Saved meeting summaries → the main window's Meeting Summary panel, oldest first (the panel puts the newest on top).
+  mainWin?.webContents.on('did-finish-load', () => {
+    for (const cmd of saved) mainWin?.webContents.send(IPC.ui, { ...cmd, from: 'restored' } satisfies UiCommand)
   })
 
   // Dev test: `npm run dev -- --autostart-call` clicks "Start call audio" by itself (for B's capture test).

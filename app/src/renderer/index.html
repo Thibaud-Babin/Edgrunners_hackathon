@@ -31,7 +31,19 @@
         <button class="orbit-node" data-orb="1" style="--c: rgba(96, 165, 250, 0.9)"><span class="o-glow"></span><span class="o-disc">≡</span><span class="o-name">Activity</span><span class="badge o-badge" id="badge-activity">0 events · 0 blocked</span></button>
         <button class="orbit-node" data-orb="2" style="--c: rgba(251, 191, 36, 0.9)"><span class="o-glow"></span><span class="o-disc">▦</span><span class="o-name">IT view</span><span class="badge o-badge">simulated</span></button>
         <button class="orbit-node" data-orb="3" style="--c: rgba(192, 132, 252, 0.9)"><span class="o-glow"></span><span class="o-disc">⚙</span><span class="o-name">Dev tools</span><span class="badge o-badge">team only</span></button>
-        <button class="orbit-node" data-orb="4" style="--c: rgba(244, 114, 182, 0.9)"><span class="o-glow"></span><span class="o-disc">◐</span><span class="o-name">Settings</span><span class="badge o-badge">theme</span></button>
+        <button class="orbit-node" data-orb="4" style="--c: rgba(244, 114, 182, 0.9)"><span class="o-glow"></span><span class="o-disc">◐</span><span class="o-name">Settings</span><span class="badge o-badge">sound · captions</span></button>
+        <button class="orbit-node state-on" id="node-captions" data-orb="5" style="--c: rgba(34, 211, 238, 0.88)" aria-label="Toggle live captions" aria-pressed="true">
+          <span class="o-glow"></span>
+          <span class="o-disc"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M7 10h4M7 14h6M15 10h2M15 14h2"></path></svg></span>
+          <span class="o-name">Live Captions</span>
+          <span class="badge o-badge" id="badge-captions">ON</span>
+        </button>
+        <button class="orbit-node" id="node-summary" data-orb="6" style="--c: rgba(167, 139, 250, 0.9)" aria-label="Open meeting summary" aria-expanded="false">
+          <span class="o-glow"></span>
+          <span class="o-disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"></path><path d="M15 3v4h4M9 11h6M9 15h6"></path></svg></span>
+          <span class="o-name">Meeting Summary</span>
+          <span class="badge o-badge" id="badge-summary">empty</span>
+        </button>
         <div class="orbit-panel" id="orbit-panel">
           <h3 id="op-title"></h3>
           <p id="op-desc"></p>
@@ -40,6 +52,26 @@
         </div>
       </div>
     </section>
+
+    <div class="summary-backdrop" id="summary-backdrop" aria-hidden="true"></div>
+    <aside class="meeting-summary" id="meeting-summary" aria-hidden="true" aria-labelledby="summary-title">
+      <div class="summary-head">
+        <div>
+          <span class="summary-kicker">Your meetings · newest first</span>
+          <h2 id="summary-title">Meeting Summary</h2>
+        </div>
+        <div class="summary-head-actions">
+          <button class="btn primary" id="summary-generate" title="Talking points, questions to you, your tasks and decisions, from the whole call">Summarize the call</button>
+          <button class="summary-close" id="summary-close" aria-label="Close meeting summary"><span aria-hidden="true">×</span></button>
+        </div>
+      </div>
+      <div class="summary-content" id="summary-content">
+        <div class="summary-empty">
+          <strong>No summary yet</strong>
+          <span>Tap will show real meeting recaps here when they become available.</span>
+        </div>
+      </div>
+    </aside>
 
     <div class="content">
       <!-- ============ Check-up ============ -->
@@ -86,6 +118,53 @@
           <h3>Try the vibrations</h3>
           <p class="haptic-hint">Tap talks to you through the mouse with only 4 signals. Feel each one once before the call.</p>
           <div class="haptic-tests" id="haptic-tests"></div>
+        </div>
+      </section>
+
+      <!-- ============ Settings (B) ============ -->
+      <section class="page" id="page-settings">
+        <div class="page-head">
+          <div class="head-left">
+            <button class="btn ghost back-hub">← Graph</button>
+            <div>
+              <h2>Settings</h2>
+              <p>How Tap reaches you during a call. Saved on this laptop.</p>
+            </div>
+          </div>
+          <div class="head-right"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Signals</h3>
+            <label class="set-row">
+              <span class="set-text"><strong>Sound with each vibration</strong><span>For when your hand is not on the mouse: the same 4 signals as short sounds in your headphones.</span></span>
+              <input type="checkbox" class="switch" id="set-sound" />
+            </label>
+            <div class="set-row set-sub" id="set-sound-more">
+              <span class="set-text"><strong>Sound volume</strong></span>
+              <input type="range" id="set-volume" min="0" max="1" step="0.05" aria-label="Sound volume" />
+              <button class="btn" id="set-sound-test">Play the 4 sounds</button>
+            </div>
+            <label class="set-row">
+              <span class="set-text"><strong>Extra vibrations</strong><span>Also a ringing for a question to the whole group, and a soft one for a topic you follow. Off: only the 4 signals.</span></span>
+              <input type="checkbox" class="switch" id="set-extra" />
+            </label>
+          </div>
+          <div class="panel">
+            <h3>Display and summary</h3>
+            <label class="set-row">
+              <span class="set-text"><strong>Live captions</strong><span>What the others say, at the bottom of the screen. Hiding them does not stop Tap listening for your name.</span></span>
+              <input type="checkbox" class="switch" id="set-captions" />
+            </label>
+            <label class="set-row">
+              <span class="set-text"><strong>Summary at the end of the meeting</strong><span>When someone says goodbye and the call goes quiet for 15 s (or after 2 min of silence), Tap writes the talking points, questions to you, your tasks and decisions into Meeting Summary.</span></span>
+              <input type="checkbox" class="switch" id="set-auto-summary" />
+            </label>
+            <label class="set-row">
+              <span class="set-text"><strong>Dark theme</strong></span>
+              <input type="checkbox" class="switch" id="set-theme" />
+            </label>
+          </div>
         </div>
       </section>
 

@@ -39,6 +39,9 @@ export type EventType =
   | 'MIC_SILENT_WHILE_SPEAKING'
   // D — UI
   | 'USER_CLICK'
+  | 'SETTINGS' // { optional_haptics, auto_summary } Settings page → main (the rest of the settings live in the UI)
+  | 'CALL_SUMMARY_REQUEST' // { from: 'main' | 'overlay' } "Summarize" button (Meeting Summary panel, overlay pill)
+  | 'OPEN_SUMMARY' // overlay "Open" on the call-summary card → show the main window's Meeting Summary panel
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
   // D — UI, added Sun (C's role-based rights; additive)
   | 'CALL_ENDED' // {} the user clicked "End call": the call's device health report goes to the IT log
@@ -97,6 +100,29 @@ export type UiCommand =
   | { type: 'FLASH'; reason: string }
   | { type: 'LOG_ENTRY'; entry: LogEntry }
   | { type: 'COUNTERS'; aiCalls: number; costUsd: number; events: number; blocked: number }
+  /** A vibration is being sent now: the overlay plays its sound if "Sound with each vibration" is on (Settings). */
+  | { type: 'CUE'; waveform: Waveform }
+  /**
+   * Meeting summary (B, call-summary.ts + meetings.ts) → Meeting Summary panel, one entry per meeting (`id`; a newer
+   * summary of the same meeting replaces it). The overlay shows a short "ready" card for `auto` and `overlay`.
+   */
+  | {
+      type: 'CALL_SUMMARY'
+      id: string
+      started_at: number
+      ended_at: number
+      /** The meeting is over (goodbye, or a long gap before the next call); false = "so far". */
+      final: boolean
+      from: 'auto' | 'main' | 'overlay' | 'restored'
+      points: string[]
+      questions_to_you: string[]
+      your_tasks: string[]
+      decisions: string[]
+      source: 'cloud' | 'template'
+      minutes: number
+      lines: number
+    }
+  | { type: 'OPEN_SUMMARY' }
 
 export interface LogEntry {
   ts: number

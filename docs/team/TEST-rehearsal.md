@@ -55,6 +55,10 @@ With only 3 people, Speaker 1 also reads the Speaker 2 lines.
    | **They're waiting for you** | 2 knocks (knock · knock) | a question to you, then silence |
    | **Problem** | angry alert (long, strong) | your mic or camera has a problem, or they can't hear you |
    | **Fixed** | completed (short) | the fix you clicked worked |
+
+   Then open **Settings** (hub → Settings → Open Settings) and check: **Sound with each vibration ON** for this
+   rehearsal (step S tests it), **Extra vibrations OFF**, **Live captions ON**, **Summary at the end of the meeting ON**.
+   Click **Play the 4 sounds**: you hear tock · tock tock · buzz-buzz · a rising chime in the headphones.
 8. **Ready check:**
    - The terminal shows `Speech: Deepgram (cloud), local Parakeet ready as fallback`.
    - The pill says **Listening**.
@@ -88,7 +92,15 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | | User | Clicks **"I'm muted on purpose"**, then talks again for 3 s. | The card closes. **No new card** while you stay muted. The terminal shows `Muted on purpose → no mute alerts until you unmute`. |
 | | User | Unmutes in Windows, mutes again, talks for 3 s. | The card comes back (unmuting ended "on purpose"). |
 | | User | Clicks **"Unmute laptop mic"** and keeps talking. | `unmuted (checked)` and **`Mic problem fixed before anyone noticed`** in the terminal. **The speakers hear you.** |
+| **S**: hand off the mouse (sound cues) | User | Takes the hand **off the mouse** and types in a text file. | — |
+| | Speaker 1 | "Thibaud, quick question: did you get my email?" | In the **headphones**: a short **"tock"** at the same moment as the knock on the mouse. |
+| | User | Settings → turns **Sound with each vibration OFF**; Speaker 1 says the name again. | Knock on the mouse, **no sound**. Turn it back on afterwards if you like. |
 | **End** | Speaker 1 | "OK, thanks everyone, bye." | — |
+| **T**: end-of-meeting summary | Everyone | After Speaker 1's "bye", **nobody talks for 15 s**. | A card **"Meeting summary ready · N talking points"** appears on the overlay **by itself**, with the question to you and your task. The terminal shows `[card] MEETING SUMMARY (meeting ended, auto, cloud, …)`. |
+| | User | Clicks **Open summary** on the card. | Tap's main window comes up with the **Meeting Summary** panel open: **Meeting · start–end** with **Questions to you** (step C), **Your tasks**, **Decisions** (the budget deadline, step I) and **Talking points**. Nothing invented. |
+| **U**: a second meeting | Speaker 2 | Starts a new short call: "Hi, this is the design review. Lea will redo the icons before Wednesday." | — |
+| | User | Clicks **📝 Summary** on the overlay pill (top of the screen), without leaving Meet. | A card **"Meeting summary so far"**. In the panel: **two separate meetings**; the new one has **nothing from the first** (no budget, no Monday task). |
+| | User | Restarts Tap (Ctrl+C, `npm run dev`), opens Meeting Summary. | Both meetings are still there. |
 
 **After the end, the User:**
 1. Opens **Activity** in the main window and takes a screenshot of the log and the AI cost.
@@ -105,6 +117,10 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | `switching to Parakeet` in the terminal | The internet dropped; Tap continues offline, a bit slower. Note the time. |
 | A card with raw text and no summary | The AI key or the internet is down, so Tap used a template. Note it. |
 | A red error in the terminal | Copy it into the notes. |
+| No sound in step S | Settings → **Sound with each vibration** must be on, and the volume above 0. Click **Play the 4 sounds** to check the headphones. Windows' default output must be the headphones. |
+| Step T says "Made without AI" | The AI key is missing or the internet is down: the summary is built from transcript lines instead. Still check that it lists the question and the task. |
+| Step T says "Nothing was said in the call yet" | "Start call audio" was not clicked, so Tap has no transcript. |
+| No card after "bye" in step T | Someone talked during the 15 s, or the goodbye was not the last thing said (e.g. "bye Marie" then more talk): Tap then waits 2 min and gives a summary **so far**. Click **📝 Summary** on the pill instead. Also check Settings → **Summary at the end of the meeting** is on. |
 | No mic card in G or L | Look for the `[mic] default: …` line in the terminal: no line = Windows mic control isn't running. For L, "Start mic" and "Start camera" must be on (Tap needs your mouth and your mic level). |
 | The mic fix worked but Meet still doesn't hear you | Meet's microphone is not set to **Default**: change it in Meet → Settings → Audio. |
 
@@ -122,6 +138,9 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | H nothing happens | | | |
 | I no vibration (log line only) | | | |
 | V blind test: signals named correctly __ / 4 (which ones were confused?) | | | |
+| S "tock" in the headphones with the knock; nothing when the setting is off | | | |
+| T summary by itself after "bye" + 15 s: question to you ✅/❌ · your task ✅/❌ · decision ✅/❌ · anything invented? | | | |
+| U second meeting separate (nothing from the first) · pill button works · still there after restart | | | |
 | J no card | | | |
 | K "too dark" logged + Check-up row | | | |
 | L card while talking muted; "muted on purpose" silences it; "Unmute" fixes it | | | |
@@ -139,6 +158,7 @@ Leave **about 5 s of silence between steps**, so each reaction shows on its own.
 | Name missed or false knock, captions, wrong speaker | **B** | `app/src/main/audio/`, `app/src/main/detectors/text.ts` |
 | Pill "Away" wrong or late, camera, too dark / frozen, mouth | **A** | `app/src/renderer/src/vision.ts`, `app/src/renderer/src/vision/health.ts` |
 | Wrong card, wrong timing, wrong or bad summary, wrong vibration | **C** | `app/src/main/agent/` |
+| Settings, sound cues, end-of-call summary | **B** | `app/src/renderer/src/ui/sound.ts`, Settings in `app/src/renderer/src/main.ts`, `app/src/main/agent/call-summary.ts` |
 | Mic card wrong, or the fix does nothing in Windows | **B** (Windows side) + **C** (which card) | `app/src/main/audio/win-mic.ts`, `app/scripts/win-mic.ps1`, the mic doctor in `app/src/main/agent/rules.ts` |
 | Card looks or layout, captions hidden, button doesn't work | **D** | `app/src/renderer/` |
 

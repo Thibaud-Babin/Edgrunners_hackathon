@@ -44,6 +44,9 @@ export interface AgentOptions {
 export class Agent {
   private ui: (cmd: UiCommand) => void
   private roles: RoleState
+  /** The judges' log, and the AI cost counter, for work done outside the four agents (B: end-of-call summary). */
+  readonly report: Reporter
+  readonly recordAiCall: (costUsd: number) => void
 
   constructor(events: EventBus, ui: (cmd: UiCommand) => void, haptics: Haptics, llm: Llm, userName: string, opts: AgentOptions = {}) {
     this.ui = ui
@@ -51,6 +54,8 @@ export class Agent {
     const bus = new AgentBus()
     const monitor = new Monitor(events, bus, ui)
     const report = monitor.reporter
+    this.report = report
+    this.recordAiCall = (usd) => monitor.recordAiCall(usd)
     bus.onInvalid = report.invalid
     new AudioAgent(events, bus, llm, userName, report, this.roles)
     startVisionIntake(events, bus, report)
