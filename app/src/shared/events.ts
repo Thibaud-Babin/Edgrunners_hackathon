@@ -41,6 +41,7 @@ export type EventType =
   | 'USER_CLICK'
   | 'SETTINGS' // { optional_haptics, auto_summary } Settings page → main (the rest of the settings live in the UI)
   | 'CALL_SUMMARY_REQUEST' // { from: 'main' | 'overlay' } "Summarize" button (Meeting Summary panel, overlay pill)
+  | 'IT_STATS_REQUEST' // IT console page opened → main answers with IT_STATS (B)
   | 'OPEN_SUMMARY' // overlay "Open" on the call-summary card → show the main window's Meeting Summary panel
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
   // D — UI, added Sun (C's role-based rights; additive)
@@ -123,6 +124,7 @@ export type UiCommand =
       lines: number
     }
   | { type: 'OPEN_SUMMARY' }
+  | { type: 'IT_STATS'; stats: ItSnapshot }
 
 export interface LogEntry {
   ts: number
@@ -205,6 +207,34 @@ export const HAPTIC_PATTERNS = {
 export type HapticPattern = keyof typeof HAPTIC_PATTERNS
 
 /** IPC channel names shared by main, preload and renderer. */
+/** IT console (B, Nexthink track): device facts and counts only, from main/agent/it-stats.ts. */
+export interface TicketFile {
+  id: string
+  createdAt: string
+  priority: string
+  requesterRole: string
+  json: string
+}
+export interface CallReportFile {
+  id: string
+  endedAt: string
+  priority: string
+  problems: string[]
+  fixes: number
+  json: string
+}
+
+export interface ItSnapshot {
+  since: string
+  tiles: { caught: number; beforeNoticed: number; reported: number; fixed: number; secondsLost: number; medianFixS: number | null }
+  byType: { type: string; count: number }[]
+  fixes: { label: string; used: number; checked: number; failed: number }[]
+  agent: { actions: number; blockedCount: number; blocked: { at: string; text: string }[]; misfires: number; notNeeded: number; aiCalls: number; costUsd: number }
+  tickets: TicketFile[]
+  reports: CallReportFile[]
+  recurring: { problem: string; calls: number; of: number; hint: string }[]
+}
+
 export const IPC = {
   event: 'tap:event', // renderer → main: TapEvent
   ui: 'tap:ui', // main → renderer: UiCommand

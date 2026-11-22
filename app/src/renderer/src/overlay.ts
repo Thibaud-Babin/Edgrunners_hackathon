@@ -169,9 +169,9 @@ function renderToast(o: ToastOpts): HTMLElement {
   return toast
 }
 
-function button(label: string, cls: string, fn: () => void): HTMLButtonElement {
+function button(label: string, cls: string, fn: (b: HTMLButtonElement) => void): HTMLButtonElement {
   const b = el('button', `btn ${cls}`, label)
-  b.onclick = fn
+  b.onclick = () => fn(b)
   return b
 }
 
@@ -299,6 +299,17 @@ function checkIcon(): SVGSVGElement {
 
 // ---------- pill "Summary" button: summarize this meeting without leaving the call (B) ----------
 const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
+// B: "End call" → C's call report to the IT log (device facts only; CALL_ENDED must come from a click in the UI).
+const pillEnd = document.getElementById('pill-end') as HTMLButtonElement
+pillEnd.onclick = () => {
+  window.tap.emit(makeEvent('CALL_ENDED', 'ui'))
+  pillEnd.textContent = '✓ Ended'
+  pillEnd.disabled = true
+  setTimeout(() => {
+    pillEnd.textContent = '⏹ End call'
+    pillEnd.disabled = false
+  }, 4000)
+}
 pillSummary.onclick = () => {
   pillSummary.disabled = true
   pillSummary.textContent = '📝 Summarizing…'
@@ -355,7 +366,17 @@ window.tap.onUi((cmd: UiCommand) => {
                 click(cmd.alt_action_id!)
                 removeToast(cmd.id)
               })
-            : button('Not now', 'ghost', () => userDismiss(cmd.id))
+            : button('Not now', 'ghost', () => userDismiss(cmd.id)),
+          // B: C's "Send diagnostics to IT" (device facts only) had no button. The card stays; the button confirms.
+          ...(cmd.it_ticket
+            ? [
+                button('Send to IT', 'ghost', (b) => {
+                  click('open_it_ticket', { id: cmd.id })
+                  b.textContent = 'Sent to IT ✓'
+                  b.disabled = true
+                })
+              ]
+            : [])
         ]
       })
       break
