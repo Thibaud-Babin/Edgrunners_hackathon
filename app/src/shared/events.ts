@@ -39,6 +39,7 @@ export type EventType =
   | 'MIC_SILENT_WHILE_SPEAKING'
   // D — UI
   | 'USER_CLICK'
+  | 'CAPTURE_STATE' // { feed: 'camera' | 'mic' | 'callAudio', on: boolean } Check-up Start/Stop buttons (B)
   | 'SETTINGS' // { optional_haptics, auto_summary } Settings page → main (the rest of the settings live in the UI)
   | 'CALL_SUMMARY_REQUEST' // { from: 'main' | 'overlay' } "Summarize" button (Meeting Summary panel, overlay pill)
   | 'IT_STATS_REQUEST' // IT console page opened → main answers with IT_STATS (B)
@@ -125,6 +126,8 @@ export type UiCommand =
     }
   | { type: 'OPEN_SUMMARY' }
   | { type: 'IT_STATS'; stats: ItSnapshot }
+  /** What Tap captures right now (Check-up Start/Stop): the overlay pill shows it (B) */
+  | { type: 'CAPTURE'; camera: boolean; mic: boolean; call_audio: boolean }
   /** Result of a click on "Send to IT" (card_id) or "End call": the button itself confirms, no extra card (B). */
   | { type: 'IT_SENT'; what: 'ticket' | 'call_report'; card_id?: string; ok: boolean; ref?: string; text: string }
 

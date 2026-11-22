@@ -316,9 +316,18 @@ function setListening(): void {
 // ---------- senses ----------
 const video = $<HTMLVideoElement>('video')
 let camStarted = false
+// B (Sun 05:00): each Check-up button is a real Start/Stop toggle. Before, a 2nd click started a 2nd capture on top
+// of the first (call audio twice → transcribed twice). The main process and the pill are told what is on.
+let stopCam: (() => void) | null = null
+let stopCall: (() => void) | null = null
+const captureState = (feed: 'camera' | 'mic' | 'callAudio', on: boolean, initial = false): void =>
+  window.tap.emit(makeEvent('CAPTURE_STATE', 'ui', { feed, on, ...(initial ? { initial: true } : {}) }))
+// Nothing is captured until a Start button is clicked: tell Tap, so it doesn't report "camera / mic silent" at startup.
+for (const feed of ['camera', 'mic', 'callAudio'] as const) captureState(feed, false, true)
 
 async function startCamera(): Promise<void> {
-  await startVision(video, ({ pose, blend, face }) => {
+  if (stopCam) return
+  stopCam = await startVision(video, ({ pose, blend, face }) => {
     $('vision-info').textContent = face
       ? `yaw ${pose?.yaw.toFixed(0)}°  pitch ${pose?.pitch.toFixed(0)}°  roll ${pose?.roll.toFixed(0)}°  jawOpen ${(blend['jawOpen'] ?? 0).toFixed(2)}  browInnerUp ${(blend['browInnerUp'] ?? 0).toFixed(2)}`
       : 'no face'
@@ -327,10 +336,27 @@ async function startCamera(): Promise<void> {
   camStarted = true
   $('cam-empty').style.display = 'none'
   $('cam-badge').textContent = '● Live'
-  $('btn-camera').textContent = 'Camera on'
+  $('btn-camera').textContent = 'Stop camera'
+  captureState('camera', true)
+}
+
+function stopCamera(): void {
+  stopCam?.()
+  stopCam = null
+  camStarted = false
+  $('cam-empty').style.display = ''
+  $('cam-badge').textContent = 'off'
+  $('face-frame').style.display = 'none'
+  $('vision-info').textContent = ''
+  $('btn-camera').textContent = 'Start camera'
+  // Don't leave Tap thinking you are still talking or looking away: those "stopped" signals would never come.
+  window.tap.emit(makeEvent('MOUTH_MOVING', 'webcam', { active: false }))
+  window.tap.emit(makeEvent('USER_BACK', 'webcam'))
+  captureState('camera', false)
 }
 
 $('btn-camera').onclick = async () => {
+  if (stopCam) return stopCamera()
   try {
     await startCamera()
   } catch (err) {
@@ -350,23 +376,41 @@ async function switchMic(prefer: 'laptop' | 'headset'): Promise<void> {
   stopMic?.()
   micDeviceId = target.deviceId
   stopMic = await startMic(target.deviceId)
-  $('btn-mic').textContent = `Mic: ${target.label || 'other device'}`
+  $('btn-mic').textContent = `Stop mic (${target.label || 'other device'})`
+  captureState('mic', true)
   setListening()
 }
 
 $('btn-mic').onclick = async () => {
+  if (stopMic) {
+    stopMic()
+    stopMic = null
+    micDeviceId = undefined
+    $('btn-mic').textContent = 'Start mic'
+    captureState('mic', false)
+    return
+  }
   try {
     stopMic = await startMic()
-    $('btn-mic').textContent = 'Mic on'
+    $('btn-mic').textContent = 'Stop mic'
+    captureState('mic', true)
     setListening()
   } catch (err) {
     alert(`Mic failed: ${(err as Error).message}`)
   }
 }
 $('btn-call').onclick = async () => {
+  if (stopCall) {
+    stopCall()
+    stopCall = null
+    $('btn-call').textContent = 'Start call audio'
+    captureState('callAudio', false)
+    return
+  }
   try {
-    await startCallAudio()
-    $('btn-call').textContent = 'Call audio on'
+    stopCall = await startCallAudio()
+    $('btn-call').textContent = 'Stop call audio'
+    captureState('callAudio', true)
     setListening()
   } catch (err) {
     alert(`Call audio failed: ${(err as Error).message}`)
