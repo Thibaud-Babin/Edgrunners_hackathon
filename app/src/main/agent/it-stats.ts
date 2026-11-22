@@ -21,6 +21,8 @@ export interface ProblemRec {
   fixedAt: number | null
   /** Ticket sent for it (id), if any */
   ticket?: string
+  /** The user clicked "I'm muted on purpose": not a problem (not counted, never escalated) */
+  onPurpose?: boolean
 }
 
 export interface ItStatsState {
@@ -152,7 +154,7 @@ export class ItStats {
     if (cmd.it_ticket || cmd.problem.startsWith("Tap couldn't fix it")) return cmd
     const type = problemType(cmd.problem, cmd.fix_label)
     const t = this.now()
-    const n = this.state.problems.filter((p) => p.type === type && t - p.at < WEEK_S).length + 1
+    const n = this.state.problems.filter((p) => !p.onPurpose && p.type === type && t - p.at < WEEK_S).length + 1
     if (n < REPEAT_FOR_TICKET) return cmd
     return { ...cmd, it_ticket: true, problem: `${cmd.problem} · ${ordinal(n)} time this week: this may be a device problem.` }
   }
@@ -163,7 +165,12 @@ export class ItStats {
     const action = ev.data?.action_id
     const args = (ev.data?.args ?? {}) as { id?: unknown }
     if (action === 'dismiss_card' && typeof args.id === 'string' && this.fixCards.has(args.id)) this.state.misfires++
-    else if (action === 'snooze_mic_alerts') this.state.notNeeded++
+    else if (action === 'snooze_mic_alerts') {
+      this.state.notNeeded++
+      const idx = [...this.fixCards.values()].pop()
+      const p = idx !== undefined ? this.state.problems[idx] : undefined
+      if (p && p.fixedAt === null) p.onPurpose = true
+    }
     else if (action === 'fix_mic' || action === 'switch_input_device') {
       // Remember which button it was: the result line follows
       const idx = [...this.fixCards.values()].pop()
@@ -175,18 +182,19 @@ export class ItStats {
 
   snapshot(tickets: TicketFile[], reports: CallReportFile[]): ItSnapshot {
     const s = this.state
-    const fixed = s.problems.filter((p) => p.fixedAt !== null)
+    const problems = s.problems.filter((p) => !p.onPurpose)
+    const fixed = problems.filter((p) => p.fixedAt !== null)
     const durations = fixed.map((p) => p.fixedAt! - p.at).sort((a, b) => a - b)
-    const solved = s.problems.filter((p) => p.fixedAt !== null && !p.ticket).length
+    const solved = problems.filter((p) => p.fixedAt !== null && !p.ticket).length
     const reasons = s.ticketReasons ?? {}
     const types = new Map<string, number>()
-    for (const p of s.problems) types.set(p.type, (types.get(p.type) ?? 0) + 1)
+    for (const p of problems) types.set(p.type, (types.get(p.type) ?? 0) + 1)
     return {
       since: new Date(s.since * 1000).toISOString(),
       tiles: {
-        caught: s.problems.length,
-        beforeNoticed: s.problems.filter((p) => p.reported === false).length,
-        reported: s.problems.filter((p) => p.reported === true).length,
+        caught: problems.length,
+        beforeNoticed: problems.filter((p) => p.reported === false).length,
+        reported: problems.filter((p) => p.reported === true).length,
         fixed: fixed.length,
         secondsLost: Math.round(durations.reduce((a, b) => a + b, 0)),
         medianFixS: durations.length ? Math.round(durations[Math.floor(durations.length / 2)]!) : null,

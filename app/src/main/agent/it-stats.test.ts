@@ -127,3 +127,15 @@ test('it-stats: ticket reason, ticketed problems are not "solved without a ticke
   assert.equal(snap.tiles.solvedWithoutTicket, 1)
   assert.equal(snap.tickets[0]!.reason, 'the one-click fix failed')
 })
+
+test("it-stats: 'I'm muted on purpose' is not a problem: not counted, never escalates to IT", () => {
+  const { s } = setup()
+  const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic is muted in Windows', fix_label: 'Unmute laptop mic', action_id: 'fix_mic' as const })
+  for (const id of ['a', 'b']) {
+    s.onUi(s.escalate(card(id)))
+    s.onEvent(clickEv('snooze_mic_alerts'))
+  }
+  assert.equal(s.escalate(card('c')).it_ticket, undefined, '2 on purpose + this one = 1 real → no ticket button')
+  assert.equal(s.snapshot([], []).tiles.caught, 0)
+  assert.equal(s.snapshot([], []).agent.notNeeded, 2)
+})
