@@ -9,6 +9,7 @@ import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from '@med
 import type { EventType } from '../../shared/events'
 import { makeEvent } from '../../shared/events'
 import { countChangedPixels, createFrameHealth, meanLuma } from './vision/health'
+import { mouthMoving } from './vision/mouth'
 import { createGazeAway, gazeAvailability, type GazeFallbackReason } from './vision/gaze'
 import { startGazeClient, type GazeClientStatus } from './vision/gazeClient'
 
@@ -19,7 +20,6 @@ const AWAY_PITCH_ENTER_DEG = 22
 const AWAY_PITCH_EXIT_DEG = 14
 const AWAY_AFTER_MS = 2000
 const MOUTH_WINDOW_MS = 1000
-const MOUTH_STD_MIN = 0.06
 const MOUTH_ON_MS = 300 // debounce: raw active must hold this long (B's request)
 const MOUTH_OFF_MS = 800 // debounce: raw inactive must hold this long
 
@@ -361,9 +361,7 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       if (poseOkForMouth) {
         jaw.push({ t, v: blend['jawOpen'] ?? 0 })
         while (jaw.length && t - jaw[0].t > MOUTH_WINDOW_MS) jaw.shift()
-        const mean = jaw.reduce((s, x) => s + x.v, 0) / jaw.length
-        const std = Math.sqrt(jaw.reduce((s, x) => s + (x.v - mean) ** 2, 0) / jaw.length)
-        const rawActive = std > MOUTH_STD_MIN
+        const rawActive = mouthMoving(jaw)
 
         // B's request (real call): debounce the flaps - 300 ms to turn on, 800 ms to turn off.
         if (rawActive === mouthActive) {
