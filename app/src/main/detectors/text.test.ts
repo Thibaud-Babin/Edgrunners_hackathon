@@ -29,6 +29,8 @@ test('does not fire on unrelated speech', () => {
 test('detects trouble phrases', () => {
   assert.equal(findTrouble('Hello? Can you hear me?'), 'cant_hear')
   assert.equal(findTrouble("sorry we can't hear you"), 'cant_hear')
+  // B: camera phrases from a real call
+  for (const s of ['We cannot see you, Thibault.', "we can't see you", 'I can not see you', 'your camera is off', 'can you turn on your camera?', "Tibo, we don't see you"]) assert.equal(findTrouble(s), 'frozen', s)
   assert.equal(findTrouble("I think you're frozen"), 'frozen')
   assert.equal(findTrouble('the release is on Friday'), null)
   assert.equal(findTrouble('Yes, I can hear you. Your audio is fine now.'), null) // real false alert, 2026-11-21

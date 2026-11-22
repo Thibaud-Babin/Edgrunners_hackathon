@@ -126,7 +126,8 @@ export function findAddressed(rawText: string, variants: string[]): NameHit | nu
 const TROUBLE: Array<{ kind: 'cant_hear' | 'frozen'; re: RegExp }> = [
   { kind: 'cant_hear', re: /\b(can you hear me|can('| no)?t hear (you|him|her)|we (can('| no)?t|cannot) hear|you('re| are) (on )?mute(d)?|no sound|you('re| are) breaking up|your (mic|microphone|audio) (is )?(not working|off|muted|broken|cutting))\b/ },
   { kind: 'cant_hear', re: /\b(tu m'entends|vous m'entendez|on (ne )?(t'|vous )entend (pas|plus|rien)|on (n'|ne )?entend rien|(tu es|t'es|vous etes) (en )?(mute|muet|muette|sourdine)|(ton|votre) (micro|son) (ne marche pas|coupe|est coupe)|ca coupe)\b/ },
-  { kind: 'frozen', re: /\b(you('re| are) frozen|your (video|camera) (is )?(frozen|stuck)|we can('| no)?t see you|you froze)\b/ },
+  // B: "cannot see you" was missed (can('| no)?t only matched can't / can not); "your camera is off" said out loud too
+  { kind: 'frozen', re: /\b(you('re| are) frozen|your (video|camera) (is )?(frozen|stuck|off|not (on|working))|(we|i) (can('| no)?t|cannot|don'?t) see you|you froze|(turn|switch) (on )?your (camera|video)( on)?|you('re| are) not (on camera|visible))\b/ },
   { kind: 'frozen', re: /\b((tu es|t'es|vous etes|tu as|t'as) (fige|figee|bloque|bloquee|freeze)|on (ne )?(te|vous) voit (pas|plus)|(ta|votre) (video|camera) (est )?(figee|bloquee))\b/ }
 ]
 

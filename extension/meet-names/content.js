@@ -5,6 +5,7 @@
   const SAMPLE_MS = 250
   const HEARTBEAT_MS = 2000
   const history = new Map() // participant id → { changes: [ms] }
+  const nameVotes = new Map() // participant id → Map(name → times read): hover labels come and go, the name stays
   let lastSent = ''
   let lastSentAt = 0
 
@@ -38,6 +39,10 @@
       const id = tile.getAttribute('data-participant-id') || ''
       const info = pickName((tile.innerText || '').split('\n'))
       if (!id || !info || info.presenting) continue
+      const votes = nameVotes.get(id) || new Map()
+      votes.set(info.name, (votes.get(info.name) || 0) + 1)
+      nameVotes.set(id, votes)
+      info.name = [...votes].sort((a, b) => b[1] - a[1])[0][0]
       const h = history.get(id) || { changes: [] }
       h.changes = h.changes.filter((t) => now - t <= SPEAK_WINDOW_MS * 2)
       history.set(id, h)

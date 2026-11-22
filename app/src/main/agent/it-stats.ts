@@ -61,6 +61,8 @@ export function problemType(problem: string, fixLabel: string): string {
   if (p.includes('muted in meet')) return 'Muted in the call app (Meet)'
   if (/^switch to/i.test(fixLabel) || p.includes('sends no sound') || p.includes('silent')) return 'Mic sends no sound'
   if (p.includes('quality') || p.includes('move closer') || p.includes('too quiet') || p.includes('noisy')) return 'Poor mic quality'
+  if (p.includes('camera') && p.includes('off in meet')) return 'Camera off in the call app (Meet)'
+  if (/^restart camera/i.test(fixLabel)) return 'Camera stuck'
   if (p.includes('camera')) return 'Camera problem'
   return 'Other device problem'
 }
@@ -72,6 +74,14 @@ export class ItStats {
   private lastFixLabel = ''
   private cardText = new Map<string, string>() // card id → its text (for the ticket's reason)
   private now: () => number
+
+  /** B: "Reset IT data" in the IT console (demo starts from zero). */
+  reset(): void {
+    this.state = emptyState(this.now())
+    this.fixCards.clear()
+    this.cardText.clear()
+    this.onChange?.()
+  }
 
   constructor(state: ItStatsState | null, now: () => number = () => Date.now() / 1000) {
     this.now = now

@@ -131,13 +131,12 @@ function addToast(o: ToastOpts): HTMLElement | null {
 
   removeToast(o.id)
   if (visibleToastIds.size >= MAX_TOASTS) {
-    // Oldest first among equals (Map keeps insertion order; sort is stable).
+    // B (Sun 11:00, real call): a card less important than the 3 on screen used to wait in a hidden queue, so the
+    // user felt the vibration and saw nothing (e.g. "while you were away" behind 3 mic cards). Now the newest card
+    // always shows; the least important, oldest card on screen makes room (Map keeps insertion order; sort is stable).
     const lowest = [...visibleToasts.values()].sort((a, b) => priorities[a.kind] - priorities[b.kind])[0]
-    toastQueue.push(o)
-    toastQueue.sort((a, b) => priorities[b.kind] - priorities[a.kind])
-    // At least as important as the least important card on screen → that card makes room (newest wins, like Windows).
-    if (lowest && priorities[o.kind] >= priorities[lowest.kind]) removeToast(lowest.id)
-    return document.getElementById(o.id)
+    toastQueue.length = 0
+    if (lowest) removeToast(lowest.id)
   }
   return renderToast(o)
 }

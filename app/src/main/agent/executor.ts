@@ -119,6 +119,8 @@ export class Executor {
   private pending = new Map<string, (r: SummaryResult | null) => void>()
   /** When the last final transcript line arrived, and who waits for the next one (end of a sentence). */
   private lastLineAt = 0
+  /** B: when the last partial (unfinished) call sentence arrived: someone is mid-sentence. Time only, no text. */
+  private lastPartialAt = 0
   private lineWaiters: (() => void)[] = []
   private bus: AgentBus
   private ui: (cmd: UiCommand) => void
@@ -160,6 +162,9 @@ export class Executor {
     bus.on('user', (e) => this.handle(e))
     bus.on('mic', (e) => this.handle(e)) // the clock for the rules' mic-quality timer
     // A transcript line only marks the end of a sentence: it never reaches the rules and never triggers anything.
+    events.on('TRANSCRIPT_PARTIAL', (e) => {
+      if (e.source === 'call_audio') this.lastPartialAt = now()
+    })
     bus.on('transcript', () => {
       this.lastLineAt = now()
       for (const w of this.lineWaiters.splice(0)) w()
@@ -254,7 +259,13 @@ export class Executor {
     switch (a.action) {
       case 'show_away_summary': {
         if (a.waitSentenceEnd) await this.sentenceEnd(decidedAt)
-        else if (a.trigger === 'looked_back') await sleep(STT_GRACE_MS) // the last words before "back" are still in the STT
+        else if (a.trigger === 'looked_back') {
+          // B: someone is mid-sentence as you look back → wait for that sentence (it holds what you missed);
+          // otherwise just let the last words leave the speech engine.
+          const t = now()
+          if (this.lastPartialAt > this.lastLineAt && t - this.lastPartialAt < 2) await this.sentenceEnd(t)
+          else await sleep(STT_GRACE_MS)
+        }
         const r = await this.summary(a.fromTs, now())
         if (!r) return true
         const seconds = Math.round(a.untilTs - a.fromTs)
@@ -311,6 +322,10 @@ export class Executor {
         }
         return true
       }
+      case 'restart_camera':
+        this.ui({ type: 'RESTART_CAMERA' })
+        this.report.log('action', 'You clicked the fix → restarting the camera (checking the picture comes back)')
+        return true
       case 'switch_input_device':
         // The main window restarts the mic on another device (renderer/src/main.ts → audio.ts).
         this.ui({ type: 'SWITCH_MIC', prefer: a.prefer })
@@ -378,6 +393,12 @@ export class Executor {
    * AUTO_TICKET_DELAY_S through the gate as provenance system (Tap's own device check; speech and AI never get here).
    * The same problem (key) goes to IT once a day at most. Also called by index.ts for a problem's 3rd time this week.
    */
+  /** B: "Reset IT data": ticket numbers and the once-a-day memory start again. */
+  resetTickets(): void {
+    this.autoLast.clear()
+    this.ticketSeq = 0
+  }
+
   scheduleAutoTicket(cardId: string, reason: string, key: string): void {
     const t = now()
     const last = this.autoLast.get(key)

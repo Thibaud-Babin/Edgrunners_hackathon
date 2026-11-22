@@ -7,7 +7,8 @@
   const UI_WORDS = new Set([
     'you', 'vous', 'more options', 'pin', 'unpin', 'mute', 'remove', 'presentation', 'more_vert', 'mic_off', 'mic',
     'keep', 'keep_off', 'frame_person', 'visual_effects', 'close', 'fullscreen', 'push_pin', 'more_horiz', 'pan_tool',
-    'back_hand', 'reframe'
+    'back_hand', 'reframe', 'recadrer', 'épingler', 'epingler', 'détacher', 'plus d\'options', 'couper le micro', 'retirer',
+    'more actions', 'plus d\'actions'
   ])
 
   /** From a tile's visible lines: its person's name, and whether it is you or a presentation. */

@@ -33,6 +33,7 @@ export type EventType =
   | 'USER_BACK'
   | 'MOUTH_MOVING'
   | 'CAMERA_FROZEN'
+  | 'CAMERA_ALIVE' // B: every 2 s while Tap's camera runs: { face, frozen } (heartbeat; { stopped } when stopped)
   | 'FACE_OUT_OF_FRAME'
   | 'LOW_LIGHT'
   // C — agent (fused)
@@ -42,6 +43,7 @@ export type EventType =
   | 'CAPTURE_STATE' // { feed: 'camera' | 'mic' | 'callAudio', on: boolean } Check-up Start/Stop buttons (B)
   | 'SETTINGS' // { optional_haptics, auto_summary } Settings page → main (the rest of the settings live in the UI)
   | 'CALL_SUMMARY_REQUEST' // { from: 'main' | 'overlay' } "Summarize" button (Meeting Summary panel, overlay pill)
+  | 'IT_STATS_RESET' // IT console "Reset IT data" (B): start the demo from zero
   | 'IT_STATS_REQUEST' // IT console page opened → main answers with IT_STATS (B)
   | 'OPEN_SUMMARY' // overlay "Open" on the call-summary card → show the main window's Meeting Summary panel
   | 'HAPTIC_TEST' // { pattern: keyof HAPTIC_PATTERNS } Check-up "Try the vibrations": fires that signal, nothing else
@@ -91,6 +93,7 @@ export type UiCommand =
     }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
+  | { type: 'RESTART_CAMERA' } // B: agent → main window: stop and start the camera (the user clicked "Restart camera")
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
   | { type: 'SHOW_NUDGE'; id: string; text: string; question?: string } // "They're waiting for your answer"
   | { type: 'CAPTION'; text: string; final: boolean; speaker?: string; highlight?: string } // live captions (overlay)
@@ -155,6 +158,7 @@ export const ALLOWED_ACTIONS = [
   'dismiss_card',
   // Sun (C): a card the agents already send, and the IT ticket
   'show_nudge',
+  'restart_camera', // B: "we can't see you" and Tap's camera is stuck too → restart it (the user's click)
   'open_it_ticket', // send device diagnostics (never speech) to IT — anyone, on their own click
   'send_call_report', // End call → the call's device health report (never speech) to the IT log — every role
   // B: automatic IT ticket when the user can't fix it (fix failed, still bad, no other mic, 3rd time this week).

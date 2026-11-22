@@ -4,7 +4,7 @@
  */
 import './packaged-setup' // B: installed app → resources folder + %APPDATA%\Tap\.env (must stay first)
 import 'dotenv/config'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
@@ -321,6 +321,14 @@ app.whenReady().then(() => {
       const feed = ev.data?.feed
       if (feed === 'camera' || feed === 'mic' || feed === 'callAudio') capture[feed] = ev.data?.on === true
       sendUi({ type: 'CAPTURE', camera: capture.camera, mic: capture.mic, call_audio: capture.callAudio })
+    }
+    if (ev.type === 'IT_STATS_RESET' && ev.source === 'ui') {
+      // B: demo from zero: counts, tickets, call reports (this laptop only)
+      for (const sub of ['it-tickets', 'it-log']) rmSync(join(app.getPath('userData'), sub), { recursive: true, force: true })
+      agent.resetTickets()
+      itStats?.reset()
+      sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text: 'IT data reset: counts, tickets and call reports deleted on this laptop' } })
+      return
     }
     if (ev.type === 'IT_STATS_REQUEST' && ev.source === 'ui') {
       pushItStats()
