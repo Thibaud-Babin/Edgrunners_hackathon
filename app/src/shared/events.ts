@@ -125,6 +125,8 @@ export type UiCommand =
     }
   | { type: 'OPEN_SUMMARY' }
   | { type: 'IT_STATS'; stats: ItSnapshot }
+  /** Result of a click on "Send to IT" (card_id) or "End call": the button itself confirms, no extra card (B). */
+  | { type: 'IT_SENT'; what: 'ticket' | 'call_report'; card_id?: string; ok: boolean; text: string }
 
 export interface LogEntry {
   ts: number

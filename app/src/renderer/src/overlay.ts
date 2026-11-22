@@ -303,12 +303,24 @@ const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
 const pillEnd = document.getElementById('pill-end') as HTMLButtonElement
 pillEnd.onclick = () => {
   window.tap.emit(makeEvent('CALL_ENDED', 'ui'))
-  pillEnd.textContent = '✓ Ended'
+  pillEnd.textContent = 'Ending…'
   pillEnd.disabled = true
-  setTimeout(() => {
-    pillEnd.textContent = '⏹ End call'
-    pillEnd.disabled = false
-  }, 4000)
+}
+/** "Send to IT" / "End call" confirm on the button itself, only once main says it was really saved. */
+function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
+  const b = cmd.what === 'call_report' ? pillEnd : document.querySelector<HTMLButtonElement>(`.it-send[data-card="${CSS.escape(cmd.card_id ?? '')}"]`)
+  if (!b) return
+  b.title = cmd.text
+  if (cmd.what === 'call_report') {
+    b.textContent = cmd.ok ? '✓ Sent to IT' : "Couldn't save"
+    setTimeout(() => {
+      b.textContent = '⏹ End call'
+      b.disabled = false
+    }, 3000)
+  } else {
+    b.textContent = cmd.ok ? 'Sent to IT ✓' : "Couldn't send, retry"
+    b.disabled = cmd.ok
+  }
 }
 pillSummary.onclick = () => {
   pillSummary.disabled = true
@@ -370,10 +382,11 @@ window.tap.onUi((cmd: UiCommand) => {
           // B: C's "Send diagnostics to IT" (device facts only) had no button. The card stays; the button confirms.
           ...(cmd.it_ticket
             ? [
-                button('Send to IT', 'ghost', (b) => {
+                button('Send to IT', 'ghost it-send', (b) => {
                   click('open_it_ticket', { id: cmd.id })
-                  b.textContent = 'Sent to IT ✓'
+                  b.textContent = 'Sending…'
                   b.disabled = true
+                  b.dataset.card = cmd.id
                 })
               ]
             : [])
@@ -435,6 +448,9 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
       break
     }
+    case 'IT_SENT':
+      itSent(cmd)
+      break
     case 'SHOW_NOTICE':
       // C's notices (e.g. IT ticket sent): they were silently dropped here.
       addToast({ id: cmd.id, kind: 'nudge', icon: 'ℹ', title: cmd.text, body: [], actions: [button('Got it', 'primary', () => removeToast(cmd.id))], autoDismissMs: 10000 })
