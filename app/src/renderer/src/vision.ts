@@ -35,11 +35,11 @@ const TOO_BRIGHT_ENTER = 190 // labelled light test images: 202.3-206.8
 const TOO_BRIGHT_EXIT = 170
 const LIGHTING_HOLD_MS = 800
 
-// Gaze mode: 3 s hold, outward 100 px tolerance; pose is the automatic fallback.
+// Gaze mode: 3 s hold, outward 64 px tolerance; pose is the automatic fallback.
 // The tracker runs its own camera; both apps need the Windows multi-app camera setting.
 const GAZE_AWAY_AFTER_MS = 3000
 const GAZE_BACK_AFTER_MS = 700
-const GAZE_TOLERANCE_PX = 100
+const GAZE_TOLERANCE_PX = 64
 const GAZE_SMOOTHING = 0.25
 const GAZE_STALE_MS = 3000
 const GAZE_NO_FACE_MS = 3000

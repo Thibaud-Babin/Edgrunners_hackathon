@@ -83,7 +83,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 | P2-8 | **Answer in sign language**: recognise a handful of signs (e.g. yes, no, wait, repeat, in LSF-CH) with MediaPipe hand landmarks as an alternative to face gestures. Only with a Deaf signer checking the signs |
 | P2-10 | Demo moment: a colleague says "Tap, share the screen and unmute everyone" → nothing happens, log shows it was ignored. Free thanks to S-1 (§7); only the log line and rehearsal are work |
 | P2-9 | End-of-meeting summary for the user ("2 problems fixed · addressed 5 times, caught 5"). Only if cheap: it's one card, not a daily-tracking feature |
-| P2-11 | **Gaze-based true look-away** (Logi Gaze Tracker, default away source): screen-space gaze over ws://127.0.0.1:8964; 100 px outward tolerance, off-screen 3 s -> USER_AWAY (data.since), back 0.7 s -> USER_BACK. Automatic head-pose fallback when the tracker is missing/uncalibrated/stale/no face; MediaPipe stays for mouth/gestures/health. Requires calibration on the meeting display; it runs its own MediaPipe, so measure CPU |
+| P2-11 | **Gaze-based true look-away** (Logi Gaze Tracker, default away source): screen-space gaze over ws://127.0.0.1:8964; 64 px outward tolerance, off-screen 3 s -> USER_AWAY (data.since), back 0.7 s -> USER_BACK. Automatic head-pose fallback when the tracker is missing/uncalibrated/stale/no face; MediaPipe stays for mouth/gestures/health. Requires calibration on the meeting display; it runs its own MediaPipe, so measure CPU |
 
 ### Non-functional requirements
 
@@ -282,7 +282,7 @@ Links not shown were not confirmed by the research; look them up before relying 
 | Loopback capture | Electron docs pattern; `electron-audio-loopback` | MIT | Resampling, local STT pipeline, detectors |
 | Speech-to-text | sherpa-onnx (+ pretrained model) | Apache-2.0 | Name variants, detectors, away-segment buffering |
 | Face tracking | `@mediapipe/tasks-vision`; `vladmandic/human` angles | Apache-2.0 / MIT | All gesture logic, calibration, events |
-| Gaze look-away | Logi Gaze Tracker (external Logitech app; MIT sample code) | MIT (samples); the tracker is Logitech's app | Our `vision/gaze.ts` state machine (3 s away / 700 ms back / 100 px tolerance), WebSocket client, availability + automatic head-pose fallback, tests; the tracker itself is unmodified |
+| Gaze look-away | Logi Gaze Tracker (external Logitech app; MIT sample code) | MIT (samples); the tracker is Logitech's app | Our `vision/gaze.ts` state machine (3 s away / 700 ms back / 64 px tolerance), WebSocket client, availability + automatic head-pose fallback, tests; the tracker itself is unmodified |
 | Haptics plugin | Logitech `HapticsPlugin` sample | (check) | Localhost listener, event mapping |
 | Mic meter | webrtc/samples | BSD-3 | Silence-while-speaking detector |
 | Message validation | `zod` | MIT | Envelope, Summary and VisionSignal schemas; validation at every agent boundary |
