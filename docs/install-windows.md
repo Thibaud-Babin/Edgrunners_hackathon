@@ -16,7 +16,7 @@ Run `Tap-Setup-<version>.exe`. It installs for your user only (no admin rights n
 ## 3. First start: settings
 Tap needs a few settings that are never shipped inside the app, because API keys are private.
 1. Start Tap. Its icon appears in the system tray, bottom-right; click the ^ arrow if it is hidden.
-2. Right-click the tray icon → **Open settings file**. This opens `%APPDATA%\Tap\.env` in Notepad. Tap creates the file on first start.
+2. Right-click the tray icon → **Open settings file**. This opens `%APPDATA%\Roaming\tap\.env` in Notepad. Tap creates the file on first start.
 3. Fill in:
    - `DEEPGRAM_API_KEY=`: **required for speech.** Live captions, name detection, contextual alerts and meeting summaries all need it. Get a key at deepgram.com.
    - `TAP_USER_NAMES=`: your first name, then nicknames or common misspellings, comma-separated. For example: `TAP_USER_NAMES=Thibaud,Thibault,Tibo`.
