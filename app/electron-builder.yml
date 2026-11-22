@@ -1,32 +1,41 @@
-# B: Windows installer (npm run dist → dist/Tap Setup <version>.exe). See README "Installer".
+# B: Windows installer + portable exe (npm run dist → dist/Tap-Setup-<version>.exe, dist/Tap-Portable-<version>.exe).
+# Built on GitHub Actions (.github/workflows/windows-build.yml). Install guide: docs/install-windows.md.
 appId: ch.lauzhack.tap
 productName: Tap
 directories:
   output: dist
+  buildResources: build
 files:
   - out/**
   - package.json
+  # MediaPipe is bundled into the renderer (and its wasm + face model are in out/renderer): no need for node_modules copy
+  - '!node_modules/@mediapipe/**'
 # Native speech library: its .node and DLLs must sit outside the asar archive to load
 asarUnpack:
   - node_modules/sherpa-onnx-*/**
-# Next to the app (process.resourcesPath, see src/main/packaged-setup.ts). No .env: keys go in %APPDATA%\Tap\.env
+# Next to the app (process.resourcesPath, see src/main/packaged-setup.ts). No .env: keys go in %APPDATA%\Tap\.env.
+# No local speech model is shipped (~640 MB): captions use Deepgram. models/ is only read if someone adds it by hand.
 extraResources:
-  - from: models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
-    to: models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
-    filter: ['*.onnx', 'tokens.txt']
-  - from: models
-    to: models
-    filter: ['silero_vad.onnx', '*.txt']
   - from: scripts/win-mic.ps1
     to: scripts/win-mic.ps1
   - from: ../extension/meet-names
     to: extension/meet-names
+  - from: build/icon.png
+    to: icon.png # tray icon
 win:
+  icon: build/icon.png
   target:
     - target: nsis
       arch: [x64]
+    - target: portable
+      arch: [x64]
 nsis:
   oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
   artifactName: Tap-Setup-${version}.exe
+portable:
+  artifactName: Tap-Portable-${version}.exe
 npmRebuild: false

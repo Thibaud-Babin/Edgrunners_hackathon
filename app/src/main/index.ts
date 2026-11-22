@@ -6,7 +6,7 @@ import './packaged-setup' // B: installed app → resources folder + %APPDATA%\T
 import 'dotenv/config'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, screen, session, shell, Tray } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
 import { IPC } from '../shared/events'
 import { EventBus } from './bus'
@@ -32,6 +32,31 @@ const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').spli
 
 let mainWin: BrowserWindow | null = null
 let overlayWin: BrowserWindow | null = null
+let tray: Tray | null = null
+// Closing the main window only hides it (Tap keeps listening in the tray); the tray's Quit really quits.
+let quitting = false
+let hideNoticeShown = false
+
+// One Tap at a time: a second launch just shows the running one (one overlay, one Meet bridge port).
+if (!app.requestSingleInstanceLock()) app.exit(0)
+app.on('second-instance', () => showMain())
+app.on('before-quit', () => {
+  quitting = true
+})
+// Killed or interrupted (task manager, Ctrl+C, SIGTERM): really quit, don't hide to the tray.
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => {
+    quitting = true
+    app.quit()
+  })
+}
+
+function showMain(): void {
+  if (!mainWin || mainWin.isDestroyed()) return
+  if (mainWin.isMinimized()) mainWin.restore()
+  mainWin.show()
+  mainWin.focus()
+}
 
 function load(win: BrowserWindow, page: 'index' | 'overlay'): void {
   if (isDev) void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/${page}.html`)
@@ -76,10 +101,56 @@ function createWindows(): void {
   overlayWin.setIgnoreMouseEvents(true, { forward: true })
   load(overlayWin, 'overlay')
 
+  mainWin.on('close', (e) => {
+    if (quitting || !tray) return
+    // Hidden, not destroyed: its renderer holds the camera, mic and call-audio capture, so monitoring goes on.
+    e.preventDefault()
+    mainWin?.hide()
+    if (!hideNoticeShown) {
+      hideNoticeShown = true
+      sendUi({ type: 'SHOW_NOTICE', id: 'tray-hint', text: 'Tap is still running in the tray. Right-click its icon to stop monitoring or quit.' })
+    }
+  })
+  // Windows logoff or shutdown: let the window close, or it would block the session from ending.
+  mainWin.on('session-end', () => {
+    quitting = true
+  })
   mainWin.on('closed', () => {
     mainWin = null
     overlayWin?.close()
   })
+}
+
+/** The tray icon: Tap keeps running in the background; this is how the user reopens, stops or quits it. */
+function createTray(): void {
+  const iconFile = app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'build', 'icon.png')
+  const icon = nativeImage.createFromPath(iconFile)
+  tray = new Tray(icon.isEmpty() ? icon : icon.resize({ width: 32, height: 32 }))
+  tray.setToolTip('Tap')
+  tray.on('double-click', showMain)
+  refreshTray()
+}
+
+function refreshTray(): void {
+  if (!tray) return
+  const monitoring = capture.camera || capture.mic || capture.callAudio
+  const settingsFile = process.env.TAP_CONFIG_FILE ?? join(process.cwd(), '.env')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Open Tap', click: showMain },
+      { label: 'Stop Monitoring', enabled: monitoring, click: stopMonitoring },
+      { label: 'Open settings file', click: () => void shell.openPath(settingsFile) },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() }
+    ])
+  )
+}
+
+/** Same as the user clicking each running feed's Stop button (the renderer owns the capture streams). */
+function stopMonitoring(): void {
+  if (!mainWin || mainWin.isDestroyed()) return
+  const buttons = [capture.camera && 'btn-camera', capture.mic && 'btn-mic', capture.callAudio && 'btn-call'].filter(Boolean)
+  for (const id of buttons) void mainWin.webContents.executeJavaScript(`document.getElementById('${id}')?.click()`, true)
 }
 
 // B: IT console numbers (Nexthink). Observes what the agent shows; device facts and counts only. Kept across restarts.
@@ -209,7 +280,17 @@ app.whenReady().then(() => {
     sttStatus.push(text)
     sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
   })
-  const audio = new AudioPipeline(bus, names, createStt(process.env.TAP_STT || 'none'))
+  const sttKind = process.env.TAP_STT || 'none'
+  const stt = createStt(sttKind)
+  // Say it plainly when nothing will be transcribed (e.g. installed app without a Deepgram key).
+  const noSpeech = stt || sttKind === 'none'
+    ? null
+    : `No speech-to-text: live captions, name alerts and meeting summaries need DEEPGRAM_API_KEY in ${process.env.TAP_CONFIG_FILE ?? join(process.cwd(), '.env')}`
+  if (noSpeech) {
+    console.log(`[stt] ${noSpeech}`)
+    sttStatus.push(noSpeech)
+  }
+  const audio = new AudioPipeline(bus, names, stt)
   // B: real names for Speaker 1, 2… from the Google Meet extension (extension/meet-names), on this laptop only
   const speakerNames = new SpeakerNames()
   audio.speakerNames = speakerNames
@@ -321,6 +402,7 @@ app.whenReady().then(() => {
       const feed = ev.data?.feed
       if (feed === 'camera' || feed === 'mic' || feed === 'callAudio') capture[feed] = ev.data?.on === true
       sendUi({ type: 'CAPTURE', camera: capture.camera, mic: capture.mic, call_audio: capture.callAudio })
+      refreshTray()
     }
     if (ev.type === 'IT_STATS_REQUEST' && ev.source === 'ui') {
       pushItStats()
@@ -366,6 +448,11 @@ app.whenReady().then(() => {
   })
 
   createWindows()
+  createTray()
+  // Installed app without speech-to-text: tell the user on the overlay too, not only in the Activity log.
+  if (noSpeech && app.isPackaged) {
+    overlayWin?.webContents.once('did-finish-load', () => sendUi({ type: 'SHOW_NOTICE', id: 'no-stt', text: noSpeech }))
+  }
   mainWin?.webContents.once('did-finish-load', () => {
     for (const text of sttStatus) sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
     agent.announceRole() // the UI learns the role once it can listen (shows or hides the IT view)
