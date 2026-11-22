@@ -1,0 +1,32 @@
+# B: Windows installer (npm run dist → dist/Tap Setup <version>.exe). See README "Installer".
+appId: ch.lauzhack.tap
+productName: Tap
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+# Native speech library: its .node and DLLs must sit outside the asar archive to load
+asarUnpack:
+  - node_modules/sherpa-onnx-*/**
+# Next to the app (process.resourcesPath, see src/main/packaged-setup.ts). No .env: keys go in %APPDATA%\Tap\.env
+extraResources:
+  - from: models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+    to: models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+    filter: ['*.onnx', 'tokens.txt']
+  - from: models
+    to: models
+    filter: ['silero_vad.onnx', '*.txt']
+  - from: scripts/win-mic.ps1
+    to: scripts/win-mic.ps1
+  - from: ../extension/meet-names
+    to: extension/meet-names
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Tap-Setup-${version}.exe
+npmRebuild: false
