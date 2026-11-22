@@ -4,19 +4,30 @@
   const { pickName, speakingFrom, meetingCode, SPEAK_WINDOW_MS } = globalThis.TapMeetParse
   const SAMPLE_MS = 250
   const HEARTBEAT_MS = 2000
-  const history = new Map() // participant id → { sig, changes: [ms] }
+  const history = new Map() // participant id → { changes: [ms] }
   let lastSent = ''
   let lastSentAt = 0
 
-  // Everything in the tile but video / canvas (they don't carry the indicator) → a class signature
-  function signature(tile) {
-    let s = ''
-    for (const el of tile.querySelectorAll('*')) {
-      if (el.tagName === 'VIDEO' || el.tagName === 'CANVAS') continue
-      s += (el.getAttribute('class') || '') + '|'
+  // Meet's voice indicator animates by changing classes while someone talks. A MutationObserver sees every change
+  // as it happens (timers can be slowed down in a background tab; mutations are not missed).
+  const lastMark = new Map() // tile id → last change counted (ms), at most one per 100 ms
+  new MutationObserver((records) => {
+    const now = Date.now()
+    for (const r of records) {
+      const el = r.target.nodeType === 1 ? r.target : r.target.parentElement
+      if (!el || el.tagName === 'VIDEO' || el.tagName === 'CANVAS') continue
+      const tile = el.closest('[data-participant-id]')
+      if (!tile) continue
+      let top = tile
+      while (top.parentElement?.closest('[data-participant-id]')) top = top.parentElement.closest('[data-participant-id]')
+      const id = top.getAttribute('data-participant-id') || ''
+      if (now - (lastMark.get(id) ?? 0) < 100) continue
+      lastMark.set(id, now)
+      const h = history.get(id) || { changes: [] }
+      h.changes.push(now)
+      history.set(id, h)
     }
-    return s
-  }
+  }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['class', 'style'] })
 
   function read() {
     const now = Date.now()
@@ -27,10 +38,7 @@
       const id = tile.getAttribute('data-participant-id') || ''
       const info = pickName((tile.innerText || '').split('\n'))
       if (!id || !info || info.presenting) continue
-      const h = history.get(id) || { sig: '', changes: [] }
-      const sig = signature(tile)
-      if (h.sig && sig !== h.sig) h.changes.push(now)
-      h.sig = sig
+      const h = history.get(id) || { changes: [] }
       h.changes = h.changes.filter((t) => now - t <= SPEAK_WINDOW_MS * 2)
       history.set(id, h)
       const speaking = speakingFrom(h.changes, now)

@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Tap: Meet names",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tells Tap (on this laptop only) who is in your Google Meet call and who is speaking, so its recap shows names instead of Speaker 1, 2.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz/AgzMy4Af3fQEoZEFzEZZa2w9+u9uMjtuSo4OqZ8XRFRvDaJoFnyuDCLNH5blr91xzvOu7j0kVzaHhb3AR+CDEkHY03Vt4l7UeVFlnOw3uYTxtl7X25wJqp0+k662OZIJjQns5Kr3/qe9dMdauVFjKeZE8uDnA1eOlfQ1r7USOKYED0QRh3tZI8EWZNkZM8V84lXPjZRRABn9RiqSudrvJXsNMGMmY/UBlGOYLA/fjkB/ErojtxyW40AsPKspB+neW0T/7n/G/bRpBEgw2D8hoJymFw28LJuskYyxOSk8rAQ53irBT5rYh567kdsOoyCeQgYGodBq9Jwm1VyddefQIDAQAB",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "http://127.0.0.1:47811/*"
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js"
