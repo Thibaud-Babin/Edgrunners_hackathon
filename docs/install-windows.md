@@ -23,7 +23,7 @@ Tap needs a few settings that are never shipped inside the app, because API keys
    - `ANTHROPIC_API_KEY=`: optional. Gives AI-written recaps and summaries. Without it, Tap builds them from the transcript itself.
 4. Save, then tray icon → **Quit**, and start Tap again.
 
-Without a Deepgram key Tap still opens. It then shows on the overlay and in Activity: "No speech-to-text: … need DEEPGRAM_API_KEY". There are no captions or name alerts until you add the key. The installer does **not** include a local speech model.
+Without a Deepgram key Tap still opens. The Activity panel then shows: "No speech-to-text: … need DEEPGRAM_API_KEY". There are no captions or name alerts until you add the key. The installer does **not** include a local speech model.
 
 ## 4. Use it in a meeting
 1. Join your meeting in Zoom, Teams or Meet as usual. Leave your meeting app's microphone set to **Default**.
