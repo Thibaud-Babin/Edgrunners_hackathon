@@ -48,7 +48,13 @@ export function startMeetBridge(onUpdate: (u: MeetUpdate) => void, log: (text: s
     if (req.method === 'OPTIONS') {
       // Preflight: only our extension gets the CORS answer
       if (origin === `chrome-extension://${MEET_EXTENSION_ID}`) {
-        res.writeHead(204, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'content-type' })
+        // Chrome's private-network check: a local server must say yes before an extension may reach it
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Methods': 'POST',
+          'Access-Control-Allow-Headers': 'content-type',
+          'Access-Control-Allow-Private-Network': 'true'
+        })
       } else res.writeHead(403)
       return res.end()
     }
