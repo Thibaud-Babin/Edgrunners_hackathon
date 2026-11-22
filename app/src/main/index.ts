@@ -81,6 +81,7 @@ function createWindows(): void {
 
 // B: IT console numbers (Nexthink). Observes what the agent shows; device facts and counts only. Kept across restarts.
 let itStats: ItStats | null = null
+const capture = { camera: false, mic: false, callAudio: false }
 
 function sendUi(cmd: UiCommand): void {
   // The same problem for the 3rd time this week → the card also offers IT (it-stats.ts)
@@ -280,6 +281,12 @@ app.whenReady().then(() => {
       settings.autoSummary = auto
       meetings.autoSummary = auto
       return
+    }
+    // Check-up Start/Stop → the overlay pill shows what Tap captures (the event also goes on to the monitor)
+    if (ev.type === 'CAPTURE_STATE' && ev.source === 'ui') {
+      const feed = ev.data?.feed
+      if (feed === 'camera' || feed === 'mic' || feed === 'callAudio') capture[feed] = ev.data?.on === true
+      sendUi({ type: 'CAPTURE', camera: capture.camera, mic: capture.mic, call_audio: capture.callAudio })
     }
     if (ev.type === 'IT_STATS_REQUEST' && ev.source === 'ui') {
       pushItStats()

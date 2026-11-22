@@ -16,6 +16,20 @@ const flash = document.getElementById('flash')!
 const pill = document.getElementById('pill')!
 const pillStatus = document.getElementById('pill-status')!
 const pillMeta = document.getElementById('pill-meta')!
+// B: what Tap captures right now (Check-up Start/Stop). An off feed is shown crossed out.
+let capture = { camera: false, mic: false, call_audio: false }
+let pillAi = ''
+function drawPillMeta(): void {
+  const icon = (on: boolean, glyph: string, name: string): HTMLElement => {
+    const s = el('span', on ? 'cap on' : 'cap off', glyph)
+    s.title = `${name} ${on ? 'on' : 'off'}`
+    return s
+  }
+  // The AI cost stays in the main window and the IT console: the pill is too narrow for it next to its buttons.
+  pillMeta.replaceChildren(icon(capture.camera, '📷', 'Camera'), icon(capture.mic, '🎙', 'Mic'), icon(capture.call_audio, '🔊', 'Call audio'))
+  pillMeta.title = pillAi
+}
+drawPillMeta()
 
 const REPLY_MS = 3000
 const MAX_TOASTS = 3
@@ -303,7 +317,7 @@ const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
 const pillEnd = document.getElementById('pill-end') as HTMLButtonElement
 pillEnd.onclick = () => {
   window.tap.emit(makeEvent('CALL_ENDED', 'ui'))
-  pillEnd.textContent = 'Ending…'
+  pillEnd.textContent = '…'
   pillEnd.disabled = true
 }
 /** "Send to IT" / "End call" confirm on the button itself, only once main says it was really saved. */
@@ -312,9 +326,9 @@ function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
   if (!b) return
   b.title = cmd.text
   if (cmd.what === 'call_report') {
-    b.textContent = cmd.ok ? '✓ Sent to IT' : "Couldn't save"
+    b.textContent = cmd.ok ? '✓ Sent' : '✗ Not saved' // short: the pill is narrow (full text in the tooltip)
     setTimeout(() => {
-      b.textContent = '⏹ End call'
+      b.textContent = '⏹ End'
       b.disabled = false
     }, 3000)
   } else {
@@ -456,6 +470,10 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
       break
     }
+    case 'CAPTURE':
+      capture = { camera: cmd.camera, mic: cmd.mic, call_audio: cmd.call_audio }
+      drawPillMeta()
+      break
     case 'IT_SENT':
       itSent(cmd)
       break
@@ -500,7 +518,8 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     }
     case 'COUNTERS':
-      pillMeta.textContent = `📷 🎙 · AI ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
+      pillAi = `AI ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
+      drawPillMeta()
       break
     default:
       break // unknown / future command: ignore, never crash

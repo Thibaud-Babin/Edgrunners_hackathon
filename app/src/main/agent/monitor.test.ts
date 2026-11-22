@@ -161,3 +161,25 @@ test('spam guard counts cards, not haptics (a card plus its knocks is one reacti
   for (let i = 0; i < 5; i++) bus.publish('executor', 'system', 'action.result', { action: 'show_recap', ok: true })
   assert.deepEqual(calls, [])
 })
+
+test('B: a feed the user stopped in the Check-up is not flagged as silent; started again → watched from then', () => {
+  let t = 1000
+  const logs: string[] = []
+  const events = new EventBus()
+  const m = new Monitor(events, new AgentBus(), (c: UiCommand) => c.type === 'LOG_ENTRY' && logs.push(c.entry.text), { now: () => t })
+  m.start({ llm: { hasKey: true, forceTemplateUntil: () => {} }, executor: { pause: () => {}, hapticsOff: () => {} }, haptics: { fire: async () => true } }, { timers: false })
+  events.publish({ type: 'CAPTURE_STATE', ts: t, source: 'ui', data: { feed: 'camera', on: false } })
+  events.publish({ type: 'CAPTURE_STATE', ts: t, source: 'webcam', data: { feed: 'mic', on: false } }) // not from the UI: ignored
+  t += 20
+  m.tick()
+  assert.equal(logs.filter((l) => l.startsWith('Camera feed silent')).length, 0, 'stopped by the user: no alert')
+  assert.equal(logs.filter((l) => l.startsWith('Mic feed silent')).length, 1, 'only the UI can say a feed is off')
+  assert.ok(logs.includes('Camera stopped by you → not watched until you start it again'))
+  events.publish({ type: 'CAPTURE_STATE', ts: t, source: 'ui', data: { feed: 'camera', on: true } })
+  t += 5
+  m.tick()
+  assert.equal(logs.filter((l) => l.startsWith('Camera feed silent')).length, 0, 'just started: 10 s grace from now')
+  t += 6
+  m.tick()
+  assert.equal(logs.filter((l) => l.startsWith('Camera feed silent')).length, 1)
+})
