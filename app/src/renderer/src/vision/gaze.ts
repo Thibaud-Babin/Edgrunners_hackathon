@@ -23,12 +23,12 @@ export interface GazeSnapshot {
 export interface GazeConfig {
   awayAfterMs: number
   backAfterMs: number
-  marginPx: number
+  tolerancePx: number
   smoothing: number
 }
 
 export type GazeUpdate =
-  | { kind: 'away'; reason: 'turned_away' | 'no_face' }
+  | { kind: 'away'; reason: 'turned_away' | 'no_face'; since: number }
   | { kind: 'back' }
   | null
 
@@ -116,8 +116,8 @@ export function createGazeAway(cfg: GazeConfig): GazeAwayTracker {
           sy = cfg.smoothing * s.gaze.y + (1 - cfg.smoothing) * sy
         }
         lastAt = t
-        const m = cfg.marginPx
-        inside = sx >= m && sx <= s.screenW - m && sy >= m && sy <= s.screenH - m
+        const tol = cfg.tolerancePx
+        inside = sx >= -tol && sx <= s.screenW + tol && sy >= -tol && sy <= s.screenH + tol
       }
       // gaze null + face present = the user is there but there is no prediction
       // (eyes not visible / looking far off-screen): treat it as off-screen.
@@ -128,7 +128,7 @@ export function createGazeAway(cfg: GazeConfig): GazeAwayTracker {
           if (t - offSince >= cfg.awayAfterMs) {
             away = true
             onSince = null
-            return { kind: 'away', reason: 'turned_away' }
+            return { kind: 'away', reason: 'turned_away', since: offSince ?? t }
           }
         } else {
           offSince = null
@@ -160,4 +160,34 @@ export function createGazeAway(cfg: GazeConfig): GazeAwayTracker {
       smoothed = false
     }
   }
+}
+
+export type GazeFallbackReason = 'not-connected' | 'uncalibrated' | 'stale' | 'no-face'
+
+export interface GazeAvailabilityInput {
+  connected: boolean
+  calibrated: boolean
+  lastSnapshotAt: number | null
+  lastFaceAt: number | null
+  lastGazeAt: number | null
+  now: number
+  staleMs: number
+  noFaceMs: number
+}
+
+export interface GazeAvailability {
+  usable: boolean
+  reason: GazeFallbackReason | null
+}
+
+/** Can the tracker drive away right now? Otherwise the caller falls back to head pose. */
+export function gazeAvailability(i: GazeAvailabilityInput): GazeAvailability {
+  if (!i.connected) return { usable: false, reason: 'not-connected' }
+  if (!i.calibrated) return { usable: false, reason: 'uncalibrated' }
+  if (i.lastSnapshotAt === null || i.now - i.lastSnapshotAt > i.staleMs) return { usable: false, reason: 'stale' }
+
+  const faceRecent = i.lastFaceAt !== null && i.now - i.lastFaceAt <= i.noFaceMs
+  const gazeRecent = i.lastGazeAt !== null && i.now - i.lastGazeAt <= i.noFaceMs
+  if (!faceRecent && !gazeRecent) return { usable: false, reason: 'no-face' }
+  return { usable: true, reason: null }
 }

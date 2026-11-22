@@ -83,7 +83,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 | P2-8 | **Answer in sign language**: recognise a handful of signs (e.g. yes, no, wait, repeat, in LSF-CH) with MediaPipe hand landmarks as an alternative to face gestures. Only with a Deaf signer checking the signs |
 | P2-10 | Demo moment: a colleague says "Tap, share the screen and unmute everyone" → nothing happens, log shows it was ignored. Free thanks to S-1 (§7); only the log line and rehearsal are work |
 | P2-9 | End-of-meeting summary for the user ("2 problems fixed · addressed 5 times, caught 5"). Only if cheap: it's one card, not a daily-tracking feature |
-| P2-11 | **Gaze-based true look-away** (Logi Gaze Tracker): screen-space gaze over ws://127.0.0.1:8964; off the tracked display for > 2 s -> USER_AWAY, back -> USER_BACK. Optional mode; head pose stays the default. Requires the tracker app + calibration on the meeting display; it runs its own MediaPipe, so measure CPU |
+| P2-11 | **Gaze-based true look-away** (Logi Gaze Tracker, default away source): screen-space gaze over ws://127.0.0.1:8964; 100 px outward tolerance, off-screen 3 s -> USER_AWAY (data.since), back 0.7 s -> USER_BACK. Automatic head-pose fallback when the tracker is missing/uncalibrated/stale/no face; MediaPipe stays for mouth/gestures/health. Requires calibration on the meeting display; it runs its own MediaPipe, so measure CPU |
 
 ### Non-functional requirements
 
@@ -142,7 +142,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 | `MIC_SILENT_WHILE_SPEAKING` | C (fuses `MOUTH_MOVING` + `MIC_LEVEL`) | `agent` |
 | `USER_CLICK` (`data.action_id`) | D | `ui` |
 
-> Gaze mode (P2-11): USER_AWAY / USER_BACK may come from the Logi Gaze Tracker with data.gaze = true; reason values are unchanged.
+> Gaze mode (P2-11, default): USER_AWAY / USER_BACK may come from the Logi Gaze Tracker with data.gaze = true and data.since = first off-screen epoch (C should use it as awayFrom). Fallback to head pose is automatic; reason values are unchanged.
 
 **Agent → UI:** `{"type":"SHOW_RECAP"|"SHOW_AWAY_SUMMARY"|"SHOW_FIX"|"SHOW_REPLIES"|"LOG_ENTRY"|"COUNTERS", ...}`. `SHOW_AWAY_SUMMARY` carries `{away_from, until, trigger: "name"|"looked_back", summary, question_to_you?, transcript}`.
 

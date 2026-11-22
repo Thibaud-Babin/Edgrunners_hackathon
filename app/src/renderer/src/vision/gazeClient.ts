@@ -12,6 +12,9 @@ export interface GazeClientStatus {
   calibrated: boolean
   /** performance.now() of the last accepted snapshot, or null. */
   lastSnapshotAt: number | null
+  /** performance.now() of the last snapshot with a face / with a gaze value. */
+  lastFaceAt: number | null
+  lastGazeAt: number | null
 }
 
 export interface GazeClientOptions {
@@ -33,7 +36,7 @@ export function startGazeClient(opts: GazeClientOptions): () => void {
   let stopped = false
   let retry: number | null = null
   let lastTimestamp = -1
-  const status: GazeClientStatus = { connected: false, calibrated: false, lastSnapshotAt: null }
+  const status: GazeClientStatus = { connected: false, calibrated: false, lastSnapshotAt: null, lastFaceAt: null, lastGazeAt: null }
 
   const pushStatus = (patch: Partial<GazeClientStatus>): void => {
     Object.assign(status, patch)
@@ -81,7 +84,11 @@ export function startGazeClient(opts: GazeClientOptions): () => void {
       if (!snapshot) return
       if (snapshot.timestampMs === lastTimestamp) return // the server re-sends the latest snapshot
       lastTimestamp = snapshot.timestampMs
-      pushStatus({ calibrated: snapshot.calibrated, lastSnapshotAt: performance.now() })
+      const now = performance.now()
+      const patch: Partial<GazeClientStatus> = { calibrated: snapshot.calibrated, lastSnapshotAt: now }
+      if (snapshot.facePresent) patch.lastFaceAt = now
+      if (snapshot.gaze) patch.lastGazeAt = now
+      pushStatus(patch)
       opts.onSnapshot(snapshot)
     }
 

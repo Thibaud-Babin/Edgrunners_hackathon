@@ -1,9 +1,9 @@
 // Run with: node --experimental-strip-types --test src/renderer/src/vision/gaze.test.ts
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createGazeAway, parseGazeSnapshot, type GazeSnapshot } from './gaze.ts'
+import { createGazeAway, gazeAvailability, parseGazeSnapshot, type GazeSnapshot } from './gaze.ts'
 
-const cfg = { awayAfterMs: 250, backAfterMs: 500, marginPx: 24, smoothing: 0.35 }
+const cfg = { awayAfterMs: 3000, backAfterMs: 700, tolerancePx: 100, smoothing: 0.25 }
 
 const snap = (over: Partial<GazeSnapshot> = {}): GazeSnapshot => ({
   timestampMs: 1,
@@ -51,73 +51,103 @@ test('parses gaze null (no prediction)', () => {
   assert.equal(s?.gaze, null)
 })
 
-test('away after 250 ms off-screen; nothing before', () => {
+test('away after 3 s off-screen, with the first-off-screen timestamp', () => {
   const g = createGazeAway(cfg)
   assert.equal(g.update(0, snap({ gaze: { x: -200, y: 300 } })), null)
-  assert.equal(g.update(249, snap({ gaze: { x: -200, y: 300 } })), null)
-  assert.deepEqual(g.update(250, snap({ gaze: { x: -200, y: 300 } })), { kind: 'away', reason: 'turned_away' })
+  assert.equal(g.update(2999, snap({ gaze: { x: -200, y: 300 } })), null)
+  assert.deepEqual(g.update(3000, snap({ gaze: { x: -200, y: 300 } })), { kind: 'away', reason: 'turned_away', since: 0 })
 })
 
 test('a short off-screen blip does not fire', () => {
   const g = createGazeAway(cfg)
   assert.equal(g.update(0, snap({ gaze: { x: -200, y: 300 } })), null)
-  assert.equal(g.update(200, snap()), null)
-  assert.equal(g.update(400, snap()), null)
+  assert.equal(g.update(2000, snap()), null)
+  assert.equal(g.update(4000, snap()), null)
   assert.equal(g.away, false)
 })
 
-test('back after 500 ms on-screen', () => {
+test('back after 700 ms on-screen', () => {
   const g = createGazeAway(cfg)
   g.update(0, snap({ gaze: { x: -200, y: 300 } }))
-  assert.equal(g.update(250, snap({ gaze: { x: -200, y: 300 } }))?.kind, 'away')
-  assert.equal(g.update(300, snap()), null)
-  assert.equal(g.update(799, snap()), null)
-  assert.deepEqual(g.update(800, snap()), { kind: 'back' })
+  assert.equal(g.update(3000, snap({ gaze: { x: -200, y: 300 } }))?.kind, 'away')
+  assert.equal(g.update(3100, snap()), null)
+  assert.equal(g.update(3799, snap()), null)
+  assert.deepEqual(g.update(3800, snap()), { kind: 'back' })
 })
 
 test('gaze null with no face produces no event', () => {
   const g = createGazeAway(cfg)
-  for (let t = 0; t <= 2000; t += 100) assert.equal(g.update(t, snap({ gaze: null, facePresent: false })), null)
+  for (let t = 0; t <= 4000; t += 100) assert.equal(g.update(t, snap({ gaze: null, facePresent: false })), null)
   assert.equal(g.away, false)
 })
 
 test('gaze null with a face present counts as off-screen', () => {
   const g = createGazeAway(cfg)
   g.update(0, snap({ gaze: null, facePresent: true }))
-  assert.deepEqual(g.update(250, snap({ gaze: null, facePresent: true })), { kind: 'away', reason: 'turned_away' })
+  assert.deepEqual(g.update(3000, snap({ gaze: null, facePresent: true })), { kind: 'away', reason: 'turned_away', since: 0 })
 })
 
 test('an away state survives a gaze-null gap and closes on a real return', () => {
   const g = createGazeAway(cfg)
   g.update(0, snap({ gaze: { x: -200, y: 300 } }))
-  assert.equal(g.update(250, snap({ gaze: { x: -200, y: 300 } }))?.kind, 'away')
-  assert.equal(g.update(300, snap({ gaze: null })), null)
+  assert.equal(g.update(3000, snap({ gaze: { x: -200, y: 300 } }))?.kind, 'away')
+  assert.equal(g.update(3100, snap({ gaze: null })), null)
   assert.equal(g.away, true)
-  g.update(400, snap())
-  assert.equal(g.update(899, snap()), null)
-  assert.deepEqual(g.update(900, snap()), { kind: 'back' })
+  g.update(3200, snap())
+  assert.equal(g.update(3899, snap()), null)
+  assert.deepEqual(g.update(3900, snap()), { kind: 'back' })
 })
 
 test('uncalibrated or tracking off produces no events', () => {
   const g = createGazeAway(cfg)
-  for (let t = 0; t <= 2000; t += 100) {
+  for (let t = 0; t <= 4000; t += 100) {
     assert.equal(g.update(t, snap({ gaze: { x: -500, y: -500 }, calibrated: false })), null)
     assert.equal(g.update(t, snap({ gaze: { x: -500, y: -500 }, tracking: false })), null)
   }
   assert.equal(g.away, false)
 })
 
-test('edge margin: just inside the border is on-screen', () => {
-  const g = createGazeAway(cfg)
-  assert.equal(g.update(0, snap({ gaze: { x: 10, y: 500 } })), null)
-  assert.equal(g.update(250, snap({ gaze: { x: 10, y: 500 } }))?.kind, 'away')
+test('100 px outward tolerance: 10 and -90 are on-screen, -120 is off-screen', () => {
+  const g1 = createGazeAway(cfg)
+  assert.equal(g1.update(0, snap({ gaze: { x: 10, y: 500 } })), null)
+  assert.equal(g1.update(3000, snap({ gaze: { x: 10, y: 500 } })), null)
+  assert.equal(g1.away, false)
+
+  const g2 = createGazeAway(cfg)
+  assert.equal(g2.update(0, snap({ gaze: { x: -90, y: 500 } })), null)
+  assert.equal(g2.update(3000, snap({ gaze: { x: -90, y: 500 } })), null)
+  assert.equal(g2.away, false)
+
+  const g3 = createGazeAway(cfg)
+  g3.update(0, snap({ gaze: { x: -120, y: 500 } }))
+  assert.equal(g3.update(3000, snap({ gaze: { x: -120, y: 500 } }))?.kind, 'away')
 })
 
 test('reset clears the away state', () => {
   const g = createGazeAway(cfg)
-  g.update(0, snap({ gaze: { x: -100, y: 500 } }))
-  g.update(250, snap({ gaze: { x: -100, y: 500 } }))
+  g.update(0, snap({ gaze: { x: -500, y: 500 } }))
+  g.update(3000, snap({ gaze: { x: -500, y: 500 } }))
   assert.equal(g.away, true)
   g.reset()
   assert.equal(g.away, false)
+})
+
+test('availability: usable / not connected / uncalibrated / stale / no face', () => {
+  const base = {
+    connected: true,
+    calibrated: true,
+    lastSnapshotAt: 3900,
+    lastFaceAt: 3800,
+    lastGazeAt: 3850,
+    now: 4000,
+    staleMs: 3000,
+    noFaceMs: 3000
+  }
+  assert.deepEqual(gazeAvailability(base), { usable: true, reason: null })
+  assert.deepEqual(gazeAvailability({ ...base, connected: false }), { usable: false, reason: 'not-connected' })
+  assert.deepEqual(gazeAvailability({ ...base, calibrated: false }), { usable: false, reason: 'uncalibrated' })
+  assert.deepEqual(gazeAvailability({ ...base, lastSnapshotAt: 0 }), { usable: false, reason: 'stale' })
+  assert.deepEqual(gazeAvailability({ ...base, lastFaceAt: 0, lastGazeAt: 0 }), { usable: false, reason: 'no-face' })
+  assert.deepEqual(gazeAvailability({ ...base, lastGazeAt: null }), { usable: true, reason: null })
+  assert.deepEqual(gazeAvailability({ ...base, lastFaceAt: null }), { usable: true, reason: null })
 })
