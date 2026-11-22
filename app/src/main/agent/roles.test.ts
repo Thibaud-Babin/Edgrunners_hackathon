@@ -99,7 +99,8 @@ async function mutedMicTicket(r: ReturnType<typeof roleRig>) {
   r.events.publish({ type: 'MIC_LEVEL', ts: at(), source: 'mic', data: { rms: 0 } })
   await r.flush()
   const card = r.ui.find((c) => c.type === 'SHOW_FIX')
-  assert.ok(card && card.type === 'SHOW_FIX' && card.it_ticket === true, 'device fix cards offer the IT ticket')
+  // B: muted = one-click fix, so the card has no ticket button (IT only gets what the user can't fix); the click still works.
+  assert.ok(card && card.type === 'SHOW_FIX' && card.it_ticket !== true, 'one-click fix: no ticket button')
   r.ui_('USER_CLICK', { action_id: 'open_it_ticket', args: { id: card.id } })
   await r.flush()
 }
@@ -116,9 +117,10 @@ test('IT ticket: device facts only (no speech, no device name), priority by role
     assert.ok(ticket.diagnostics?.problems.some((p) => p.key === 'mic_silent'), JSON.stringify(ticket.diagnostics))
     const json = JSON.stringify(ticket)
     assert.doesNotMatch(json, /budget|AirPods|Thibaud/, 'no speech, no names in the ticket')
-    const notice = r.ui.find((c) => c.type === 'SHOW_NOTICE')
-    assert.ok(notice && notice.type === 'SHOW_NOTICE')
-    assert.equal(notice.text, `Ticket T-0001 sent to IT (${queue}, simulated helpdesk)`)
+    const sent = r.ui.find((c) => c.type === 'IT_SENT')
+    assert.ok(sent && sent.type === 'IT_SENT' && sent.ok && sent.what === 'ticket')
+    assert.equal(sent.text, `Ticket T-0001 sent to IT (${queue}, simulated helpdesk): device facts only, nothing you said`)
+    assert.ok(!r.ui.some((c) => c.type === 'SHOW_NOTICE'), 'the button confirms: no extra card')
     mock.timers.reset()
   }
 })
@@ -142,7 +144,7 @@ test('End call, clean call: a device report is added to the IT log as "log only"
     assert.equal(rep.priority, 'log', role)
     assert.equal(rep.diagnostics?.callDurationS, 30)
     assert.doesNotMatch(JSON.stringify(rep), /Budget|Sara/, 'no speech in the report')
-    assert.ok(r.ui.some((c) => c.type === 'SHOW_NOTICE' && c.text === 'Call report added to the IT log (log only: no problem)'))
+    assert.ok(r.ui.some((c) => c.type === 'IT_SENT' && c.ok && c.text === 'Call report added to the IT log (log only: no problem)'))
     mock.timers.reset()
   }
 })

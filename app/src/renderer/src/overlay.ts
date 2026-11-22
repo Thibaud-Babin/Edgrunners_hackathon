@@ -27,24 +27,50 @@ function click(action_id: AllowedAction, args: Record<string, unknown> = {}): vo
   window.tap.emit(makeEvent('USER_CLICK', 'ui', { action_id, args }))
 }
 
+// ---------- click-through (B, Sun 03:00) ----------
+// The overlay is an invisible strip down the right of the screen. It must take clicks ONLY over a card or the pill
+// button; everywhere else clicks go to Meet / Tap's main window. It used to switch on mouseenter/mouseleave, and a
+// card closing under the mouse never fired mouseleave: the strip then swallowed every click (summary panel's ✕,
+// Meet's buttons). Now the mouse position decides, on every move (the window forwards moves while click-through).
+let interactive = false
+let mouseX = -1
+let mouseY = -1
+function refreshInteractive(): void {
+  const over = mouseX >= 0 && !!document.elementFromPoint(mouseX, mouseY)?.closest('.toast:not(.out), .pill-btn')
+  if (over !== interactive) {
+    interactive = over
+    document.body.dataset.interactive = String(over) // for tests
+    window.tap.setOverlayInteractive(over)
+  }
+}
+document.addEventListener('mousemove', (e) => {
+  mouseX = e.clientX
+  mouseY = e.clientY
+  refreshInteractive()
+})
+document.addEventListener('mouseleave', () => {
+  mouseX = mouseY = -1
+  refreshInteractive()
+})
+
 function removeToast(id: string): void {
   clearTimeout(toastTimers.get(id))
   toastTimers.delete(id)
   const queuedIndex = toastQueue.findIndex((item) => item.id === id)
-  if (queuedIndex >= 0) {
-    toastQueue.splice(queuedIndex, 1)
-    return
-  }
+  if (queuedIndex >= 0) toastQueue.splice(queuedIndex, 1)
   const toast = document.getElementById(id)
-  if (!toast) return
-  toast.classList.add('out')
-  setTimeout(() => {
-    toast.remove()
-    visibleToastIds.delete(id)
-    visibleToasts.delete(id)
-    showNextToast()
-  }, 250)
-  window.tap.setOverlayInteractive(false)
+  if (!toast && !visibleToastIds.has(id)) return
+  // B (Sun 02:00): the slot is freed NOW. It used to be freed inside the 250 ms fade-out timer, and a card that was
+  // also queued was never hidden, so after a few cards the overlay believed 3 were visible forever and showed nothing.
+  visibleToastIds.delete(id)
+  visibleToasts.delete(id)
+  if (toast) {
+    toast.removeAttribute('id') // a new card may reuse this id while this one fades out
+    toast.classList.add('out')
+    setTimeout(() => (toast.remove(), refreshInteractive()), 250)
+  }
+  showNextToast()
+  refreshInteractive() // the card under the mouse may just have gone
 }
 
 /** User pressed ✕ / Got it / Not now: tell the agent (it logs it and sends DISMISS back), and hide right away. */
@@ -91,16 +117,13 @@ function addToast(o: ToastOpts): HTMLElement | null {
 
   removeToast(o.id)
   if (visibleToastIds.size >= MAX_TOASTS) {
+    // Oldest first among equals (Map keeps insertion order; sort is stable).
     const lowest = [...visibleToasts.values()].sort((a, b) => priorities[a.kind] - priorities[b.kind])[0]
-    if (lowest && priorities[o.kind] > priorities[lowest.kind]) {
-      toastQueue.push(lowest, o)
-      removeToast(lowest.id)
-      toastQueue.sort((a, b) => priorities[b.kind] - priorities[a.kind])
-      return null
-    }
     toastQueue.push(o)
     toastQueue.sort((a, b) => priorities[b.kind] - priorities[a.kind])
-    return null
+    // At least as important as the least important card on screen → that card makes room (newest wins, like Windows).
+    if (lowest && priorities[o.kind] >= priorities[lowest.kind]) removeToast(lowest.id)
+    return document.getElementById(o.id)
   }
   return renderToast(o)
 }
@@ -139,8 +162,6 @@ function renderToast(o: ToastOpts): HTMLElement {
     row.append(...o.actions)
     toast.append(row)
   }
-  toast.onmouseenter = () => window.tap.setOverlayInteractive(true)
-  toast.onmouseleave = () => window.tap.setOverlayInteractive(false)
   toasts.append(toast) // newest at the bottom, like Windows
   visibleToastIds.add(o.id)
   visibleToasts.set(o.id, o)
@@ -148,9 +169,9 @@ function renderToast(o: ToastOpts): HTMLElement {
   return toast
 }
 
-function button(label: string, cls: string, fn: () => void): HTMLButtonElement {
+function button(label: string, cls: string, fn: (b: HTMLButtonElement) => void): HTMLButtonElement {
   const b = el('button', `btn ${cls}`, label)
-  b.onclick = fn
+  b.onclick = () => fn(b)
   return b
 }
 
@@ -244,8 +265,16 @@ window.addEventListener('storage', (event) => {
 })
 setInterval(syncCaptionPreference, 250)
 
+const CAPTION_IDLE_MS = 6000
+let captionClear: ReturnType<typeof setTimeout> | undefined
+
 function caption(text: string, final: boolean, speaker?: string, highlight?: string): void {
   if (!captionsVisible) return
+  clearTimeout(captionClear)
+  captionClear = setTimeout(() => {
+    captions.replaceChildren()
+    partialLine = null
+  }, CAPTION_IDLE_MS)
   const line = partialLine ?? el('div', 'caption-line')
   line.replaceChildren()
   line.className = final ? 'caption-line' : 'caption-line partial'
@@ -270,8 +299,37 @@ function checkIcon(): SVGSVGElement {
 
 // ---------- pill "Summary" button: summarize this meeting without leaving the call (B) ----------
 const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
-pillSummary.onmouseenter = () => window.tap.setOverlayInteractive(true)
-pillSummary.onmouseleave = () => window.tap.setOverlayInteractive(false)
+// B: "End call" → C's call report to the IT log (device facts only; CALL_ENDED must come from a click in the UI).
+const pillEnd = document.getElementById('pill-end') as HTMLButtonElement
+pillEnd.onclick = () => {
+  window.tap.emit(makeEvent('CALL_ENDED', 'ui'))
+  pillEnd.textContent = 'Ending…'
+  pillEnd.disabled = true
+}
+/** "Send to IT" / "End call" confirm on the button itself, only once main says it was really saved. */
+function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
+  const b = cmd.what === 'call_report' ? pillEnd : document.querySelector<HTMLButtonElement>(`.it-send[data-card="${CSS.escape(cmd.card_id ?? '')}"]`)
+  if (!b) return
+  b.title = cmd.text
+  if (cmd.what === 'call_report') {
+    b.textContent = cmd.ok ? '✓ Sent to IT' : "Couldn't save"
+    setTimeout(() => {
+      b.textContent = '⏹ End call'
+      b.disabled = false
+    }, 3000)
+  } else {
+    b.textContent = cmd.ok ? 'Sent to IT ✓' : 'Send to IT'
+    b.disabled = cmd.ok
+    // One line inside the same card: what was sent, and what happens next (no extra card)
+    const card = document.getElementById(cmd.card_id ?? '')
+    if (card) {
+      const note = card.querySelector<HTMLElement>('.it-note') ?? card.appendChild(el('div'))
+      note.className = `it-note ${cmd.ok ? 'ok' : 'bad'}`
+      if (cmd.ok) note.replaceChildren(el('b', '', `✓ Ticket ${cmd.ref ?? ''} sent to IT.`), document.createTextNode(' Only device facts (mic, camera, settings), nothing you said. IT will contact you if needed.'))
+      else note.textContent = "Couldn't send the ticket. Try again, or tell IT yourself."
+    }
+  }
+}
 pillSummary.onclick = () => {
   pillSummary.disabled = true
   pillSummary.textContent = '📝 Summarizing…'
@@ -294,7 +352,8 @@ window.tap.onUi((cmd: UiCommand) => {
         icon: cmd.trigger === 'name' ? '🔔' : '👋',
         title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
         body: [...(q ? [question(q)] : []), ...(cmd.summary ? [points(cmd.summary, q)] : []), ...(cmd.transcript ? [transcript('Full transcript', cmd.transcript, q)] : []), ...(q ? [gestureHint()] : [])],
-        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))],
+        autoDismissMs: 90000
       })
       break
     }
@@ -305,7 +364,8 @@ window.tap.onUi((cmd: UiCommand) => {
         icon: '🔔',
         title: 'You were addressed',
         body: [...(cmd.question ? [question(cmd.question)] : []), ...(cmd.summary ? [points(cmd.summary, cmd.question)] : []), ...(cmd.transcript ? [transcript('Last 10 seconds', cmd.transcript, cmd.question)] : []), ...(cmd.question ? [gestureHint()] : [])],
-        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))],
+        autoDismissMs: 90000
       })
       break
     case 'SHOW_FIX':
@@ -326,7 +386,18 @@ window.tap.onUi((cmd: UiCommand) => {
                 click(cmd.alt_action_id!)
                 removeToast(cmd.id)
               })
-            : button('Not now', 'ghost', () => userDismiss(cmd.id))
+            : button('Not now', 'ghost', () => userDismiss(cmd.id)),
+          // B: C's "Send diagnostics to IT" (device facts only) had no button. The card stays; the button confirms.
+          ...(cmd.it_ticket
+            ? [
+                button('Send to IT', 'ghost it-send', (b) => {
+                  click('open_it_ticket', { id: cmd.id })
+                  b.textContent = 'Sending…'
+                  b.disabled = true
+                  b.dataset.card = cmd.id
+                })
+              ]
+            : [])
         ]
       })
       break
@@ -385,6 +456,13 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
       break
     }
+    case 'IT_SENT':
+      itSent(cmd)
+      break
+    case 'SHOW_NOTICE':
+      // C's notices (e.g. IT ticket sent): they were silently dropped here.
+      addToast({ id: cmd.id, kind: 'nudge', icon: 'ℹ', title: cmd.text, body: [], actions: [button('Got it', 'primary', () => removeToast(cmd.id))], autoDismissMs: 10000 })
+      break
     case 'CUE':
       // Settings → "Sound with each vibration" (off by default): same signal, in the headphones.
       if (soundOn()) playCue(cmd.waveform)

@@ -179,6 +179,8 @@ export class Executor {
     })
   }
 
+  private mouthTimer: ReturnType<typeof setTimeout> | undefined
+
   private handle(env: Envelope<unknown>): void {
     const decidedAt = now()
     const d = decide(this.state, env, decidedAt)
@@ -186,6 +188,16 @@ export class Executor {
     for (const l of d.log) this.report.log(l.kind, l.text)
     for (const b of d.blocked) this.report.blocked(b, 'allowlist')
     void this.run(d.actions, env.provenance, decidedAt)
+    // B (Sun 02:00): vision sends MOUTH_MOVING only when it changes, so "talking for 1.5 s while muted" was only
+    // re-checked when a mic level arrived. While the mouth keeps moving, re-check every second (the rules' card
+    // cooldown prevents duplicates). Muted in Windows is then enough on its own, even without "Start mic".
+    const p = env.payload as { signal?: unknown; active?: unknown } | null
+    if (env.kind === 'vision' && p?.signal === 'mouth') {
+      clearTimeout(this.mouthTimer)
+      if (p.active === true) this.mouthTimer = setTimeout(() => {
+        if (this.state.mouthSince !== null) this.handle(env)
+      }, 1000)
+    }
   }
 
   /** Actions from one decision run in order (e.g. the knock first, then the card). */
@@ -293,6 +305,16 @@ export class Executor {
         }
         const r = await this.mic.fix(a.fix, a.mic)
         this.report.log(r.ok ? 'action' : 'error', `You clicked the fix → ${r.text}`)
+        // B (Sun 04:00): the fix did not work → say so, and now offer IT (a device problem the user can't fix).
+        if (!r.ok)
+          this.ui({
+            type: 'SHOW_FIX',
+            id: this.cardId(),
+            problem: `Tap couldn't fix it (${r.text}). This may be a device or driver problem.`,
+            fix_label: 'OK',
+            action_id: 'dismiss_card',
+            it_ticket: true
+          })
         if (r.ok && a.fix === 'switch') this.ui({ type: 'SWITCH_MIC', prefer: a.mic }) // Tap's own capture follows
         return r.ok
       }
@@ -300,7 +322,7 @@ export class Executor {
         this.ui({ type: 'DISMISS', id: a.cardId })
         return true
       case 'open_it_ticket':
-        return this.sendTicket()
+        return this.sendTicket(a.cardId)
       case 'send_call_report':
         return this.sendCallReport()
       case 'send_haptic': {
@@ -318,7 +340,7 @@ export class Executor {
   }
 
   /** The user's click: their own device facts (no speech, no names) to IT, with priority by role (VIP support). */
-  private async sendTicket(): Promise<boolean> {
+  private async sendTicket(cardId: string): Promise<boolean> {
     const flags = this.roles.flags
     const ticket: ItTicket = {
       id: `T-${String(++this.ticketSeq).padStart(4, '0')}`,
@@ -332,11 +354,13 @@ export class Executor {
       ? await this.ports.tickets.send(ticket).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
       : { ok: true, where: 'log only' }
     if (!sent.ok) {
+      this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: false, ref: ticket.id, text: `Ticket ${ticket.id} could not be sent` })
       this.report.log('error', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} could not be saved (${sent.where})`)
       return false
     }
     const queue = ticket.priority === 'priority' ? 'priority: executive support' : 'normal queue'
-    this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk)` })
+    // B: the user clicked, so the button confirms ("Sent to IT ✓"); no extra card to read in the middle of a call.
+    this.ui({ type: 'IT_SENT', what: 'ticket', card_id: cardId, ok: true, ref: ticket.id, text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk): device facts only, nothing you said` })
     this.report.log('action', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent (${queue}; device facts only, no speech; ${sent.where})`)
     return true
   }
@@ -360,11 +384,12 @@ export class Executor {
     this.ports.resetCall?.()
     const fixes = diagnostics?.fixesApplied.length ?? 0
     if (!saved.ok) {
+      this.ui({ type: 'IT_SENT', what: 'call_report', ok: false, text: `Call report ${report.id} could not be saved` })
       this.report.log('error', `Call ended → device report ${report.id} could not be saved (${saved.where})`)
       return false
     }
     const level = priority === 'urgent' ? 'urgent: executive support' : priority === 'priority' ? 'priority: device problems' : 'log only: no problem'
-    this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Call report added to the IT log (${level})` })
+    this.ui({ type: 'IT_SENT', what: 'call_report', ok: true, text: `Call report added to the IT log (${level})` })
     this.report.log(
       'action',
       `Call ended → device report ${report.id} added to the IT log (${problems} problems, ${fixes} fixes; ${level}; device facts only, no speech; ${saved.where})`

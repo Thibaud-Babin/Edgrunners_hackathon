@@ -29,7 +29,7 @@
         </div>
         <button class="orbit-node" data-orb="0" style="--c: rgba(52, 211, 153, 0.9)"><span class="o-glow"></span><span class="o-disc">✓</span><span class="o-name">Check-up</span><span class="badge o-badge" id="badge-check">not run yet</span></button>
         <button class="orbit-node" data-orb="1" style="--c: rgba(96, 165, 250, 0.9)"><span class="o-glow"></span><span class="o-disc">≡</span><span class="o-name">Activity</span><span class="badge o-badge" id="badge-activity">0 events · 0 blocked</span></button>
-        <button class="orbit-node" data-orb="2" style="--c: rgba(251, 191, 36, 0.9)"><span class="o-glow"></span><span class="o-disc">▦</span><span class="o-name">IT view</span><span class="badge o-badge">simulated</span></button>
+        <button class="orbit-node" data-orb="2" style="--c: rgba(251, 191, 36, 0.9)"><span class="o-glow"></span><span class="o-disc">▦</span><span class="o-name">IT console</span><span class="badge o-badge">real data</span></button>
         <button class="orbit-node" data-orb="3" style="--c: rgba(192, 132, 252, 0.9)"><span class="o-glow"></span><span class="o-disc">⚙</span><span class="o-name">Dev tools</span><span class="badge o-badge">team only</span></button>
         <button class="orbit-node" data-orb="4" style="--c: rgba(244, 114, 182, 0.9)"><span class="o-glow"></span><span class="o-disc">◐</span><span class="o-name">Settings</span><span class="badge o-badge">sound · captions</span></button>
         <button class="orbit-node state-on" id="node-captions" data-orb="5" style="--c: rgba(34, 211, 238, 0.88)" aria-label="Toggle live captions" aria-pressed="true">
@@ -212,12 +212,34 @@
           <div class="head-left">
             <button class="btn ghost back-hub">← Graph</button>
             <div>
-              <h2>IT view <span class="sim">SIMULATED DATA</span></h2>
-              <p id="it-sub">Meeting problems across the company.</p>
+              <h2>IT console <span class="badge ok">REAL DATA · THIS LAPTOP</span></h2>
+              <p id="itc-sub">What your IT team sees: meeting problems on this laptop, the fixes, and what Tap's agent did.</p>
             </div>
           </div>
           <div class="head-right"></div>
         </div>
+        <!-- B (Nexthink): real numbers from this laptop (main/agent/it-stats.ts) -->
+        <div class="tiles" id="itc-tiles"></div>
+        <div class="grid-2 itc-gap">
+          <div class="panel"><h3>Problems by type</h3><div class="bars" id="itc-types"></div></div>
+          <div class="panel"><h3>One-click fixes, checked</h3><div class="itc-list" id="itc-fixes"></div></div>
+        </div>
+        <div class="grid-2 itc-gap">
+          <div class="panel"><h3>Tickets and call reports</h3><div class="itc-list" id="itc-queue"></div><pre class="itc-json" id="itc-json" hidden></pre></div>
+          <div class="panel"><h3>Can IT trust the agent?</h3><div class="health" id="itc-agent"></div><div class="itc-list" id="itc-blocked"></div></div>
+        </div>
+        <div class="panel itc-gap" id="itc-recurring-panel" hidden><h3>Keeps coming back</h3><div class="itc-list" id="itc-recurring"></div></div>
+        <div class="panel itc-gap itc-privacy">
+          <h3>What IT can and cannot see</h3>
+          <div class="itc-cols">
+            <div><b class="ok-t">✓ IT sees</b><span>Device facts (mic type, muted, volume, camera / mic / call-audio health), problem counts, fixes and whether they worked, the agent's actions, refusals and AI cost.</span></div>
+            <div><b class="bad-t">✗ IT never sees</b><span>What was said (no transcript, no summary), names, camera images. Executives and the CEO: meetings never recorded, summaries stay on the laptop.</span></div>
+          </div>
+        </div>
+
+        <!-- D's company-wide mock-up, kept: what IT would see with Tap on every laptop -->
+        <h3 class="itc-section">Company-wide <span class="sim">SIMULATED DATA</span></h3>
+        <p class="itc-note" id="it-sub">Meeting problems across the company.</p>
         <div class="tiles" id="it-tiles"></div>
         <div class="grid-2">
           <div class="panel"><h3>Hours lost per problem type</h3><div class="bars" id="it-bars"></div></div>

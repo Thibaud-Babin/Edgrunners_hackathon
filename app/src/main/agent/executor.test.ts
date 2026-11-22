@@ -236,3 +236,64 @@ test("mic doctor: only the user's click can run fix_mic; the click runs the MicP
   assert.deepEqual(fixes, ['unmute:laptop'])
   assert.ok(logs.includes('You clicked the fix → laptop mic "X" unmuted (checked)'))
 })
+
+test('mic doctor live path: muted in Windows + mouth moving, and NO mic level at all → card after ~1.5 s (re-checked while talking)', async (t) => {
+  t.after(() => mock.timers.reset())
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 * 1000 })
+  const ui: UiCommand[] = []
+  const events = new EventBus()
+  const bus = new AgentBus()
+  const report = { log: () => {}, blocked: () => {}, invalid: () => {} }
+  new AudioAgent(events, bus, new Llm({ client: null }), 'Thibaud', report)
+  startVisionIntake(events, bus, report)
+  new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, { fix: async () => ({ ok: true, text: 'ok' }) })
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
+  }
+  const at = () => Date.now() / 1000
+  events.publish({ type: 'MIC_STATE', ts: at(), source: 'mic', data: { name: 'X', kind: 'laptop', muted: true, volume: 1 } })
+  events.publish({ type: 'MOUTH_MOVING', ts: at(), source: 'webcam', data: { active: true } })
+  await flush()
+  assert.equal(ui.filter((c) => c.type === 'SHOW_FIX').length, 0, 'not at once')
+  mock.timers.tick(1000)
+  await flush()
+  mock.timers.tick(1000)
+  await flush()
+  const cards = ui.filter((c) => c.type === 'SHOW_FIX')
+  assert.equal(cards.length, 1)
+  assert.equal(cards[0]!.type === 'SHOW_FIX' && cards[0]!.fix_label, 'Unmute laptop mic')
+  mock.timers.tick(5000) // still talking: no duplicate card
+  await flush()
+  assert.equal(ui.filter((c) => c.type === 'SHOW_FIX').length, 1)
+})
+
+test('B: the one-click fix failed → a card says so and now offers "Send to IT" (a device problem the user cannot fix)', async (t) => {
+  t.after(() => mock.timers.reset())
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 * 1000 })
+  const ui: UiCommand[] = []
+  const events = new EventBus()
+  const bus = new AgentBus()
+  const report = { log: () => {}, blocked: () => {}, invalid: () => {} }
+  new AudioAgent(events, bus, new Llm({ client: null }), 'Thibaud', report)
+  startVisionIntake(events, bus, report)
+  new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, { fix: async () => ({ ok: false, text: 'could not unmute laptop mic "X"' }) })
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
+  }
+  const at = () => Date.now() / 1000
+  events.publish({ type: 'MIC_STATE', ts: at(), source: 'mic', data: { name: 'X', kind: 'laptop', muted: true, volume: 1 } })
+  events.publish({ type: 'MOUTH_MOVING', ts: at(), source: 'webcam', data: { active: true } })
+  mock.timers.tick(2000)
+  events.publish({ type: 'MIC_LEVEL', ts: at(), source: 'mic', data: { rms: 0 } })
+  await flush()
+  const first = ui.filter((c) => c.type === 'SHOW_FIX')
+  assert.equal(first.length, 1)
+  assert.ok(first[0]!.type === 'SHOW_FIX' && first[0]!.it_ticket !== true, 'muted: no ticket button')
+  events.publish({ type: 'USER_CLICK', ts: at(), source: 'ui', data: { action_id: 'fix_mic' } })
+  await flush()
+  const cards = ui.filter((c) => c.type === 'SHOW_FIX')
+  assert.equal(cards.length, 2)
+  const failed = cards[1]!
+  assert.ok(failed.type === 'SHOW_FIX' && failed.it_ticket === true)
+  assert.match(failed.problem, /^Tap couldn't fix it \(could not unmute laptop mic "X"\)/)
+})

@@ -244,3 +244,19 @@ test('Settings → "Extra vibrations" on: question to the group rings again, a t
   assert.deepEqual(kinds(play([[det('QUESTION_TO_GROUP'), 1]])), ['send_haptic:ringing'])
   assert.deepEqual(kinds(play([[det('TOPIC_MENTIONED'), 1]])), ['send_haptic:damp_state_change'])
 })
+
+test('B: "Send to IT" only when no click can fix it: not on muted / quiet / switch / Meet cards; yes on a silent mic with no other mic', () => {
+  const tickets = (r: { actions: unknown[] }) => (fixCards(r) as { itTicket?: boolean }[]).map((c) => c.itTicket === true)
+  // muted in Windows → Unmute: no ticket
+  assert.deepEqual(tickets(play([[micState(1, { muted: true }), 1], [mouth(true, 10), 10], [level(0, 11), 11], [level(0, 11.6), 11.6]])), [false])
+  // very quiet → Raise volume: no ticket
+  assert.deepEqual(tickets(play([[micState(1, { muted: false, volume: 0.05 }), 1], [env('detector', { type: 'OTHERS_CANT_HEAR', text: "we can't hear you" }, 5, 'detector'), 5]])), [false])
+  // silent headset, laptop mic available → Switch: no ticket (try the fix first)
+  assert.deepEqual(tickets(play([[micState(1, { muted: false, micKind: 'headset', otherKind: 'laptop' }), 1], [mouth(true, 10), 10], [level(0, 11), 11], [level(0, 13.5), 13.5]])), [false])
+  // mic works, yet "we can't hear you" → muted in Meet hint: no ticket
+  assert.deepEqual(tickets(play([[micState(1, { muted: false }), 1], [level(0.2, 4.5), 4.5], [env('detector', { type: 'OTHERS_CANT_HEAR', text: "we can't hear you" }, 5, 'detector'), 5]])), [false])
+  // silent mic and no other mic → nothing to click: ticket
+  const r = play([[micState(1, { muted: false }), 1], [mouth(true, 10), 10], [level(0, 11), 11], [level(0, 13.5), 13.5]])
+  assert.match(fixCards(r)[0]!.problem, /Check its cable/)
+  assert.deepEqual(tickets(r), [true])
+})

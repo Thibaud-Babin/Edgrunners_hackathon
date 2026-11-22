@@ -14,7 +14,7 @@
 |---|---|---|
 | `USER_AWAY` | `{ reason: 'turned_away' \| 'no_face' }` | yaw > 28 deg or pitch > 22 deg (phone glance) or no face, for > 2 s; exit only below 18 / 14 deg (hysteresis) |
 | `USER_BACK` | — | face back towards the screen |
-| `MOUTH_MOVING` | `{ active: boolean }` | only when it changes; only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg; forced false outside that range; debounced 300 ms on / 800 ms off (B's request) |
+| `MOUTH_MOVING` | `{ active: boolean }` | only when it changes; only while face and abs(yaw) < 28 deg, abs(pitch) < 22 deg; forced false outside that range; debounced 300 ms on / 800 ms off (B's request); signal = jaw + lower lip, std > 0.03 over 1 s |
 | `FACE_OUT_OF_FRAME` | — | no face detected — **baseline: only emitted together with `USER_AWAY` (reason `no_face`)** |
 | `CAMERA_FROZEN` | - | <= 3 of the 3072 pixels of a 64x48 frame changed for > 3 s |
 | `LOW_LIGHT` | `{ brightness }` | mean luma < 60 for 0.8 s (clears above 80) |
@@ -56,7 +56,7 @@ The **Logi Gaze Tracker** (separate Logitech tray app) drives `USER_AWAY`/`USER_
 |---|---|---|
 | Sat 12:00–13:00 | `npm install`, `npm run dev`, click **Start camera**. Turn your head left/right/up/down and check the yaw/pitch/roll readout has sensible signs (fix `headPose()` if not). | Readout moves the right way |
 | 13:00-15:00 **spike** (done) | 1) Measure FPS (`cameraHealth().fps`) on the demo laptop **while Zoom/Meet runs**: **about 60 fps with Tap alone, 51 fps with Zoom/Meet running** - more than 3x the 15 fps gate. 2) **Critical test: can Zoom and Tap use the webcam at the same time?** - **done**: RGB is single-consumer by default, fixed by the Windows 11 multi-app camera setting (verified: Zoom + Tap live together). | FPS >= 15 (verified under Zoom/Meet load) and camera-sharing answer known (done) |
-| 15:00-19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). `MOUTH_MOVING` is debounced (300 ms on / 800 ms off) and uses `jawOpen` std > **0.035** over 1 s; tune so talking = active, smiling/yawning does not (yawns/laughs accepted). A held-open mouth is intentionally not "talking". | 10 tries, >= 8 correct, no flicker |
+| 15:00-19:00 | Make away/back reliable: test with glancing at your phone, turning to a colleague, leaning back. Tune thresholds; no flicker (hysteresis). `MOUTH_MOVING` is debounced (300 ms on / 800 ms off) and uses the **jaw + lower lip** signal (std > **0.03** over 1 s, B's real-call value in PR #21); tune so talking = active, smiling/yawning does not (yawns/laughs accepted). A held-open mouth is intentionally not "talking". | 10 tries, >= 8 correct, no flicker |
 | 20:00-02:00 | Camera health: frozen (64x48 canvas diff), brightness, tooBright, faceInFrame, `CAMERA_FROZEN` / `LOW_LIGHT` - **done** (`vision/health.ts`). Next: 10 s neutral-face calibration (needed by P1 gestures). | D's check-up shows real values |
 | 02:00–09:00 (P1) | Gestures: nod = two pitch reversals of ±8–10° within ~1.2 s; shake = same on yaw; brow raise = `browInnerUp` ≈ +0.3 over baseline held 300–500 ms; tilt = ±15° roll held 400 ms. Cooldown ~1 s. | 8/10 correct per gesture after calibration |
 | P2-11 (done) | Gaze mode is the default away source. Install/calibrate the Logi Gaze Tracker on the meeting display; verify the dot; `setAwayMode('pose')` switches back. | off-screen 3 s -> USER_AWAY; return -> USER_BACK/card; missing tracker -> pose fallback + status |
@@ -72,7 +72,7 @@ The **Logi Gaze Tracker** (separate Logitech tray app) drives `USER_AWAY`/`USER_
 - Lighting at the venue differs from home: re-test on Saturday evening in the demo room.
 - Frozen detection assumes real sensor noise: a perfectly static virtual camera looks frozen after 3 s. Do not test with an OBS test pattern and call it a bug.
 - Lighting thresholds were validated on the labelled 8-image set; re-check the venue light before the demo.
-- Looking down at a phone/keyboard: yaw alone misses it; the pitch rule (> 22 deg) catches it. `jawOpen` drifts at large pitch, so `MOUTH_MOVING` is gated to abs(yaw) < 28 deg and abs(pitch) < 22 deg and forced false outside.
+- Looking down at a phone/keyboard: yaw alone misses it; the pitch rule (> 22 deg) catches it. The mouth blendshapes drift at large pitch, so `MOUTH_MOVING` is gated to abs(yaw) < 28 deg and abs(pitch) < 22 deg and forced false outside.
 - Gaze mode is only valid if the tracker is calibrated on the meeting display; calibration drifts if you move. Both apps use the camera, so the Windows multi-app setting is required.
 - Gaze is noisy: the 3 s / 700 ms hysteresis and the 64 px outward tolerance are deliberate. Tune them in `vision.ts`, not in the tracker; the tracker's accuracy comes from its rig + calibration.
 - Research notes with thresholds and repos: `docs/research/build/face_gestures_and_glue.md`.
