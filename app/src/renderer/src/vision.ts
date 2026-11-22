@@ -305,10 +305,11 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       const pose = res.facialTransformationMatrixes[0] ? headPose(res.facialTransformationMatrixes[0].data) : undefined
 
       const source = gazeStatus().activeSource
-      if (source === 'pose' && gazeTracker.away) {
-        // Gaze just stopped being usable: close its away interval before pose takes over.
+      if (source === 'pose') {
+        // Keep the gaze tracker fresh while pose is driving; also closes a gaze-away interval.
+        const wasGazeAway = gazeTracker.away
         gazeTracker.reset()
-        emitTap('USER_BACK', { gaze: true })
+        if (wasGazeAway) emitTap('USER_BACK', { gaze: true })
       }
       if (source !== lastActiveSource) {
         if (source === 'pose') console.warn(`[gaze] pose fallback (${gazeStatus().fallbackReason ?? 'unknown'})`)
