@@ -16,7 +16,7 @@ Run `Tap-Setup-<version>.exe`. It installs for your user only (no admin rights n
 ## 3. First start: settings
 Tap needs a few settings that are never shipped inside the app, because API keys are private.
 1. Start Tap. Its icon appears in the system tray, bottom-right; click the ^ arrow if it is hidden.
-2. Right-click the tray icon → **Open settings file**. This opens `%APPDATA%\Roaming\tap\.env` in Notepad. Tap creates the file on first start.
+2. Right-click the tray icon → **Open settings file**. This opens `%APPDATA%\tap\.env` (full path: `C:\Users\<you>\AppData\Roaming\tap\.env`) in Notepad. Tap creates the file on first start.
 3. Fill in:
    - `DEEPGRAM_API_KEY=`: **required for speech.** Live captions, name detection, contextual alerts and meeting summaries all need it. Get a key at deepgram.com.
    - `TAP_USER_NAMES=`: your first name, then nicknames or common misspellings, comma-separated. For example: `TAP_USER_NAMES=Thibaud,Thibault,Tibo`.
@@ -27,8 +27,8 @@ Without a Deepgram key Tap still opens. It then shows on the overlay and in Acti
 
 ## 4. Use it in a meeting
 1. Join your meeting in Zoom, Teams or Meet as usual. Leave your meeting app's microphone set to **Default**.
-2. In Tap's main window, open **Check-up** and click **Start call audio**. Tap listens to what the meeting plays on your PC (Windows system audio). It never starts listening by itself.
-3. Optional: **Start mic** lets Tap notice when you talk while muted. **Start camera** lets it notice when you look away, so it can recap what you missed.
+2. In Tap's main window, open **Check-up** and click **Start call audio**. Tap listens to what the meeting plays on your PC (Windows system audio). It never starts listening by itself. Tap transcribes **only this meeting audio**: your own microphone is never transcribed, and `Start mic` only feeds the microphone checks. If nothing is playing, there is nothing to caption, so test with a video or a real call.
+3. Optional, and they do different things: **Start camera** enables look-away detection and the "talking while muted" card (it needs mouth movement); **Start mic** enables microphone quality and "your mic sends nothing". Windows' own microphone state (muted, volume, which device) is read automatically, without Start mic.
 4. Close the main window. Tap keeps running in the tray, and the overlay stays on top of other windows:
    - live captions at the bottom of the overlay (turn them on or off in Settings → Live captions);
    - a knock and a card when someone says your name, with what was being discussed;
@@ -38,10 +38,12 @@ Without a Deepgram key Tap still opens. It then shows on the overlay and in Acti
 5. Tray icon menu:
    - **Open Tap**: reopen the main window. Double-clicking the icon does the same.
    - **Stop Monitoring**: stop the call audio, mic and camera Tap is using.
-   - **Open settings file**: edit `%APPDATA%\Tap\.env`.
+   - **Open settings file**: edit `%APPDATA%\tap\.env`.
    - **Quit**: close Tap completely, including its background helpers.
 
 Only one Tap runs at a time. Starting it again just reopens the running one.
+
+> **Windows camera sharing (needed when the meeting app also uses the camera).** By default a webcam allows one app at a time: Zoom/Meet may lose the camera while Tap holds it. Windows 11 → Settings → Bluetooth & devices → Cameras → **<your camera>** → Advanced camera options → enable **"Allow multiple apps to use the camera at the same time"**. The Logi Gaze Tracker also opens the camera, so keep this on for gaze mode too. Details: `app/README.md` and `docs/team/A-vision.md`.
 
 ## 5. What needs what
 
@@ -51,6 +53,7 @@ Only one Tap runs at a time. Starting it again just reopens the running one.
 | AI-written recaps and summaries | `ANTHROPIC_API_KEY` (optional; otherwise built from the transcript) |
 | Your name recognised | `TAP_USER_NAMES` |
 | "They can't hear you" fixes (unmute, switch mic, volume) | Windows (built in; uses PowerShell, no setup) |
+| "You are talking but muted in Windows" card | `Start camera` (mouth movement) + Windows mic state (built in) |
 | Vibrations on the mouse | Logitech MX Master 4 + Logi Options+ with the HapticWeb plugin (otherwise the screen flashes) |
 | Look-away detection | A webcam; Logi Gaze Tracker optional (otherwise head pose from the webcam) |
 | Real speaker names in Google Meet | Optional Chrome extension: `chrome://extensions` → Developer mode → **Load unpacked** → `<install folder>\resources\extension\meet-names` |

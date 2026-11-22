@@ -80,6 +80,7 @@ For the detailed event flow and developer notes, see [`app/README.md`](app/READM
 
 - Node.js and npm
 - Windows 10 or 11 for the current loopback capture and Windows microphone-diagnostic workflow
+- Windows 11, when the meeting app also uses the camera: enable **Settings → Bluetooth & devices → Cameras → <camera> → Advanced camera options → "Allow multiple apps to use the camera at the same time"**; otherwise Zoom/Meet and Tap (or the Logi Gaze Tracker) fight over the webcam
 - `tar` for local speech-model setup (included with current Windows versions)
 - A webcam and microphone for live sensor testing
 
