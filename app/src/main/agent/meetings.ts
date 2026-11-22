@@ -8,7 +8,8 @@
  *   - Speech again after NEW_MEETING_GAP_S (5 min) of silence → the previous meeting is closed first (summarized if
  *     it has unsummarized speech), then a new one starts.
  *   - "Summarize" buttons (main window panel, overlay pill) → summary of the current meeting so far.
- * Tap cannot see Meet's "Leave call" button (another app): these audio rules stand in for it.
+ * Tap cannot see Meet's "Leave call" button (another app): with the Meet extension, end() is called when you leave
+ * or open another meeting (meet-presence.ts); these audio rules are the fallback (Zoom, Teams, no extension).
  * With Settings → "Summary when the call goes quiet" off, nothing is summarized by itself; meetings still split.
  */
 import { CallTranscript } from './call-summary.ts'
@@ -48,6 +49,16 @@ export class Meetings {
     if (this.call.lines.length && ts - this.call.endedAt > this.times.newMeetingGapS) this.close('auto')
     this.call.add(text, ts, speaker)
     this.arm()
+  }
+
+  /**
+   * B: a clean signal that the meeting is over (Google Meet: another meeting, you left, tab closed; meet-presence.ts):
+   * final summary now, and the next speech starts a fresh meeting. Returns false when there was nothing to end.
+   */
+  end(): boolean {
+    if (!this.call.lines.length) return false
+    this.close('auto')
+    return true
   }
 
   /** A "Summarize" button: the current meeting so far. It keeps going. */

@@ -26,6 +26,7 @@ import { ItStats, parseCallReports, parseTicket, type ItStatsState, type TicketF
 import { HAPTIC_PATTERNS, makeEvent } from '../shared/events'
 import { SpeakerNames } from './audio/speaker-names'
 import { others, startMeetBridge } from './audio/meet-bridge'
+import { MeetPresence, type MeetEnd } from './audio/meet-presence'
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 const names = (process.env.TAP_USER_NAMES || 'Thibaud,Thibault,Tibo,Teebo').split(',').map((s) => s.trim())
@@ -215,7 +216,12 @@ app.whenReady().then(() => {
   audio.speakerNames = speakerNames
   const meetLog = (text: string): void => sendUi({ type: 'LOG_ENTRY', entry: { ts: Date.now() / 1000, kind: 'decision', text } })
   let meetWasConnected = false
+  // B: Meet tells Tap when a meeting ends (another code, you left, tab closed) → final summary, fresh transcript
+  const presence = new MeetPresence()
+  let onMeetEnded: ((e: MeetEnd) => void) | null = null
   startMeetBridge((u) => {
+    const ended = presence.update(u.meeting, u.people.length, Date.now() / 1000)
+    if (ended) onMeetEnded?.(ended)
     const changed = speakerNames.update(others(u))
     if (!meetWasConnected) meetLog(`Meet names: extension connected (meeting ${u.meeting || '?'})`)
     meetWasConnected = true
@@ -229,6 +235,8 @@ app.whenReady().then(() => {
       meetWasConnected = false
       meetLog('Meet names: extension stopped sending (tab closed?) → back to Speaker 1, 2…')
     }
+    const gone = presence.tick(Date.now() / 1000)
+    if (gone) onMeetEnded?.(gone)
   }, 3000)
   // Live captions (accessibility): what the others say, shown in the overlay as they speak. Display only, no decision,
   // so it goes straight to the UI. The user's name is highlighted. D renders CAPTION in overlay.ts.
@@ -290,6 +298,10 @@ app.whenReady().then(() => {
     quietS: Number(process.env.TAP_SUMMARY_AFTER_S ?? DEFAULT_TIMES.quietS),
     newMeetingGapS: Number(process.env.TAP_NEW_MEETING_AFTER_S ?? DEFAULT_TIMES.newMeetingGapS)
   })
+  onMeetEnded = (e) => {
+    const summarized = meetings.end()
+    meetLog(`Meet: meeting ${e.meeting} ended (${e.why})${summarized ? ' → meeting closed: final summary (if enough was said), the next speech starts a new meeting' : ''}`)
+  }
   bus.on('TRANSCRIPT_FINAL', (e) => {
     if (e.source !== 'call_audio') return
     meetings.onLine(cleanText(e.data?.text, MAX.transcriptChunk), e.ts, cleanText(e.data?.speaker, MAX.speakerName) || undefined)
