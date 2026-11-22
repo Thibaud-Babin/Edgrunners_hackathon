@@ -325,6 +325,9 @@ export class Monitor {
     // This also caps paid AI calls, since every recap may call the AI. Haptics don't count: most reactions add one
     // or two knocks to their card, and failing haptics have their own breaker.
     if (r.action === 'send_haptic') return
+    // B (Sun 11:30, real test): only cards count. Closing cards and tickets counted too, so a busy minute paused Tap
+    // and the "while you were away" card was dropped.
+    if (!r.action.startsWith('show_')) return
     this.recentActions = [...this.recentActions.filter((x) => t - x < SPAM_WINDOW_S), t]
     if (this.recentActions.length > SPAM_MAX_ACTIONS && t >= this.pausedUntil) {
       this.pausedUntil = t + SPAM_PAUSE_S

@@ -102,7 +102,20 @@ interface ToastOpts {
   actions?: HTMLElement[]
   closable?: boolean
   autoDismissMs?: number
+  /** B: one card per topic: a new card on the same topic replaces the old one (mic, camera, recap, nudge) */
+  topic?: string
 }
+
+/** B: a fix card's topic, from what it offers and says */
+function fixTopic(cmd: { problem: string; action_id: string; alt_action_id?: string }): string | undefined {
+  const a = `${cmd.action_id} ${cmd.alt_action_id ?? ''}`
+  if (/restart_camera/.test(a) || /camera|see you|frozen|picture/i.test(cmd.problem)) return 'camera'
+  if (/fix_mic|switch_input_device|snooze_mic_alerts/.test(a) || /\bmic|hear you|mute|sound|volume/i.test(cmd.problem)) return 'mic'
+  return undefined
+}
+
+/** B: cards that only inform fade after this, unless the mouse is on them */
+const INFO_CARD_MS = 20000
 
 const priorities: Record<ToastKind, number> = { fix: 3, hero: 2, recap: 2, nudge: 1, reply: 0 }
 const toastQueue: ToastOpts[] = []
@@ -130,6 +143,8 @@ function addToast(o: ToastOpts): HTMLElement | null {
   recentToasts.set(signature, now)
 
   removeToast(o.id)
+  // B: one card per topic: the new one replaces the old one (it holds the newer information)
+  if (o.topic) for (const v of [...visibleToasts.values()]) if (v.topic === o.topic) removeToast(v.id)
   if (visibleToastIds.size >= MAX_TOASTS) {
     // B (Sun 11:00, real call): a card less important than the 3 on screen used to wait in a hidden queue, so the
     // user felt the vibration and saw nothing (e.g. "while you were away" behind 3 mic cards). Now the newest card
@@ -178,7 +193,14 @@ function renderToast(o: ToastOpts): HTMLElement {
   toasts.append(toast) // newest at the bottom, like Windows
   visibleToastIds.add(o.id)
   visibleToasts.set(o.id, o)
-  if (o.autoDismissMs) toastTimers.set(o.id, setTimeout(() => removeToast(o.id), o.autoDismissMs))
+  if (o.autoDismissMs) {
+    toastTimers.set(o.id, setTimeout(() => removeToast(o.id), o.autoDismissMs))
+    // B: reading it (mouse on the card) keeps it; it fades 8 s after the mouse leaves
+    toast.addEventListener('mouseenter', () => clearTimeout(toastTimers.get(o.id)))
+    toast.addEventListener('mouseleave', () => {
+      if (visibleToastIds.has(o.id)) toastTimers.set(o.id, setTimeout(() => removeToast(o.id), 8000))
+    })
+  }
   return toast
 }
 
@@ -387,7 +409,8 @@ window.tap.onUi((cmd: UiCommand) => {
         title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
         body: [...(q ? [question(q)] : []), ...(cmd.summary ? [points(cmd.summary, q)] : []), ...(cmd.transcript ? [transcript('Full transcript', cmd.transcript, q)] : []), ...(q ? [gestureHint()] : [])],
         actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))],
-        autoDismissMs: 90000
+        autoDismissMs: INFO_CARD_MS,
+        topic: 'recap'
       })
       break
     }
@@ -399,7 +422,8 @@ window.tap.onUi((cmd: UiCommand) => {
         title: 'You were addressed',
         body: [...(cmd.question ? [question(cmd.question)] : []), ...(cmd.summary ? [points(cmd.summary, cmd.question)] : []), ...(cmd.transcript ? [transcript('Last 10 seconds', cmd.transcript, cmd.question)] : []), ...(cmd.question ? [gestureHint()] : [])],
         actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))],
-        autoDismissMs: 90000
+        autoDismissMs: INFO_CARD_MS,
+        topic: 'recap'
       })
       break
     case 'SHOW_FIX':
@@ -422,7 +446,10 @@ window.tap.onUi((cmd: UiCommand) => {
               })
             : button('Not now', 'ghost', () => userDismiss(cmd.id)),
           // B: no "Send to IT" button: when the user can't fix it, Tap sends the ticket itself (IT_TICKET below)
-        ]
+        ],
+        topic: fixTopic(cmd),
+        // B: a card that only informs ("Got it", e.g. muted in Meet) fades; one with a fix or a ticket stays
+        ...(cmd.action_id === 'dismiss_card' && !cmd.it_ticket ? { autoDismissMs: 30000 } : {})
       })
       break
     case 'SHOW_NUDGE':
@@ -433,7 +460,8 @@ window.tap.onUi((cmd: UiCommand) => {
         title: cmd.text,
         body: cmd.question ? [question(cmd.question)] : [],
         actions: [button('Got it', 'primary', () => userDismiss(cmd.id))],
-        autoDismissMs: 12000
+        autoDismissMs: 12000,
+        topic: 'nudge'
       })
       break
     case 'SHOW_REPLY': {
@@ -463,6 +491,11 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     case 'CAPTION':
       caption(cmd.text, cmd.final, cmd.speaker, cmd.highlight)
+      // B: someone spoke again → "they're waiting for your answer" is no longer true
+      if (cmd.final) for (const v of [...visibleToasts.values()]) if (v.topic === 'nudge') removeToast(v.id)
+      break
+    case 'RESOLVED':
+      resolved(cmd.topic)
       break
     case 'DISMISS':
       removeToast(cmd.id)
@@ -538,3 +571,23 @@ window.tap.onUi((cmd: UiCommand) => {
       break // unknown / future command: ignore, never crash
   }
 })
+
+/**
+ * B: the problem is gone (mic unmuted, camera live again): its card says so for 2 s and closes.
+ * An automatic IT ticket still counting down on it is cancelled: fixed, so IT has nothing to do.
+ */
+function resolved(topic: string): void {
+  for (const v of [...visibleToasts.values()]) {
+    if (v.topic !== topic) continue
+    const card = document.getElementById(v.id)
+    if (!card) continue
+    // the problem is gone, so the automatic ticket still counting down is not needed any more
+    if (card.querySelector('.it-note.pending')) click('cancel_it_ticket', { id: v.id })
+    const title = card.querySelector('.t-title')
+    if (title) title.textContent = '✓ Fixed'
+    card.querySelector('.t-actions')?.replaceChildren()
+    card.classList.add('resolved')
+    clearTimeout(toastTimers.get(v.id))
+    toastTimers.set(v.id, setTimeout(() => removeToast(v.id), 2000))
+  }
+}

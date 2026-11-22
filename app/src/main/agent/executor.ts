@@ -200,8 +200,14 @@ export class Executor {
 
   private handle(env: Envelope<unknown>): void {
     const decidedAt = now()
+    const before = this.state
     const d = decide(this.state, env, decidedAt)
     this.state = d.state
+    // B: a card about a problem that is gone closes by itself (✓), so new cards are never stuck behind old ones
+    const after = d.state
+    if ((before.mic?.muted === true && after.mic?.muted === false) || (before.micBad !== null && after.micBad === null)) this.ui({ type: 'RESOLVED', topic: 'mic' })
+    const live = (c: typeof after.camera): boolean => c !== null && !c.frozen && c.face
+    if (before.camera !== null && !live(before.camera) && live(after.camera)) this.ui({ type: 'RESOLVED', topic: 'camera' })
     for (const l of d.log) this.report.log(l.kind, l.text)
     for (const b of d.blocked) this.report.blocked(b, 'allowlist')
     void this.run(d.actions, env.provenance, decidedAt)

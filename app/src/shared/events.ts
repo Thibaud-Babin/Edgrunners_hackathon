@@ -93,6 +93,7 @@ export type UiCommand =
     }
   | { type: 'SHOW_REPLIES'; id: string; question: string; replies: string[] }
   | { type: 'SHOW_REPLY'; id: string; text: string } // P1: what the user "said" with a gesture, e.g. "Yes"
+  | { type: 'RESOLVED'; topic: 'mic' | 'camera' } // B: the problem a card is about is gone → that card says ✓ and closes
   | { type: 'RESTART_CAMERA' } // B: agent → main window: stop and start the camera (the user clicked "Restart camera")
   | { type: 'SWITCH_MIC'; prefer: 'laptop' | 'headset' } // agent → main window: restart the mic on another device
   | { type: 'SHOW_NUDGE'; id: string; text: string; question?: string } // "They're waiting for your answer"
