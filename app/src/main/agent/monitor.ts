@@ -163,7 +163,7 @@ export class Monitor {
 
   private async selfCheck(c: MonitorControls): Promise<void> {
     const parts = [
-      existsSync(join(process.cwd(), '.env')) ? '.env loaded' : 'no .env (defaults)',
+      existsSync(process.env.TAP_CONFIG_FILE ?? join(process.cwd(), '.env')) ? '.env loaded' : 'no .env (defaults)',
       c.llm.hasKey ? 'AI key present' : 'no AI key → template mode'
     ]
     if (process.env.TAP_SELFTEST_HAPTIC === '1') {
