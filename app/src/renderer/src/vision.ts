@@ -193,8 +193,8 @@ if (awayMode === 'gaze') startGaze()
 
 export type VisionListener = (info: { pose?: HeadPose; blend: Record<string, number>; face: boolean }) => void
 
-/** Infrared (Windows Hello), presence-detection ("CPD") and virtual cameras: black-and-white or not a real picture. */
-const NOT_A_COLOUR_CAMERA = /\b(ir|infrared|hello|cpd|virtual|obs|lvnext)\b/i
+/** Infrared (Windows Hello), presence-detection ("CPD") and virtual cameras: black-and-white or not a real picture. Do NOT add "lvnext": that is the demo camera's RGB name. */
+const NOT_A_COLOUR_CAMERA = /\b(ir|infrared|hello|cpd|virtual|obs)\b/i
 
 /**
  * Opens the webcam, avoiding infrared / Windows Hello cameras. Laptops often list the IR camera first, and the
