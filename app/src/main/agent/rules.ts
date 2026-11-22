@@ -277,6 +277,10 @@ function onUser(d: Decision, u: UserInput, t: number): void {
       d.state.micFixStage = 2
       d.state.micBad = { ...d.state.micBad, since: t } // give the fix 10 s before judging it
     }
+  } else if (actionId === 'cancel_it_ticket') {
+    d.actions.push({ action: 'cancel_it_ticket', cardId: u.cardId ?? '', why: 'you clicked Undo' })
+  } else if (actionId === 'auto_it_ticket') {
+    d.blocked.push("auto_it_ticket comes only from Tap's own device checks, not from a click")
   } else if (actionId === 'open_it_ticket') {
     // The rules only pass the click on; the executor's gate checks it (T1: the user's own click).
     d.actions.push({ action: 'open_it_ticket', cardId: u.cardId ?? '', why: 'you clicked "Send diagnostics to IT"' })

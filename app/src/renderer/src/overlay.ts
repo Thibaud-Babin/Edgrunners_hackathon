@@ -16,6 +16,20 @@ const flash = document.getElementById('flash')!
 const pill = document.getElementById('pill')!
 const pillStatus = document.getElementById('pill-status')!
 const pillMeta = document.getElementById('pill-meta')!
+// B: what Tap captures right now (Check-up Start/Stop). An off feed is shown crossed out.
+let capture = { camera: false, mic: false, call_audio: false }
+let pillAi = ''
+function drawPillMeta(): void {
+  const icon = (on: boolean, glyph: string, name: string): HTMLElement => {
+    const s = el('span', on ? 'cap on' : 'cap off', glyph)
+    s.title = `${name} ${on ? 'on' : 'off'}`
+    return s
+  }
+  // The AI cost stays in the main window and the IT console: the pill is too narrow for it next to its buttons.
+  pillMeta.replaceChildren(icon(capture.camera, '📷', 'Camera'), icon(capture.mic, '🎙', 'Mic'), icon(capture.call_audio, '🔊', 'Call audio'))
+  pillMeta.title = pillAi
+}
+drawPillMeta()
 
 const REPLY_MS = 3000
 const MAX_TOASTS = 3
@@ -303,32 +317,53 @@ const pillSummary = document.getElementById('pill-summary') as HTMLButtonElement
 const pillEnd = document.getElementById('pill-end') as HTMLButtonElement
 pillEnd.onclick = () => {
   window.tap.emit(makeEvent('CALL_ENDED', 'ui'))
-  pillEnd.textContent = 'Ending…'
+  pillEnd.textContent = '…'
   pillEnd.disabled = true
 }
-/** "Send to IT" / "End call" confirm on the button itself, only once main says it was really saved. */
-function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
-  const b = cmd.what === 'call_report' ? pillEnd : document.querySelector<HTMLButtonElement>(`.it-send[data-card="${CSS.escape(cmd.card_id ?? '')}"]`)
-  if (!b) return
-  b.title = cmd.text
-  if (cmd.what === 'call_report') {
-    b.textContent = cmd.ok ? '✓ Sent to IT' : "Couldn't save"
-    setTimeout(() => {
-      b.textContent = '⏹ End call'
-      b.disabled = false
-    }, 3000)
-  } else {
-    b.textContent = cmd.ok ? 'Sent to IT ✓' : 'Send to IT'
-    b.disabled = cmd.ok
-    // One line inside the same card: what was sent, and what happens next (no extra card)
-    const card = document.getElementById(cmd.card_id ?? '')
-    if (card) {
-      const note = card.querySelector<HTMLElement>('.it-note') ?? card.appendChild(el('div'))
-      note.className = `it-note ${cmd.ok ? 'ok' : 'bad'}`
-      if (cmd.ok) note.replaceChildren(el('b', '', `✓ Ticket ${cmd.ref ?? ''} sent to IT.`), document.createTextNode(' Only device facts (mic, camera, settings), nothing you said. IT will contact you if needed.'))
-      else note.textContent = "Couldn't send the ticket. Try again, or tell IT yourself."
+/**
+ * B: the automatic IT ticket, as one line inside its card (no extra card): "in 10 s… [Undo]", then sent / not sent.
+ */
+function itTicket(cmd: Extract<UiCommand, { type: 'IT_TICKET' }>): void {
+  const card = document.getElementById(cmd.card_id)
+  if (!card) return // the card was closed: the IT console still lists the ticket
+  const note = card.querySelector<HTMLElement>('.it-note') ?? card.appendChild(el('div'))
+  note.className = `it-note ${cmd.state}`
+  const facts = ' Device facts only, nothing you said.'
+  switch (cmd.state) {
+    case 'pending': {
+      const undo = el('button', 'it-undo', 'Undo')
+      undo.onclick = () => {
+        click('cancel_it_ticket', { id: cmd.card_id })
+        undo.disabled = true
+      }
+      note.replaceChildren(el('span', '', `Tap will report this to IT in ${cmd.delay_s ?? 10} s: ${cmd.reason}.${facts} `), undo)
+      break
     }
+    case 'sent':
+      note.replaceChildren(el('b', '', `✓ Ticket ${cmd.ref ?? ''} sent to IT${cmd.auto ? ' automatically' : ''}: ${cmd.reason}.`), document.createTextNode(`${facts} IT will contact you if needed.`))
+      break
+    case 'cancelled':
+      note.textContent = 'Not sent to IT.'
+      break
+    case 'duplicate':
+      note.textContent = `Already reported to IT today${cmd.ref ? ` (${cmd.ref})` : ''}: no new ticket.`
+      break
+    case 'failed':
+      note.textContent = "Couldn't send the ticket to IT. If it keeps happening, tell IT yourself."
+      break
   }
+}
+
+/** "End call" confirms on the button itself, only once main says the report was really saved. */
+function itSent(cmd: Extract<UiCommand, { type: 'IT_SENT' }>): void {
+  if (cmd.what !== 'call_report') return // tickets: IT_TICKET
+  const b = pillEnd
+  b.title = cmd.text
+  b.textContent = cmd.ok ? '✓ Sent' : '✗ Not saved' // short: the pill is narrow (full text in the tooltip)
+  setTimeout(() => {
+    b.textContent = '⏹ End'
+    b.disabled = false
+  }, 3000)
 }
 pillSummary.onclick = () => {
   pillSummary.disabled = true
@@ -387,17 +422,7 @@ window.tap.onUi((cmd: UiCommand) => {
                 removeToast(cmd.id)
               })
             : button('Not now', 'ghost', () => userDismiss(cmd.id)),
-          // B: C's "Send diagnostics to IT" (device facts only) had no button. The card stays; the button confirms.
-          ...(cmd.it_ticket
-            ? [
-                button('Send to IT', 'ghost it-send', (b) => {
-                  click('open_it_ticket', { id: cmd.id })
-                  b.textContent = 'Sending…'
-                  b.disabled = true
-                  b.dataset.card = cmd.id
-                })
-              ]
-            : [])
+          // B: no "Send to IT" button: when the user can't fix it, Tap sends the ticket itself (IT_TICKET below)
         ]
       })
       break
@@ -456,6 +481,13 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
       break
     }
+    case 'CAPTURE':
+      capture = { camera: cmd.camera, mic: cmd.mic, call_audio: cmd.call_audio }
+      drawPillMeta()
+      break
+    case 'IT_TICKET':
+      itTicket(cmd)
+      break
     case 'IT_SENT':
       itSent(cmd)
       break
@@ -500,7 +532,8 @@ window.tap.onUi((cmd: UiCommand) => {
       break
     }
     case 'COUNTERS':
-      pillMeta.textContent = `📷 🎙 · AI ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
+      pillAi = `AI ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
+      drawPillMeta()
       break
     default:
       break // unknown / future command: ignore, never crash

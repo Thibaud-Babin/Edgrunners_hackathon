@@ -117,10 +117,11 @@ test('IT ticket: device facts only (no speech, no device name), priority by role
     assert.ok(ticket.diagnostics?.problems.some((p) => p.key === 'mic_silent'), JSON.stringify(ticket.diagnostics))
     const json = JSON.stringify(ticket)
     assert.doesNotMatch(json, /budget|AirPods|Thibaud/, 'no speech, no names in the ticket')
-    const sent = r.ui.find((c) => c.type === 'IT_SENT')
-    assert.ok(sent && sent.type === 'IT_SENT' && sent.ok && sent.what === 'ticket')
-    assert.equal(sent.text, `Ticket T-0001 sent to IT (${queue}, simulated helpdesk): device facts only, nothing you said`)
-    assert.ok(!r.ui.some((c) => c.type === 'SHOW_NOTICE'), 'the button confirms: no extra card')
+    // B: confirmed inside the card (no extra card); the ticket says why and who sent it
+    const sent = r.ui.find((c) => c.type === 'IT_TICKET')
+    assert.ok(sent && sent.type === 'IT_TICKET' && sent.state === 'sent' && sent.ref === 'T-0001' && sent.auto === false, `${role} ${queue}`)
+    assert.equal(ticket.reason, 'sent by the user')
+    assert.ok(!r.ui.some((c) => c.type === 'SHOW_NOTICE'), 'no extra card')
     mock.timers.reset()
   }
 })

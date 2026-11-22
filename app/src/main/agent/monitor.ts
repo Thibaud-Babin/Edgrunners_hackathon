@@ -64,6 +64,7 @@ export class Monitor {
   private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, permission: 0, paused: 0, injectionFlagged: 0, fallbacks: 0, deviceProblems: 0 }
   private lastSeen: Record<Feed, number>
   private silentFlagged: Record<Feed, boolean> = { camera: false, mic: false, callAudio: false }
+  private feedOff: Record<Feed, boolean> = { camera: false, mic: false, callAudio: false }
   private lastProblem = new Map<string, number>()
   private problems = new Map<string, { first: number; last: number; count: number }>()
   private callStart: number
@@ -104,6 +105,18 @@ export class Monitor {
     // B measures, the checkup decides: mic quality is a device problem; speech-to-text cost joins the AI cost.
     events.on('MIC_QUALITY', (e) => this.onMicQuality(e))
     events.on('STT_USAGE', (e) => this.onSttUsage(e))
+    // B: Check-up Start/Stop. A feed the user stopped is not watched; started again → watched from now.
+    events.on('CAPTURE_STATE', (e) => {
+      const feed = e.data?.feed
+      if (e.source !== 'ui' || (feed !== 'camera' && feed !== 'mic' && feed !== 'callAudio')) return
+      const on = e.data?.on === true
+      this.feedOff[feed] = !on
+      if (on) {
+        this.lastSeen[feed] = this.now()
+        this.silentFlagged[feed] = false
+      }
+      if (e.data?.initial !== true) this.log('decision', `${FEED_NAME[feed]} ${on ? 'started' : 'stopped by you → not watched until you start it again'}`)
+    })
 
     // Readable event log for judges.
     events.on('*', (e: TapEvent) => {
@@ -164,6 +177,7 @@ export class Monitor {
   tick(): void {
     const t = this.now()
     for (const feed of ['camera', 'mic', 'callAudio'] as const) {
+      if (this.feedOff[feed]) continue // B: the user stopped it in the Check-up: silence is expected, not a fault
       const silent = t - this.lastSeen[feed]
       if (silent > FEED_SILENT_S[feed] && !this.silentFlagged[feed]) {
         this.silentFlagged[feed] = true

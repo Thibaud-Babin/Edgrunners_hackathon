@@ -39,6 +39,7 @@ export type EventType =
   | 'MIC_SILENT_WHILE_SPEAKING'
   // D — UI
   | 'USER_CLICK'
+  | 'CAPTURE_STATE' // { feed: 'camera' | 'mic' | 'callAudio', on: boolean } Check-up Start/Stop buttons (B)
   | 'SETTINGS' // { optional_haptics, auto_summary } Settings page → main (the rest of the settings live in the UI)
   | 'CALL_SUMMARY_REQUEST' // { from: 'main' | 'overlay' } "Summarize" button (Meeting Summary panel, overlay pill)
   | 'IT_STATS_REQUEST' // IT console page opened → main answers with IT_STATS (B)
@@ -125,8 +126,12 @@ export type UiCommand =
     }
   | { type: 'OPEN_SUMMARY' }
   | { type: 'IT_STATS'; stats: ItSnapshot }
+  /** What Tap captures right now (Check-up Start/Stop): the overlay pill shows it (B) */
+  | { type: 'CAPTURE'; camera: boolean; mic: boolean; call_audio: boolean }
   /** Result of a click on "Send to IT" (card_id) or "End call": the button itself confirms, no extra card (B). */
   | { type: 'IT_SENT'; what: 'ticket' | 'call_report'; card_id?: string; ok: boolean; ref?: string; text: string }
+  /** B: IT ticket for a card: pending (automatic, can be undone) → sent / failed / cancelled; duplicate = already sent today */
+  | { type: 'IT_TICKET'; card_id: string; state: 'pending' | 'sent' | 'failed' | 'cancelled' | 'duplicate'; reason: string; auto: boolean; ref?: string; delay_s?: number }
 
 export interface LogEntry {
   ts: number
@@ -151,7 +156,11 @@ export const ALLOWED_ACTIONS = [
   // Sun (C): a card the agents already send, and the IT ticket
   'show_nudge',
   'open_it_ticket', // send device diagnostics (never speech) to IT — anyone, on their own click
-  'send_call_report' // End call → the call's device health report (never speech) to the IT log — every role
+  'send_call_report', // End call → the call's device health report (never speech) to the IT log — every role
+  // B: automatic IT ticket when the user can't fix it (fix failed, still bad, no other mic, 3rd time this week).
+  // Only Tap's own device checks start it (provenance system), never speech or AI; the user can undo for 10 s.
+  'auto_it_ticket',
+  'cancel_it_ticket' // the Undo on that card
 ] as const
 export type AllowedAction = (typeof ALLOWED_ACTIONS)[number]
 
@@ -218,6 +227,8 @@ export interface TicketFile {
   json: string
   /** Why it was sent (B: fix failed, still bad after switching, no other mic, repeats) */
   reason?: string
+  /** Sent by Tap itself (true) or by the user's click */
+  auto?: boolean
 }
 export interface CallReportFile {
   id: string
@@ -230,7 +241,7 @@ export interface CallReportFile {
 
 export interface ItSnapshot {
   since: string
-  tiles: { caught: number; beforeNoticed: number; reported: number; fixed: number; secondsLost: number; medianFixS: number | null; solvedWithoutTicket: number }
+  tiles: { caught: number; beforeNoticed: number; reported: number; fixed: number; secondsLost: number; medianFixS: number | null; solvedWithoutTicket: number; autoTickets: number }
   byType: { type: string; count: number }[]
   fixes: { label: string; used: number; checked: number; failed: number }[]
   agent: { actions: number; blockedCount: number; blocked: { at: string; text: string }[]; misfires: number; notNeeded: number; aiCalls: number; costUsd: number }

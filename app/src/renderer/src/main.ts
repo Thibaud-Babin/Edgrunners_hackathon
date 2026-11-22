@@ -33,7 +33,7 @@ interface OrbNode {
   color: string
   desc: string
   rel: string[]
-  action?: 'captions' | 'summary'
+  action?: 'summary'
 }
 const ORBIT: OrbNode[] = [
   { page: 'check', icon: '✓', name: 'Check-up', color: 'rgba(52, 211, 153, 0.9)', desc: 'Camera, mic and playback test before the call.', rel: ['activity'] },
@@ -41,7 +41,6 @@ const ORBIT: OrbNode[] = [
   { page: 'it', icon: '▦', name: 'IT console', color: 'rgba(251, 191, 36, 0.9)', desc: 'Real meeting problems, checked fixes and agent actions on this laptop — what IT sees. Plus company-wide (simulated)', rel: ['activity'] },
   { page: 'dev', icon: '⚙', name: 'Dev tools', color: 'rgba(192, 132, 252, 0.9)', desc: 'Replay fake meeting events for the demo.', rel: ['activity'] },
   { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Sound with each vibration, extra vibrations, captions, end-of-call summary, theme.', rel: ['check'] },
-  { page: 'captions', icon: '', name: 'Live Captions', color: 'rgba(34, 211, 238, 0.88)', desc: 'Show or hide live captions without stopping transcription.', rel: ['activity'], action: 'captions' },
   { page: 'summary', icon: '', name: 'Meeting Summary', color: 'rgba(167, 139, 250, 0.9)', desc: 'Open the real recaps collected during this meeting.', rel: ['activity'], action: 'summary' }
 ]
 const RADIUS = 220
@@ -123,7 +122,7 @@ function openPage(p: string): void {
   hub.classList.add('hidden')
   document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === `page-${p}`))
   if (p === 'it') window.tap.emit(makeEvent('IT_STATS_REQUEST', 'ui')) // B: fresh numbers each time it opens
-  if (p === 'settings') syncSettings() // a setting may have changed from the hub (captions node) or the theme switch
+  if (p === 'settings') syncSettings() // a setting may have changed elsewhere (e.g. the theme switch)
   document.querySelectorAll<HTMLElement>('.mini-graph button').forEach((b) => b.classList.toggle('active', b.dataset.page === p))
 }
 
@@ -149,9 +148,8 @@ for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
   right.append(mini)
 }
 
+// Live captions on/off: a switch in Settings (B: its own circle in the menu was removed, it was just a setting).
 const CAPTIONS_KEY = 'tap:captions-enabled'
-const captionsNode = $('node-captions')
-const captionsBadge = $('badge-captions')
 
 function captionsEnabled(): boolean {
   try {
@@ -161,16 +159,9 @@ function captionsEnabled(): boolean {
   }
 }
 
-function showCaptionState(enabled: boolean): void {
-  captionsNode.classList.toggle('state-on', enabled)
-  captionsNode.setAttribute('aria-pressed', String(enabled))
-  captionsBadge.textContent = enabled ? 'ON' : 'OFF'
-}
-
 function toggleCaptions(): void {
   const enabled = !captionsEnabled()
   try { localStorage.setItem(CAPTIONS_KEY, String(enabled)) } catch { /* renderer storage unavailable */ }
-  showCaptionState(enabled)
 }
 
 interface MeetingSummaryItem {
@@ -245,7 +236,6 @@ function setSummaryOpen(open: boolean): void {
   }
 }
 
-showCaptionState(captionsEnabled())
 renderMeetingSummaries()
 $('summary-close').onclick = () => setSummaryOpen(false)
 
@@ -253,10 +243,6 @@ nodeEls.forEach((n, i) => {
   n.onclick = (e) => {
     e.stopPropagation()
     const action = ORBIT[i].action
-    if (action === 'captions') {
-      toggleCaptions()
-      return
-    }
     if (action === 'summary') {
       const opening = !summaryPanel.classList.contains('open')
       if (opening) {
@@ -316,9 +302,18 @@ function setListening(): void {
 // ---------- senses ----------
 const video = $<HTMLVideoElement>('video')
 let camStarted = false
+// B (Sun 05:00): each Check-up button is a real Start/Stop toggle. Before, a 2nd click started a 2nd capture on top
+// of the first (call audio twice → transcribed twice). The main process and the pill are told what is on.
+let stopCam: (() => void) | null = null
+let stopCall: (() => void) | null = null
+const captureState = (feed: 'camera' | 'mic' | 'callAudio', on: boolean, initial = false): void =>
+  window.tap.emit(makeEvent('CAPTURE_STATE', 'ui', { feed, on, ...(initial ? { initial: true } : {}) }))
+// Nothing is captured until a Start button is clicked: tell Tap, so it doesn't report "camera / mic silent" at startup.
+for (const feed of ['camera', 'mic', 'callAudio'] as const) captureState(feed, false, true)
 
 async function startCamera(): Promise<void> {
-  await startVision(video, ({ pose, blend, face }) => {
+  if (stopCam) return
+  stopCam = await startVision(video, ({ pose, blend, face }) => {
     $('vision-info').textContent = face
       ? `yaw ${pose?.yaw.toFixed(0)}°  pitch ${pose?.pitch.toFixed(0)}°  roll ${pose?.roll.toFixed(0)}°  jawOpen ${(blend['jawOpen'] ?? 0).toFixed(2)}  browInnerUp ${(blend['browInnerUp'] ?? 0).toFixed(2)}`
       : 'no face'
@@ -327,10 +322,27 @@ async function startCamera(): Promise<void> {
   camStarted = true
   $('cam-empty').style.display = 'none'
   $('cam-badge').textContent = '● Live'
-  $('btn-camera').textContent = 'Camera on'
+  $('btn-camera').textContent = 'Stop camera'
+  captureState('camera', true)
+}
+
+function stopCamera(): void {
+  stopCam?.()
+  stopCam = null
+  camStarted = false
+  $('cam-empty').style.display = ''
+  $('cam-badge').textContent = 'off'
+  $('face-frame').style.display = 'none'
+  $('vision-info').textContent = ''
+  $('btn-camera').textContent = 'Start camera'
+  // Don't leave Tap thinking you are still talking or looking away: those "stopped" signals would never come.
+  window.tap.emit(makeEvent('MOUTH_MOVING', 'webcam', { active: false }))
+  window.tap.emit(makeEvent('USER_BACK', 'webcam'))
+  captureState('camera', false)
 }
 
 $('btn-camera').onclick = async () => {
+  if (stopCam) return stopCamera()
   try {
     await startCamera()
   } catch (err) {
@@ -350,23 +362,41 @@ async function switchMic(prefer: 'laptop' | 'headset'): Promise<void> {
   stopMic?.()
   micDeviceId = target.deviceId
   stopMic = await startMic(target.deviceId)
-  $('btn-mic').textContent = `Mic: ${target.label || 'other device'}`
+  $('btn-mic').textContent = `Stop mic (${target.label || 'other device'})`
+  captureState('mic', true)
   setListening()
 }
 
 $('btn-mic').onclick = async () => {
+  if (stopMic) {
+    stopMic()
+    stopMic = null
+    micDeviceId = undefined
+    $('btn-mic').textContent = 'Start mic'
+    captureState('mic', false)
+    return
+  }
   try {
     stopMic = await startMic()
-    $('btn-mic').textContent = 'Mic on'
+    $('btn-mic').textContent = 'Stop mic'
+    captureState('mic', true)
     setListening()
   } catch (err) {
     alert(`Mic failed: ${(err as Error).message}`)
   }
 }
 $('btn-call').onclick = async () => {
+  if (stopCall) {
+    stopCall()
+    stopCall = null
+    $('btn-call').textContent = 'Start call audio'
+    captureState('callAudio', false)
+    return
+  }
   try {
-    await startCallAudio()
-    $('btn-call').textContent = 'Call audio on'
+    stopCall = await startCallAudio()
+    $('btn-call').textContent = 'Stop call audio'
+    captureState('callAudio', true)
     setListening()
   } catch (err) {
     alert(`Call audio failed: ${(err as Error).message}`)
@@ -894,7 +924,7 @@ $<HTMLInputElement>('set-theme').onchange = () => {
   toggleTheme()
   syncThemeBtn()
 }
-// Keep the page right when something changes elsewhere (hub captions node, top-right theme switch).
+// Keep the page right when something changes elsewhere (top-right theme switch).
 document.addEventListener('click', () => setTimeout(syncSettings, 0))
 syncSettings()
 sendMainSettings()
