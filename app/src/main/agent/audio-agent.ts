@@ -9,6 +9,7 @@ import { now } from '../../shared/events.ts'
 import type { AgentBus, EventBus } from '../bus.ts'
 import type { Reporter } from './agent.ts'
 import type { FallbackReason, Llm } from './llm.ts'
+import { RoleState } from './permissions.ts'
 import { DETECTOR_TYPES, type DetectorHit, LIMITS, type PayloadOf, RawTapEvent } from './schemas.ts'
 import { cleanText, looksLikeInstruction, MAX } from './sanitize.ts'
 
@@ -23,7 +24,8 @@ const DETECTOR_TEXT: Record<(typeof DETECTOR_EVENTS)[number], string> = {
   VIDEO_FROZEN_REPORTED: 'text',
   WAITING_FOR_YOU: 'question',
   TOPIC_MENTIONED: 'topic',
-  MIC_QUALITY: 'level'
+  MIC_QUALITY: 'level',
+  MIC_STATE: 'name'
 }
 
 const FALLBACK_LOG: Partial<Record<FallbackReason, string>> = {
@@ -41,8 +43,10 @@ export class AudioAgent {
   private llm: Llm
   private userName: string
   private report: Reporter
+  private roles: RoleState
 
-  constructor(events: EventBus, bus: AgentBus, llm: Llm, userName: string, report: Reporter) {
+  constructor(events: EventBus, bus: AgentBus, llm: Llm, userName: string, report: Reporter, roles: RoleState = new RoleState()) {
+    this.roles = roles
     this.bus = bus
     this.llm = llm
     this.userName = userName
@@ -89,6 +93,14 @@ export class AudioAgent {
       if (typeof d.latency_s === 'number' && d.latency_s >= 0 && d.latency_s <= 60) hit.latencyS = d.latency_s
       if (d.latency_ref === 'name_word' || d.latency_ref === 'sentence_start') hit.latencyRef = d.latency_ref
     }
+    if (type === 'MIC_STATE') {
+      // B's Windows mic state. Same rule: keep only fields of the right type.
+      const d = raw.data ?? {}
+      if (d.kind === 'laptop' || d.kind === 'headset') hit.micKind = d.kind
+      if (typeof d.muted === 'boolean') hit.muted = d.muted
+      if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) hit.volume = d.volume
+      if (d.other_kind === 'laptop' || d.other_kind === 'headset') hit.otherKind = d.other_kind
+    }
     this.bus.publish('detector', 'detector', 'detector', hit)
   }
 
@@ -109,7 +121,10 @@ export class AudioAgent {
 
   private async onRequest(req: PayloadOf<'summary.request'>): Promise<void> {
     const text = this.textBetween(req.fromTs, req.untilTs)
-    const out = await this.llm.summarise(text, this.userName)
+    const confidential = this.roles.flags.confidential
+    const out = await this.llm.summarise(text, this.userName, { local: confidential })
+    if (out.fallback === 'confidential')
+      this.report.log('decision', `Confidential (${this.roles.flags.label}): summary made on this laptop (no cloud AI)`)
     // Every paid call is logged with its cost, including one whose reply was invalid.
     if (out.usedLlm || out.costUsd > 0) {
       const cost = out.costUsd.toFixed(5)

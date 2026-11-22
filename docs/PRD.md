@@ -57,7 +57,7 @@ Priorities: **P0** = the demo depends on it · **P1** = should have · **P2** = 
 | P0-4 | As anyone, I want to know when I'm talking but my mic sends nothing | Mouth moving (`jawOpen` activity) + mic level ≈ 0 for ≥ 2 s → `MIC_SILENT_WHILE_SPEAKING` → `angry_alert` haptic + card "Your mic sends nothing" | A, B |
 | P0-5 | As anyone, I want a 10-second pre-call check | Checks camera frames arrive and aren't frozen, face in frame, lighting OK, mic level present, right input device; shows pass/fail per item with a fix hint. *Note: we can see that the mic device sends silence, not that the user is muted inside Zoom.* | A, D |
 | P0-6 | As a user, I want to see what the agent did | Simple activity panel listing every event, decision, AI call (with cost) and action, newest first; live counter "AI calls · cost · video stays on this laptop" | C, D |
-| P0-7 | As a team, we need Logitech haptics working | At least 4 waveforms (`knock`, `ringing`, `angry_alert`, `subtle_collision`) fired from our backend on the MX Master 4 | C |
+| P0-7 | As a team, we need Logitech haptics working | **4 signals** the user tells apart without looking (count and strength, not texture): **1 knock** = your name, **2 knocks** = they're waiting for you, **angry_alert** = a problem with your setup, **completed** = fixed. Learned in 10 s with Check-up → "Try the vibrations". Group-question and topic vibrations are off by default (`TAP_OPTIONAL_HAPTICS=1`) | C |
 
 ### P1 — should have (≈6 h)
 

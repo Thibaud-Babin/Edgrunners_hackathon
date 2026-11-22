@@ -1,10 +1,11 @@
 /** OWNER: D. Main window: check-up, activity log, IT view, dev tools. */
 import type { EventType, LogEntry, Source, UiCommand } from '../../shared/events'
-import { makeEvent } from '../../shared/events'
+import { HAPTIC_PATTERNS, makeEvent } from '../../shared/events'
 import { startCallAudio, startMic } from './audio'
 import { cameraHealth, startVision } from './vision'
 import { el } from './ui/dom'
 import { currentTheme, initTheme, toggleTheme } from './ui/theme'
+import { playCue, SOUND_KEY, soundOn, soundVolume, VOLUME_KEY } from './ui/sound'
 
 initTheme()
 
@@ -30,13 +31,16 @@ interface OrbNode {
   color: string
   desc: string
   rel: string[]
+  action?: 'captions' | 'summary'
 }
 const ORBIT: OrbNode[] = [
   { page: 'check', icon: '✓', name: 'Check-up', color: 'rgba(52, 211, 153, 0.9)', desc: 'Camera, mic and playback test before the call.', rel: ['activity'] },
   { page: 'activity', icon: '≡', name: 'Activity', color: 'rgba(96, 165, 250, 0.9)', desc: 'Everything Tap saw, decided and did — plus cost.', rel: ['check', 'it', 'dev'] },
   { page: 'it', icon: '▦', name: 'IT view', color: 'rgba(251, 191, 36, 0.9)', desc: 'Team impact metrics — simulated data.', rel: ['activity'] },
   { page: 'dev', icon: '⚙', name: 'Dev tools', color: 'rgba(192, 132, 252, 0.9)', desc: 'Replay fake meeting events for the demo.', rel: ['activity'] },
-  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Theme and display.', rel: [] }
+  { page: 'settings', icon: '◐', name: 'Settings', color: 'rgba(244, 114, 182, 0.9)', desc: 'Sound with each vibration, extra vibrations, captions, end-of-call summary, theme.', rel: ['check'] },
+  { page: 'captions', icon: '', name: 'Live Captions', color: 'rgba(34, 211, 238, 0.88)', desc: 'Show or hide live captions without stopping transcription.', rel: ['activity'], action: 'captions' },
+  { page: 'summary', icon: '', name: 'Meeting Summary', color: 'rgba(167, 139, 250, 0.9)', desc: 'Open the real recaps collected during this meeting.', rel: ['activity'], action: 'summary' }
 ]
 const RADIUS = 220
 const nodeEls = Array.from(document.querySelectorAll<HTMLElement>('.orbit-node'))
@@ -105,7 +109,7 @@ function selectNode(i: number): void {
     })
   )
   const open = $('op-open')
-  open.textContent = o.page === 'settings' ? 'Switch theme' : `Open ${o.name}`
+  open.textContent = `Open ${o.name}`
   open.style.background = o.color
   open.style.borderColor = o.color
   $('orbit-panel').classList.add('show')
@@ -116,6 +120,7 @@ function openPage(p: string): void {
   stopRot()
   hub.classList.add('hidden')
   document.querySelectorAll('.page').forEach((pg) => pg.classList.toggle('active', pg.id === `page-${p}`))
+  if (p === 'settings') syncSettings() // a setting may have changed from the hub (captions node) or the theme switch
   document.querySelectorAll<HTMLElement>('.mini-graph button').forEach((b) => b.classList.toggle('active', b.dataset.page === p))
 }
 
@@ -129,7 +134,7 @@ function showHub(): void {
 // Mini-graph: round page-jump buttons appended to each page header, in each node's color.
 for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
   const mini = el('div', 'mini-graph')
-  for (const o of ORBIT.filter((x) => x.page !== 'settings')) {
+  for (const o of ORBIT.filter((x) => !x.action && x.page !== 'settings')) {
     const b = el('button', '', o.icon)
     b.dataset.page = o.page
     b.title = o.name
@@ -141,9 +146,126 @@ for (const right of document.querySelectorAll<HTMLElement>('.head-right')) {
   right.append(mini)
 }
 
+const CAPTIONS_KEY = 'tap:captions-enabled'
+const captionsNode = $('node-captions')
+const captionsBadge = $('badge-captions')
+
+function captionsEnabled(): boolean {
+  try {
+    return localStorage.getItem(CAPTIONS_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function showCaptionState(enabled: boolean): void {
+  captionsNode.classList.toggle('state-on', enabled)
+  captionsNode.setAttribute('aria-pressed', String(enabled))
+  captionsBadge.textContent = enabled ? 'ON' : 'OFF'
+}
+
+function toggleCaptions(): void {
+  const enabled = !captionsEnabled()
+  try { localStorage.setItem(CAPTIONS_KEY, String(enabled)) } catch { /* renderer storage unavailable */ }
+  showCaptionState(enabled)
+}
+
+interface MeetingSummaryItem {
+  id: string
+  title: string
+  summary: string
+  transcript: string
+  question?: string
+  receivedAt: number
+  /** End-of-call summary (B): titled lists, e.g. "Talking points". Empty lists are not shown. */
+  sections?: { label: string; items: string[] }[]
+}
+
+const summaryPanel = $('meeting-summary')
+const summaryBackdrop = $('summary-backdrop')
+const summaryNode = $('node-summary')
+const summaryBadge = $('badge-summary')
+const meetingSummaries: MeetingSummaryItem[] = []
+
+function renderMeetingSummaries(): void {
+  summaryBadge.textContent = meetingSummaries.length ? `${meetingSummaries.length} recap${meetingSummaries.length === 1 ? '' : 's'}` : 'empty'
+  if (!meetingSummaries.length) {
+    const empty = el('div', 'summary-empty')
+    empty.append(el('strong', '', 'No summary yet'), el('span', '', 'Tap will show real meeting recaps here when they become available.'))
+    $('summary-content').replaceChildren(empty)
+    return
+  }
+  $('summary-content').replaceChildren(
+    ...meetingSummaries.map((item) => {
+      const article = el('article', 'summary-entry')
+      const meta = el('div', 'summary-entry-meta')
+      meta.append(el('strong', '', item.title), el('span', '', new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })))
+      article.append(meta)
+      if (item.question) article.append(el('p', 'summary-entry-question', item.question))
+      if (item.summary) article.append(el('p', 'summary-entry-text', item.summary))
+      for (const sec of item.sections ?? []) {
+        if (!sec.items.length) continue
+        const ul = el('ul', 'summary-list')
+        for (const it of sec.items) ul.append(el('li', '', it))
+        article.append(el('h4', 'summary-section', sec.label), ul)
+      }
+      if (item.transcript) {
+        const details = document.createElement('details')
+        details.append(el('summary', '', 'View transcript'), el('pre', 'summary-transcript', item.transcript))
+        article.append(details)
+      }
+      return article
+    })
+  )
+}
+
+function rememberMeetingSummary(item: MeetingSummaryItem): void {
+  const existing = meetingSummaries.findIndex((summary) => summary.id === item.id)
+  if (existing >= 0) meetingSummaries.splice(existing, 1)
+  meetingSummaries.unshift(item)
+  meetingSummaries.length = Math.min(meetingSummaries.length, 20)
+  renderMeetingSummaries()
+}
+
+function setSummaryOpen(open: boolean): void {
+  summaryPanel.classList.toggle('open', open)
+  summaryBackdrop.classList.toggle('open', open)
+  summaryPanel.setAttribute('aria-hidden', String(!open))
+  summaryBackdrop.setAttribute('aria-hidden', String(!open))
+  summaryNode.classList.toggle('state-on', open)
+  summaryNode.setAttribute('aria-expanded', String(open))
+  if (open) $<HTMLButtonElement>('summary-close').focus()
+  else if (selected >= 0 && ORBIT[selected]?.action === 'summary') {
+    selected = -1
+    layoutOrbit()
+    startRot()
+  }
+}
+
+showCaptionState(captionsEnabled())
+renderMeetingSummaries()
+$('summary-close').onclick = () => setSummaryOpen(false)
+
 nodeEls.forEach((n, i) => {
   n.onclick = (e) => {
     e.stopPropagation()
+    const action = ORBIT[i].action
+    if (action === 'captions') {
+      toggleCaptions()
+      return
+    }
+    if (action === 'summary') {
+      const opening = !summaryPanel.classList.contains('open')
+      if (opening) {
+        selected = i
+        stopRot()
+        const target = 270 - i * STEP
+        rot += ((((target - rot) % 360) + 540) % 360) - 180
+        layoutOrbit()
+      }
+      setSummaryOpen(opening)
+      return
+    }
     if (selected === i) {
       clearSelection()
       startRot()
@@ -162,16 +284,15 @@ $('orbit').onclick = () => {
 $('op-open').onclick = () => {
   const o = ORBIT[selected]
   if (!o) return
-  if (o.page === 'settings') {
-    toggleTheme()
-    syncThemeBtn()
-    return
-  }
   openPage(o.page)
 }
 document.querySelectorAll<HTMLElement>('.back-hub').forEach((b) => (b.onclick = showHub))
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  if (summaryPanel.classList.contains('open')) {
+    setSummaryOpen(false)
+    return
+  }
   if (hub.classList.contains('hidden')) showHub()
   else if (selected >= 0) {
     clearSelection()
@@ -449,20 +570,75 @@ window.tap.onUi((cmd: UiCommand) => {
     $('raw-log').textContent = seen.join('\n')
   }
   switch (cmd.type) {
+    case 'SHOW_RECAP':
+      rememberMeetingSummary({
+        id: cmd.id,
+        title: 'You were addressed',
+        summary: cmd.summary,
+        transcript: cmd.transcript,
+        ...(cmd.question ? { question: cmd.question } : {}),
+        receivedAt: Date.now()
+      })
+      break
+    case 'CALL_SUMMARY': {
+      const gen = $<HTMLButtonElement>('summary-generate')
+      gen.disabled = false
+      gen.textContent = 'Summarize the call'
+      const nothing = !cmd.lines
+      // One entry per meeting (id): a newer summary of the same meeting replaces the older one.
+      const hm = (t: number): string => new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const day = new Date(cmd.started_at * 1000)
+      const when = day.toDateString() === new Date().toDateString() ? '' : `${day.toLocaleDateString([], { day: 'numeric', month: 'short' })} · `
+      rememberMeetingSummary({
+        id: cmd.id,
+        title: nothing ? 'Meeting summary' : `Meeting · ${when}${hm(cmd.started_at)}–${hm(cmd.ended_at)} · ${cmd.minutes} min${cmd.final ? '' : ' · so far'}`,
+        summary: nothing
+          ? 'Nothing was said in the call yet. Start call audio on the Check-up page, then try again.'
+          : cmd.source === 'template'
+            ? 'Made without AI (no AI key, or it did not answer): key lines picked from the transcript.'
+            : '',
+        transcript: '',
+        sections: [
+          { label: 'Questions to you', items: cmd.questions_to_you },
+          { label: 'Your tasks', items: cmd.your_tasks },
+          { label: 'Decisions', items: cmd.decisions },
+          { label: 'Talking points', items: cmd.points }
+        ],
+        receivedAt: cmd.from === 'restored' ? cmd.ended_at * 1000 : Date.now()
+      })
+      if (cmd.from === 'main') setSummaryOpen(true)
+      break
+    }
+    case 'OPEN_SUMMARY':
+      showHub()
+      setSummaryOpen(true)
+      break
+    case 'SHOW_AWAY_SUMMARY':
+      rememberMeetingSummary({
+        id: cmd.id,
+        title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
+        summary: cmd.summary,
+        transcript: cmd.transcript,
+        ...(cmd.question_to_you ? { question: cmd.question_to_you } : {}),
+        receivedAt: Date.now()
+      })
+      break
     case 'LOG_ENTRY':
       addLog(cmd.entry)
       break
     case 'COUNTERS':
       $('c-ai').textContent = String(cmd.aiCalls)
-      $('c-cost').textContent = `$${cmd.costUsd.toFixed(4)}`
+      $('c-cost').textContent = `$${(cmd.costUsd ?? 0).toFixed(4)}`
       $('c-events').textContent = String(cmd.events)
       $('c-blocked').textContent = String(cmd.blocked)
-      $('side-counters').textContent = `AI calls ${cmd.aiCalls} · $${cmd.costUsd.toFixed(4)}`
+      $('side-counters').textContent = `AI calls ${cmd.aiCalls} · $${(cmd.costUsd ?? 0).toFixed(4)}`
       $('badge-activity').textContent = `${cmd.events} events · ${cmd.blocked} blocked`
       break
     case 'SWITCH_MIC':
       void switchMic(cmd.prefer)
       break
+    default:
+      break // unknown / future command: ignore, never crash
   }
 })
 
@@ -560,3 +736,89 @@ for (const [label, type, source, data] of FAKES) {
   b.onclick = () => window.tap.emit(makeEvent(type, source, data))
   $('fake-buttons').append(b)
 }
+
+// ---------- Check-up: "Try the vibrations" (the 4 signals Tap uses; main fires them, nothing else happens) ----------
+for (const [key, p] of Object.entries(HAPTIC_PATTERNS)) {
+  const b = el('button', 'btn haptic-test')
+  b.append(el('strong', '', p.label), el('span', '', p.meaning), el('em', '', p.waveforms.length === 2 ? 'knock · knock' : p.waveforms[0].replace('_', ' ')))
+  b.onclick = () => window.tap.emit(makeEvent('HAPTIC_TEST', 'ui', { pattern: key }))
+  $('haptic-tests').append(b)
+}
+
+// ---------- Meeting Summary: "Summarize the call" (B: main process builds it, CALL_SUMMARY fills the panel) ----------
+$<HTMLButtonElement>('summary-generate').onclick = () => {
+  const gen = $<HTMLButtonElement>('summary-generate')
+  gen.disabled = true
+  gen.textContent = 'Summarizing…'
+  window.tap.emit(makeEvent('CALL_SUMMARY_REQUEST', 'ui', { from: 'main' }))
+  setTimeout(() => {
+    gen.disabled = false
+    gen.textContent = 'Summarize the call'
+  }, 25000)
+}
+
+// ---------- Settings page (B). Stored on this laptop; the overlay reads the same keys. ----------
+const AUTO_SUMMARY_KEY = 'tap:auto-summary'
+const EXTRA_HAPTICS_KEY = 'tap:extra-haptics'
+const store = {
+  get: (k: string): string | null => {
+    try {
+      return localStorage.getItem(k)
+    } catch {
+      return null
+    }
+  },
+  set: (k: string, v: string): void => {
+    try {
+      localStorage.setItem(k, v)
+    } catch {
+      /* storage unavailable: the setting lasts until restart */
+    }
+  }
+}
+/** The two settings the main process needs (extra vibrations, automatic summary). Sent at start and on change. */
+const sendMainSettings = (): void =>
+  window.tap.emit(makeEvent('SETTINGS', 'ui', { optional_haptics: store.get(EXTRA_HAPTICS_KEY) === 'true', auto_summary: store.get(AUTO_SUMMARY_KEY) !== 'false' }))
+
+function syncSettings(): void {
+  $<HTMLInputElement>('set-sound').checked = soundOn()
+  $<HTMLInputElement>('set-volume').value = String(soundVolume())
+  $('set-sound-more').classList.toggle('off', !soundOn())
+  $<HTMLInputElement>('set-extra').checked = store.get(EXTRA_HAPTICS_KEY) === 'true'
+  $<HTMLInputElement>('set-captions').checked = captionsEnabled()
+  $<HTMLInputElement>('set-auto-summary').checked = store.get(AUTO_SUMMARY_KEY) !== 'false'
+  $<HTMLInputElement>('set-theme').checked = currentTheme() === 'dark'
+}
+
+$<HTMLInputElement>('set-sound').onchange = (e) => {
+  const on = (e.target as HTMLInputElement).checked
+  store.set(SOUND_KEY, String(on))
+  if (on) playCue('knock')
+  syncSettings()
+}
+$<HTMLInputElement>('set-volume').oninput = (e) => store.set(VOLUME_KEY, (e.target as HTMLInputElement).value)
+$<HTMLInputElement>('set-volume').onchange = () => playCue('knock')
+$('set-sound-test').onclick = () => {
+  // The 4 signals in order, as they sound in a call: knock · knock knock · problem · fixed.
+  const seq: [Parameters<typeof playCue>[0], number][] = [['knock', 0], ['knock', 1100], ['knock', 1450], ['angry_alert', 2500], ['completed', 3700]]
+  for (const [w, at] of seq) setTimeout(() => playCue(w), at)
+}
+$<HTMLInputElement>('set-extra').onchange = (e) => {
+  store.set(EXTRA_HAPTICS_KEY, String((e.target as HTMLInputElement).checked))
+  sendMainSettings()
+}
+$<HTMLInputElement>('set-auto-summary').onchange = (e) => {
+  store.set(AUTO_SUMMARY_KEY, String((e.target as HTMLInputElement).checked))
+  sendMainSettings()
+}
+$<HTMLInputElement>('set-captions').onchange = (e) => {
+  if ((e.target as HTMLInputElement).checked !== captionsEnabled()) toggleCaptions()
+}
+$<HTMLInputElement>('set-theme').onchange = () => {
+  toggleTheme()
+  syncThemeBtn()
+}
+// Keep the page right when something changes elsewhere (hub captions node, top-right theme switch).
+document.addEventListener('click', () => setTimeout(syncSettings, 0))
+syncSettings()
+sendMainSettings()

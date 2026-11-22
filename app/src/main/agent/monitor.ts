@@ -40,6 +40,18 @@ const SttUsage = z.object({ engine: z.string().max(40), cost_usd: z.number().fin
 const MIC_QUALITY_TEXT = { too_quiet: 'too quiet', clipping: 'clipping (too loud)', noisy: 'noisy' } as const
 
 /** The safety levers the checkup agent may pull. */
+/** What an IT ticket may carry about the device: no transcript, no names, no speaker labels. */
+export interface Diagnostics {
+  problems: { key: string; firstSeenS: number; lastSeenS: number; count: number }[]
+  feeds: { camera: 'ok' | 'silent'; mic: 'ok' | 'silent'; callAudio: 'ok' | 'silent' }
+  micQualityBad: boolean
+  aiBreakerOpen: boolean
+  /** Since the call started (first event, or the last End call). */
+  callDurationS: number
+  /** Fixes the user applied by clicking (e.g. fix_mic), in order. */
+  fixesApplied: string[]
+}
+
 export interface MonitorControls {
   llm: { hasKey: boolean; forceTemplateUntil(ts: number): void }
   executor: { pause(untilTs: number): void; hapticsOff(): void }
@@ -49,10 +61,13 @@ export interface MonitorControls {
 export class Monitor {
   readonly reporter: Reporter
   private counters = { aiCalls: 0, costUsd: 0, events: 0, blocked: 0 }
-  private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, paused: 0, injectionFlagged: 0, fallbacks: 0, deviceProblems: 0 }
+  private detail = { actions: 0, invalid: 0, allowlist: 0, provenance: 0, permission: 0, paused: 0, injectionFlagged: 0, fallbacks: 0, deviceProblems: 0 }
   private lastSeen: Record<Feed, number>
   private silentFlagged: Record<Feed, boolean> = { camera: false, mic: false, callAudio: false }
   private lastProblem = new Map<string, number>()
+  private problems = new Map<string, { first: number; last: number; count: number }>()
+  private callStart: number
+  private fixesApplied: string[] = []
   private mouthActive = false
   private lastMicLoud: number
   private lastMicLevelAt = -Infinity // when the last mic level arrived: none → mic not monitored → no alert
@@ -74,6 +89,7 @@ export class Monitor {
     this.now = opts.now ?? clock
     this.lastSeen = { camera: this.now(), mic: this.now(), callAudio: this.now() }
     this.lastMicLoud = this.now()
+    this.callStart = this.now()
     this.reporter = {
       log: (kind, text, costUsd) => this.log(kind, text, costUsd),
       blocked: (text, category) => {
@@ -218,10 +234,43 @@ export class Monitor {
   /** Log a device problem, at most once per PROBLEM_COOLDOWN_S for the same problem. */
   private problem(key: string, text: string): void {
     const t = this.now()
+    const seen = this.problems.get(key)
+    this.problems.set(key, { first: seen?.first ?? t, last: t, count: (seen?.count ?? 0) + 1 })
     if (t - (this.lastProblem.get(key) ?? -Infinity) < PROBLEM_COOLDOWN_S) return
     this.lastProblem.set(key, t)
     this.detail.deviceProblems++
     this.log('error', text)
+  }
+
+  /** A new call starts: the next report covers only it. */
+  resetCall(): void {
+    this.callStart = this.now()
+    this.problems.clear()
+    this.fixesApplied = []
+  }
+
+  /** Device facts for an IT ticket: problem keys, times and counts, feed states. Never speech, never names. */
+  diagnostics(): Diagnostics {
+    const t = this.now()
+    return {
+      problems: [...this.problems].map(([key, p]) => ({ key, firstSeenS: Math.round(t - p.first), lastSeenS: Math.round(t - p.last), count: p.count })),
+      feeds: {
+        camera: this.silentFlagged.camera ? 'silent' : 'ok',
+        mic: this.silentFlagged.mic ? 'silent' : 'ok',
+        callAudio: this.silentFlagged.callAudio ? 'silent' : 'ok'
+      },
+      micQualityBad: this.micQualityBad,
+      aiBreakerOpen: this.aiBreakerUntil > 0,
+      callDurationS: Math.round(t - this.callStart),
+      fixesApplied: [...this.fixesApplied]
+    }
+  }
+
+  /** An AI call made outside the Audio agent (B: end-of-call summary) → counted in "AI calls" and the cost. */
+  recordAiCall(costUsd: number): void {
+    this.counters.aiCalls++
+    this.counters.costUsd += costUsd
+    this.pushCounters()
   }
 
   private onSummary(r: { costUsd: number; usedLlm: boolean; fallback?: string }): void {
@@ -229,7 +278,8 @@ export class Monitor {
       this.counters.aiCalls++
       this.counters.costUsd += r.costUsd
     }
-    if (r.fallback && r.fallback !== 'empty' && r.fallback !== 'short') this.detail.fallbacks++ // only real AI fallbacks
+    // Only real AI fallbacks (not "nothing said", "too short", or confidential = local on purpose).
+    if (r.fallback && r.fallback !== 'empty' && r.fallback !== 'short' && r.fallback !== 'confidential') this.detail.fallbacks++
     if (r.usedLlm) this.aiFails = 0
     else if (r.fallback === 'timeout' || r.fallback === 'auth' || r.fallback === 'error' || r.fallback === 'invalid') {
       this.aiFails++
@@ -245,6 +295,7 @@ export class Monitor {
   private onResult(r: { action: string; ok: boolean }): void {
     const t = this.now()
     this.detail.actions++
+    if (r.ok && (r.action === 'fix_mic' || r.action === 'switch_input_device')) this.fixesApplied.push(r.action)
     if (r.action === 'send_haptic') {
       this.hapticFails = r.ok ? 0 : this.hapticFails + 1
       if (this.hapticFails >= HAPTIC_BREAKER_FAILS && !this.hapticsOpen) {
@@ -275,7 +326,7 @@ export class Monitor {
     const cost = this.counters.costUsd.toFixed(4)
     const line =
       `Checkup: ${d.actions} actions · ${this.counters.blocked} blocked (invalid ${d.invalid}, allowlist ${d.allowlist}, ` +
-      `provenance ${d.provenance}, paused ${d.paused}) · ${d.injectionFlagged} instruction-like speech · ` +
+      `provenance ${d.provenance}, role ${d.permission}, paused ${d.paused}) · ${d.injectionFlagged} instruction-like speech · ` +
       `${d.deviceProblems} device problems · ${d.fallbacks} AI fallbacks · AI cost ${cost} USD`
     if (line === this.lastCheckup) return
     this.lastCheckup = line

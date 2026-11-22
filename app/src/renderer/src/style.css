@@ -59,9 +59,12 @@ body.main { background: var(--bg); height: 100vh; overflow: hidden; position: re
 .orbit-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 14px; }
 .o-glow { position: absolute; left: 50%; top: 34px; transform: translate(-50%, -50%); width: 96px; height: 96px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--c) 45%, transparent), transparent 70%); opacity: 0.55; pointer-events: none; transition: opacity 0.2s; }
 .o-disc { position: relative; width: 56px; height: 56px; border-radius: 50%; background: color-mix(in srgb, var(--c) 22%, transparent); border: 2px solid color-mix(in srgb, var(--c) 70%, transparent); display: grid; place-items: center; font-size: 22px; color: var(--text); transition: transform 0.15s, box-shadow 0.15s; }
+.o-disc svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .orbit-node:hover .o-disc { transform: scale(1.12); box-shadow: 0 0 26px color-mix(in srgb, var(--c) 60%, transparent); }
 .orbit-node:hover .o-glow { opacity: 1; }
 .orbit-node.sel .o-disc { box-shadow: 0 0 30px color-mix(in srgb, var(--c) 70%, transparent); }
+.orbit-node.state-on .o-disc { border-color: var(--c); box-shadow: 0 0 24px color-mix(in srgb, var(--c) 55%, transparent); }
+.orbit-node.state-on .o-badge { border-color: color-mix(in srgb, var(--c) 55%, transparent); color: color-mix(in srgb, var(--c) 80%, var(--text)); }
 .orbit-node.rel .o-disc { animation: relpulse 1.1s ease-in-out infinite; }
 @keyframes relpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); } 50% { box-shadow: 0 0 0 12px transparent; } }
 .o-name { font-weight: 600; font-size: 13px; color: var(--text); }
@@ -75,10 +78,36 @@ body.main { background: var(--bg); height: 100vh; overflow: hidden; position: re
 .op-chip { padding: 3px 10px; border-radius: 999px; font-size: 11px; border: 1px solid color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--text); }
 .op-chip:hover { background: color-mix(in srgb, var(--c) 35%, transparent); }
 #op-open { width: 100%; }
+
+/* Session summary drawer: populated only from real recap commands. */
+.summary-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(4, 7, 14, 0.42); opacity: 0; pointer-events: none; transition: opacity 0.22s ease; }
+.summary-backdrop.open { opacity: 1; pointer-events: none; }
+.meeting-summary { position: fixed; z-index: 90; top: 16px; right: 16px; bottom: 16px; width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(167, 139, 250, 0.45); border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, transparent); box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5); backdrop-filter: blur(22px); transform: translateX(calc(100% + 32px)); opacity: 0; pointer-events: none; transition: transform 0.28s ease, opacity 0.2s ease; }
+.meeting-summary.open { transform: none; opacity: 1; pointer-events: auto; }
+.summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 16px; border-bottom: 1px solid var(--line); }
+.summary-head h2 { margin: 2px 0 0; font-size: 22px; }
+.summary-kicker { color: rgba(196, 181, 253, 0.95); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.summary-close { width: 34px; height: 34px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--panel-2); color: var(--text-2); font-size: 23px; line-height: 1; }
+.summary-close:hover { border-color: rgba(167, 139, 250, 0.8); color: var(--text); }
+.summary-close:focus-visible { outline: 2px solid rgba(167, 139, 250, 0.9); outline-offset: 2px; }
+.summary-content { min-height: 0; flex: 1; overflow-y: auto; padding: 16px 20px 24px; scrollbar-color: rgba(167, 139, 250, 0.55) transparent; }
+.summary-empty { min-height: 220px; display: grid; place-content: center; gap: 7px; padding: 24px; border: 1px dashed color-mix(in srgb, rgba(167, 139, 250, 0.9) 45%, transparent); border-radius: 12px; text-align: center; color: var(--text-2); }
+.summary-empty strong { color: var(--text); font-size: 16px; }
+.summary-entry { padding: 15px 0 17px; border-bottom: 1px solid var(--line); }
+.summary-entry:first-child { padding-top: 0; }
+.summary-entry:last-child { border-bottom: 0; }
+.summary-entry-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--text-2); font-size: 11px; }
+.summary-entry-meta strong { color: rgba(196, 181, 253, 0.95); font-size: 12px; }
+.summary-entry-question { margin: 0 0 9px; padding: 9px 11px; border-left: 3px solid rgba(167, 139, 250, 0.9); border-radius: 0 8px 8px 0; background: rgba(167, 139, 250, 0.1); font-size: 15px; font-weight: 650; line-height: 1.4; }
+.summary-entry-text { margin: 0; color: var(--text); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.summary-entry details { margin-top: 10px; color: var(--text-2); font-size: 12px; }
+.summary-entry summary { cursor: pointer; }
+.summary-transcript { margin: 8px 0 0; padding: 10px; max-height: 180px; overflow-y: auto; border-radius: 8px; background: var(--inset); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) {
   .core-disc::before, .core-disc::after { display: none; animation: none; }
   .orbit-node { transition: none; }
   .orbit-node.rel .o-disc { animation: none; }
+  .meeting-summary, .summary-backdrop { transition: none; }
 }
 .head-left { display: flex; align-items: center; gap: 14px; }
 .head-right { display: flex; align-items: center; gap: 14px; }
@@ -198,9 +227,12 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 .pill .knock { display: none; color: var(--accent); font-size: 12px; }
 .pill.knocking .knock { display: inline; animation: knock 0.5s ease-in-out 3; }
 
-/* toasts: Windows-notification style, stacked bottom-right, newest at the bottom */
-#toasts { position: fixed; right: 12px; bottom: 12px; width: 364px; display: flex; flex-direction: column; gap: 8px; }
-.toast { position: relative; background: var(--card); border: 1px solid var(--glass-border); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow); overflow: hidden; text-shadow: var(--card-text-shadow); animation: toastin 0.3s ease-out; }
+/* Notification rail: three visible cards; overflow is queued by overlay.ts. */
+#toasts { position: fixed; z-index: 20; right: 12px; bottom: 12px; width: min(364px, calc(100vw - 24px)); max-height: calc(100vh - 84px); display: flex; flex-direction: column; gap: 10px; }
+.toast { position: relative; width: 100%; background: var(--card); border: 1px solid var(--glass-border); border-left: 3px solid var(--accent); border-radius: 12px; box-shadow: 0 12px 32px var(--shadow); overflow: hidden; text-shadow: var(--card-text-shadow); animation: toastin 0.3s ease-out; backdrop-filter: blur(18px); }
+.toast.hero, .toast.recap { border-left-color: var(--warn); }
+.toast.fix { border-left-color: var(--bad); }
+.toast.reply { border-left-color: var(--ok); }
 .toast.out { animation: toastout 0.25s ease-in forwards; }
 .t-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 2px 10px; }
 .t-app { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
@@ -208,21 +240,22 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 .t-ctrl { display: inline-flex; }
 .t-ctrl button { width: 26px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--text-2); font-size: 13px; }
 .t-ctrl button:hover { background: var(--inset); color: var(--text); }
-.t-body { display: flex; gap: 10px; padding: 6px 12px 8px; }
+.t-body { display: flex; gap: 10px; padding: 6px 12px 10px; }
 .t-tile { flex: none; width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; font-size: 20px; background: var(--accent-soft); color: var(--accent); }
 .toast.fix .t-tile { background: rgba(255, 93, 93, 0.25); color: var(--bad); }
+.toast.nudge .t-tile { background: rgba(245, 181, 71, 0.25); color: var(--warn); }
 .toast.reply .t-tile { background: rgba(60, 207, 142, 0.25); color: var(--ok); }
-.t-content { min-width: 0; }
-.t-title { font-weight: 600; font-size: 14px; }
-.question { font-size: 20px; font-weight: 600; line-height: 1.25; margin: 4px 0 8px; }
+.t-content { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.t-title { font-weight: 650; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.question { font-size: 18px; font-weight: 650; line-height: 1.3; margin: 5px 0 9px; overflow-wrap: anywhere; }
 .points { margin: 0 0 6px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
-.points li { position: relative; padding-left: 16px; font-size: 14px; }
+.points li { position: relative; padding-left: 16px; font-size: 14px; overflow-wrap: anywhere; }
 .points li::before { content: ''; position: absolute; left: 2px; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .toast details { margin-top: 4px; }
 .toast summary { cursor: pointer; color: var(--text-2); font-size: 12px; list-style: none; }
 .toast summary::before { content: '▸ '; }
 .toast details[open] summary::before { content: '▾ '; }
-.transcript { margin: 8px 0 0; padding: 10px 12px; max-height: 160px; overflow: auto; background: var(--inset); border-radius: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; text-shadow: none; }
+.transcript { margin: 8px 0 0; padding: 10px 12px; max-height: 160px; overflow: auto; background: var(--inset); border-radius: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; text-shadow: none; overflow-wrap: anywhere; }
 .transcript .q { color: var(--accent); font-weight: 600; }
 .hint { color: var(--text-2); font-size: 12px; margin-top: 6px; }
 .t-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
@@ -250,10 +283,63 @@ body.overlay { background: transparent; overflow: hidden; height: 100vh; }
 body.overlay .pill, body.overlay .toast { text-shadow: var(--card-text-shadow); border-color: var(--glass-border); }
 body.overlay .toast button { text-shadow: none; }
 
-/* B: live captions (CAPTION) — bottom-left, away from the toasts; last 3 lines, your name highlighted */
-#captions { position: fixed; left: 12px; right: 388px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
-#captions .cap { align-self: flex-start; max-width: 100%; padding: 6px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.72); color: #fff; font-size: 18px; line-height: 1.35; font-weight: 500; }
-#captions .cap.partial { opacity: 0.7; }
-#captions .cap .spk { color: #9cc3ff; margin-right: 6px; font-weight: 600; }
-#captions mark { background: #ffd23f; color: #000; border-radius: 3px; padding: 0 2px; }
+/* Live captions: full-width in the overlay, with the notification rail raised above them. */
+#captions { position: fixed; z-index: 10; left: 12px; right: 12px; bottom: 12px; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 5px; pointer-events: none; }
+#captions[hidden] { display: none; }
+#captions:empty { display: none; }
+#captions:not(:empty) { max-height: 120px; overflow: hidden; }
+#captions:not(:empty) ~ #toasts { bottom: 138px; }
+.caption-line { width: 100%; min-width: 0; background: var(--card); border: 1px solid var(--glass-border); color: var(--text); text-shadow: var(--card-text-shadow); padding: 8px 12px; border-radius: 10px; font-size: 15px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; word-break: normal; backdrop-filter: blur(18px); }
+.caption-line.partial { opacity: 0.7; }
+.caption-speaker { color: var(--accent); font-weight: 600; }
+.caption-line mark { background: var(--warn); color: #000; border-radius: 3px; padding: 0 2px; text-shadow: none; }
+
+@media (max-height: 720px) {
+  #stack { padding: 10px 12px; }
+  #toasts { gap: 6px; }
+  .t-head { padding-top: 6px; }
+  .t-body { padding-bottom: 7px; }
+  .t-actions { padding-bottom: 8px; }
+  .transcript { max-height: 110px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast.out, .pill .wave i, .pill.knocking .knock, .check-anim path, .timer, #flash.on { animation: none; }
+}
 .toast.nudge .t-tile { background: var(--accent-soft); color: var(--accent); }
+
+/* Check-up: "Try the vibrations" (B) */
+.haptic-hint { margin: 0 0 12px; color: var(--text-2); font-size: 13px; }
+.haptic-tests { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.btn.haptic-test { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px; min-height: 88px; }
+.btn.haptic-test strong { font-size: 14px; }
+.btn.haptic-test span { color: var(--text-2); font-size: 12px; line-height: 1.35; }
+.btn.haptic-test em { margin-top: auto; color: var(--accent); font-style: normal; font-size: 12px; font-weight: 600; }
+
+/* Settings page (B) */
+.set-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.set-row:last-child { border-bottom: 0; }
+.set-text { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.set-text strong { font-size: 14px; }
+.set-text span { color: var(--text-2); font-size: 12.5px; line-height: 1.4; }
+.set-sub { cursor: default; padding-left: 14px; border-left: 2px solid var(--line); }
+.set-sub.off { opacity: 0.45; pointer-events: none; }
+.set-sub input[type='range'] { width: 140px; accent-color: var(--accent); }
+.switch { appearance: none; flex: none; width: 40px; height: 22px; border-radius: 11px; background: var(--line); position: relative; cursor: pointer; transition: background 0.15s; margin: 0; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(18px); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Meeting Summary: "Summarize the call" + end-of-call sections (B) */
+.summary-head-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+#summary-generate { white-space: nowrap; padding: 8px 12px; font-size: 13px; }
+#summary-title { white-space: nowrap; }
+.summary-section { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(196, 181, 253, 0.95); }
+.summary-list { margin: 0; padding-left: 18px; display: grid; gap: 5px; line-height: 1.5; }
+
+/* Overlay pill: "Summary" button (B) */
+.pill-btn { flex: none; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.pill-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pill-btn:disabled { opacity: 0.6; cursor: default; }
+.pill #pill-status { flex-shrink: 0; } /* the status stays readable; the cost meta shrinks first (B) */

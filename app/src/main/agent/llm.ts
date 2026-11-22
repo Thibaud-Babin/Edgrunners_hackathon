@@ -9,7 +9,9 @@ import { z } from 'zod'
 import { LIMITS, LlmSummaryOutput, Summary } from './schemas.ts'
 import { cleanText, escapeTags, MAX } from './sanitize.ts'
 
-export type FallbackReason = 'no_key' | 'empty' | 'short' | 'timeout' | 'auth' | 'error' | 'invalid' | 'breaker'
+export type FallbackReason = 'no_key' | 'empty' | 'short' | 'confidential' | 'timeout' | 'auth' | 'error' | 'invalid' | 'breaker'
+
+export type CompleteResult = { text: string; costUsd: number } | { fallback: FallbackReason; costUsd: number }
 
 export interface SummaryOutcome {
   summary: Summary
@@ -87,9 +89,11 @@ export class Llm {
     this.templateUntil = ts
   }
 
-  async summarise(transcript: string, userName: string): Promise<SummaryOutcome> {
+  /** `local: true` (confidential role): the transcript never leaves the laptop; the summary is the local template. */
+  async summarise(transcript: string, userName: string, opts: { local?: boolean } = {}): Promise<SummaryOutcome> {
     const text = transcript.trim()
     if (!text) return { summary: summaryOf('(nothing was said)', [], undefined, 'template'), costUsd: 0, usedLlm: false, fallback: 'empty' }
+    if (opts.local) return templateSummary(text, userName, 'confidential')
     if (text.length < MIN_CHARS_FOR_AI) return templateSummary(text, userName, 'short')
     const client = this.stallNext ? HANGING : this.client
     this.stallNext = false
@@ -132,6 +136,41 @@ export class Llm {
       const status = (err as { status?: unknown } | null)?.status
       const why: FallbackReason = ctrl.signal.aborted ? 'timeout' : status === 401 || status === 403 ? 'auth' : 'error'
       return templateSummary(text, userName, why)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * One plain call for a longer job (B: end-of-call summary, call-summary.ts). The caller builds the prompt with
+   * the transcript quoted and escaped, and validates the reply. No key, breaker open, error or timeout → a fallback
+   * reason, never an exception.
+   */
+  async complete(system: string, user: string, maxTokens: number, timeoutMs: number): Promise<CompleteResult> {
+    if (!this.client) return { fallback: 'no_key', costUsd: 0 }
+    if (Date.now() / 1000 < this.templateUntil) return { fallback: 'breaker', costUsd: 0 }
+    const ctrl = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => {
+        ctrl.abort()
+        resolve('timeout')
+      }, timeoutMs)
+    })
+    try {
+      const call = this.client.messages.create(
+        { model: this.model, max_tokens: maxTokens, thinking: { type: 'disabled' }, system, messages: [{ role: 'user', content: user }] },
+        { signal: ctrl.signal, timeout: timeoutMs, maxRetries: 0 }
+      )
+      const raw = await Promise.race([call, timeout])
+      if (raw === 'timeout') return { fallback: 'timeout', costUsd: 0 }
+      const reply = ApiReply.safeParse(raw)
+      if (!reply.success) return { fallback: 'invalid', costUsd: 0 }
+      const costUsd = (reply.data.usage.input_tokens * PRICE_IN_PER_MTOK + reply.data.usage.output_tokens * PRICE_OUT_PER_MTOK) / 1e6
+      return { text: reply.data.content.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join(''), costUsd }
+    } catch (err) {
+      const status = (err as { status?: unknown } | null)?.status
+      return { fallback: ctrl.signal.aborted ? 'timeout' : status === 401 || status === 403 ? 'auth' : 'error', costUsd: 0 }
     } finally {
       clearTimeout(timer)
     }
