@@ -46,7 +46,7 @@ const WEEK_S = 7 * 24 * 3600
 /** The same problem this many times in a week → the card also offers IT (a device problem, not a slip). */
 export const REPEAT_FOR_TICKET = 3
 /** B: only these repeat problems go to IT: Tap's own check shows the device itself misbehaving */
-export const DEVICE_FAULTS = new Set(['Mic sends no sound', 'Poor mic quality', 'Camera stuck'])
+export const DEVICE_FAULTS = new Set(['Poor mic quality', 'Camera stuck'])
 
 const MAX_BLOCKED = 20
 const MAX_PROBLEMS = 500

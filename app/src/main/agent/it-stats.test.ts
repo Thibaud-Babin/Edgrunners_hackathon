@@ -90,7 +90,7 @@ test('it-stats: no transcript ever stored (only counts, types, fixed reasons)', 
 
 test('it-stats: the same problem for the 3rd time this week → the card says so, and an automatic ticket is asked for', () => {
   const { s, at } = setup()
-  const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'You are talking, but your laptop mic sends no sound. Check its cable or Bluetooth connection.', fix_label: 'Got it', action_id: 'dismiss_card' as const })
+  const card = (id: string) => ({ type: 'SHOW_FIX' as const, id, problem: 'Your mic sounds bad. Move closer to the mic, or plug in a headset.', fix_label: 'Got it', action_id: 'dismiss_card' as const })
   for (const [i, id] of ['a', 'b'].entries()) {
     at(1000 + i * 3600)
     const e = s.escalate(card(id))
@@ -101,7 +101,7 @@ test('it-stats: the same problem for the 3rd time this week → the card says so
   const third = s.escalate(card('c'))
   assert.equal(third.cmd.it_ticket, true)
   assert.match(third.cmd.problem, /3rd time this week: this may be a device problem/)
-  assert.deepEqual(third.auto, { reason: 'same problem 3 times this week (mic sends no sound)', key: 'repeat:Mic sends no sound' })
+  assert.deepEqual(third.auto, { reason: 'same problem 3 times this week (poor mic quality)', key: 'repeat:Poor mic quality' })
   // more than a week later it starts again from 1
   at(1000 + 9 * 24 * 3600)
   assert.equal(s.escalate(card('d')).auto, undefined)
