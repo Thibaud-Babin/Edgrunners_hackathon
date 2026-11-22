@@ -31,7 +31,7 @@ With only 3 people, Speaker 1 also reads the Speaker 2 lines.
 2. **Mouse:** Logi Options+ is running and the HapticWeb plugin is installed. Test it:
    `curl.exe -X POST -d '""' https://local.jmw.nz:41443/haptic/knock`. You must **feel** a knock.
 3. **Headphones** connected. **Close Teams, Zoom and any other app using the camera.**
-4. **Gaze Tracker:** start the Logi Gaze Tracker on the **meeting display** and calibrate it; the dot must follow your eyes. Tap uses gaze by default and falls back to head pose automatically. If the tracker is unavailable, note "pose fallback" and continue — the away test still works.
+4. **Gaze Tracker:** start the Logi Gaze Tracker on the **meeting display** and calibrate it; the dot must follow your eyes. Tap uses gaze by default and falls back to head pose automatically. If the tracker is unavailable, note "pose fallback" and continue — the away test still works. Keep Windows **"Allow multiple apps to use camera at the same time"** on: Meet, Tap and the tracker all use the camera.
 5. **Google Meet** in Chrome: start a meeting.
    - Microphone: **Default** (Meet's setting). Then Meet always uses the Windows default mic, so Tap's
      "Switch to … mic" fix also switches Meet. Check in Windows sound settings that the default input is the **laptop mic**.
