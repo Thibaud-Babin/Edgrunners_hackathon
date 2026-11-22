@@ -179,6 +179,8 @@ export class Executor {
     })
   }
 
+  private mouthTimer: ReturnType<typeof setTimeout> | undefined
+
   private handle(env: Envelope<unknown>): void {
     const decidedAt = now()
     const d = decide(this.state, env, decidedAt)
@@ -186,6 +188,16 @@ export class Executor {
     for (const l of d.log) this.report.log(l.kind, l.text)
     for (const b of d.blocked) this.report.blocked(b, 'allowlist')
     void this.run(d.actions, env.provenance, decidedAt)
+    // B (Sun 02:00): vision sends MOUTH_MOVING only when it changes, so "talking for 1.5 s while muted" was only
+    // re-checked when a mic level arrived. While the mouth keeps moving, re-check every second (the rules' card
+    // cooldown prevents duplicates). Muted in Windows is then enough on its own, even without "Start mic".
+    const p = env.payload as { signal?: unknown; active?: unknown } | null
+    if (env.kind === 'vision' && p?.signal === 'mouth') {
+      clearTimeout(this.mouthTimer)
+      if (p.active === true) this.mouthTimer = setTimeout(() => {
+        if (this.state.mouthSince !== null) this.handle(env)
+      }, 1000)
+    }
   }
 
   /** Actions from one decision run in order (e.g. the knock first, then the card). */

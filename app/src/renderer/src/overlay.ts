@@ -31,20 +31,20 @@ function removeToast(id: string): void {
   clearTimeout(toastTimers.get(id))
   toastTimers.delete(id)
   const queuedIndex = toastQueue.findIndex((item) => item.id === id)
-  if (queuedIndex >= 0) {
-    toastQueue.splice(queuedIndex, 1)
-    return
-  }
+  if (queuedIndex >= 0) toastQueue.splice(queuedIndex, 1)
   const toast = document.getElementById(id)
-  if (!toast) return
-  toast.classList.add('out')
-  setTimeout(() => {
-    toast.remove()
-    visibleToastIds.delete(id)
-    visibleToasts.delete(id)
-    showNextToast()
-  }, 250)
-  window.tap.setOverlayInteractive(false)
+  if (!toast && !visibleToastIds.has(id)) return
+  // B (Sun 02:00): the slot is freed NOW. It used to be freed inside the 250 ms fade-out timer, and a card that was
+  // also queued was never hidden, so after a few cards the overlay believed 3 were visible forever and showed nothing.
+  visibleToastIds.delete(id)
+  visibleToasts.delete(id)
+  if (toast) {
+    toast.removeAttribute('id') // a new card may reuse this id while this one fades out
+    toast.classList.add('out')
+    setTimeout(() => toast.remove(), 250)
+  }
+  showNextToast()
+  if (!document.querySelector('.toast:hover, .pill-btn:hover')) window.tap.setOverlayInteractive(false)
 }
 
 /** User pressed ✕ / Got it / Not now: tell the agent (it logs it and sends DISMISS back), and hide right away. */
@@ -91,16 +91,13 @@ function addToast(o: ToastOpts): HTMLElement | null {
 
   removeToast(o.id)
   if (visibleToastIds.size >= MAX_TOASTS) {
+    // Oldest first among equals (Map keeps insertion order; sort is stable).
     const lowest = [...visibleToasts.values()].sort((a, b) => priorities[a.kind] - priorities[b.kind])[0]
-    if (lowest && priorities[o.kind] > priorities[lowest.kind]) {
-      toastQueue.push(lowest, o)
-      removeToast(lowest.id)
-      toastQueue.sort((a, b) => priorities[b.kind] - priorities[a.kind])
-      return null
-    }
     toastQueue.push(o)
     toastQueue.sort((a, b) => priorities[b.kind] - priorities[a.kind])
-    return null
+    // At least as important as the least important card on screen → that card makes room (newest wins, like Windows).
+    if (lowest && priorities[o.kind] >= priorities[lowest.kind]) removeToast(lowest.id)
+    return document.getElementById(o.id)
   }
   return renderToast(o)
 }
@@ -244,8 +241,16 @@ window.addEventListener('storage', (event) => {
 })
 setInterval(syncCaptionPreference, 250)
 
+const CAPTION_IDLE_MS = 6000
+let captionClear: ReturnType<typeof setTimeout> | undefined
+
 function caption(text: string, final: boolean, speaker?: string, highlight?: string): void {
   if (!captionsVisible) return
+  clearTimeout(captionClear)
+  captionClear = setTimeout(() => {
+    captions.replaceChildren()
+    partialLine = null
+  }, CAPTION_IDLE_MS)
   const line = partialLine ?? el('div', 'caption-line')
   line.replaceChildren()
   line.className = final ? 'caption-line' : 'caption-line partial'
@@ -294,7 +299,8 @@ window.tap.onUi((cmd: UiCommand) => {
         icon: cmd.trigger === 'name' ? '🔔' : '👋',
         title: `While you were away · ${Math.round(cmd.until - cmd.away_from)} s`,
         body: [...(q ? [question(q)] : []), ...(cmd.summary ? [points(cmd.summary, q)] : []), ...(cmd.transcript ? [transcript('Full transcript', cmd.transcript, q)] : []), ...(q ? [gestureHint()] : [])],
-        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))],
+        autoDismissMs: 90000
       })
       break
     }
@@ -305,7 +311,8 @@ window.tap.onUi((cmd: UiCommand) => {
         icon: '🔔',
         title: 'You were addressed',
         body: [...(cmd.question ? [question(cmd.question)] : []), ...(cmd.summary ? [points(cmd.summary, cmd.question)] : []), ...(cmd.transcript ? [transcript('Last 10 seconds', cmd.transcript, cmd.question)] : []), ...(cmd.question ? [gestureHint()] : [])],
-        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))]
+        actions: [button('Got it', 'primary', () => userDismiss(cmd.id)), button('Dismiss', 'ghost', () => userDismiss(cmd.id))],
+        autoDismissMs: 90000
       })
       break
     case 'SHOW_FIX':
@@ -385,6 +392,10 @@ window.tap.onUi((cmd: UiCommand) => {
       if (cmd.entry.kind === 'action' && h) knock(h[1].split('_')[0])
       break
     }
+    case 'SHOW_NOTICE':
+      // C's notices (e.g. IT ticket sent): they were silently dropped here.
+      addToast({ id: cmd.id, kind: 'nudge', icon: 'ℹ', title: cmd.text, body: [], actions: [button('Got it', 'primary', () => removeToast(cmd.id))], autoDismissMs: 10000 })
+      break
     case 'CUE':
       // Settings → "Sound with each vibration" (off by default): same signal, in the headphones.
       if (soundOn()) playCue(cmd.waveform)

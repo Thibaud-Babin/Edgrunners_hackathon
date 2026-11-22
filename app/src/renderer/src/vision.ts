@@ -16,6 +16,7 @@ const AWAY_YAW_EXIT_DEG = 18
 const AWAY_PITCH_ENTER_DEG = 22
 const AWAY_PITCH_EXIT_DEG = 14
 const AWAY_AFTER_MS = 2000
+const FRAME_MS = 50 // camera analysis period (B: a timer keeps running when Tap is minimized)
 const MOUTH_WINDOW_MS = 1000
 const MOUTH_STD_MIN = 0.06
 const MOUTH_ON_MS = 300 // debounce: raw active must hold this long (B's request)
@@ -233,9 +234,12 @@ export async function startVision(video: HTMLVideoElement, onFrame?: VisionListe
       // TODO(A, P1-1): nod / shake (pitch / yaw reversals), brow raise (browInnerUp vs baseline), tilt (roll).
       onFrame?.({ pose, blend, face })
     }
-    requestAnimationFrame(loop)
+    setTimeout(loop, FRAME_MS)
   }
-  requestAnimationFrame(loop)
+  // B (Sun 02:00): a timer, not requestAnimationFrame. Animation frames stop when Tap's window is minimized or behind
+  // Meet (measured: 2 frames in 2 s minimized), so Tap went blind exactly during the call. Timers keep running
+  // (backgroundThrottling is off in index.ts). ~20 analyses per second is plenty for away / mouth / lighting.
+  setTimeout(loop, FRAME_MS)
 
   const track = stream.getVideoTracks()[0]
   if (track) {

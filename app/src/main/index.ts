@@ -38,8 +38,15 @@ const webPreferences = {
   preload: join(__dirname, '../preload/index.js'),
   contextIsolation: true,
   nodeIntegration: false,
-  sandbox: true
+  sandbox: true,
+  // B (Sun 02:00): Tap must keep working behind Meet. Chromium paused the hidden/covered main window: the camera
+  // loop measured 0 frames/s behind another window (no mouth, no away), timers ran at 1/s.
+  backgroundThrottling: false
 }
+// Same reason, for windows Windows reports as covered ("occluded") or in the background.
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
 
 function createWindows(): void {
   mainWin = new BrowserWindow({ width: 1100, height: 800, title: 'Tap', webPreferences })
