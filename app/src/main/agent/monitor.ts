@@ -46,6 +46,10 @@ export interface Diagnostics {
   feeds: { camera: 'ok' | 'silent'; mic: 'ok' | 'silent'; callAudio: 'ok' | 'silent' }
   micQualityBad: boolean
   aiBreakerOpen: boolean
+  /** Since the call started (first event, or the last End call). */
+  callDurationS: number
+  /** Fixes the user applied by clicking (e.g. fix_mic), in order. */
+  fixesApplied: string[]
 }
 
 export interface MonitorControls {
@@ -62,6 +66,8 @@ export class Monitor {
   private silentFlagged: Record<Feed, boolean> = { camera: false, mic: false, callAudio: false }
   private lastProblem = new Map<string, number>()
   private problems = new Map<string, { first: number; last: number; count: number }>()
+  private callStart: number
+  private fixesApplied: string[] = []
   private mouthActive = false
   private lastMicLoud: number
   private lastMicLevelAt = -Infinity // when the last mic level arrived: none → mic not monitored → no alert
@@ -83,6 +89,7 @@ export class Monitor {
     this.now = opts.now ?? clock
     this.lastSeen = { camera: this.now(), mic: this.now(), callAudio: this.now() }
     this.lastMicLoud = this.now()
+    this.callStart = this.now()
     this.reporter = {
       log: (kind, text, costUsd) => this.log(kind, text, costUsd),
       blocked: (text, category) => {
@@ -235,6 +242,13 @@ export class Monitor {
     this.log('error', text)
   }
 
+  /** A new call starts: the next report covers only it. */
+  resetCall(): void {
+    this.callStart = this.now()
+    this.problems.clear()
+    this.fixesApplied = []
+  }
+
   /** Device facts for an IT ticket: problem keys, times and counts, feed states. Never speech, never names. */
   diagnostics(): Diagnostics {
     const t = this.now()
@@ -246,7 +260,9 @@ export class Monitor {
         callAudio: this.silentFlagged.callAudio ? 'silent' : 'ok'
       },
       micQualityBad: this.micQualityBad,
-      aiBreakerOpen: this.aiBreakerUntil > 0
+      aiBreakerOpen: this.aiBreakerUntil > 0,
+      callDurationS: Math.round(t - this.callStart),
+      fixesApplied: [...this.fixesApplied]
     }
   }
 
@@ -272,6 +288,7 @@ export class Monitor {
   private onResult(r: { action: string; ok: boolean }): void {
     const t = this.now()
     this.detail.actions++
+    if (r.ok && (r.action === 'fix_mic' || r.action === 'switch_input_device')) this.fixesApplied.push(r.action)
     if (r.action === 'send_haptic') {
       this.hapticFails = r.ok ? 0 : this.hapticFails + 1
       if (this.hapticFails >= HAPTIC_BREAKER_FAILS && !this.hapticsOpen) {

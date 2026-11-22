@@ -11,7 +11,7 @@ import type { LogEntry, TapEvent, UiCommand } from '../../shared/events.ts'
 import { AgentBus, type EventBus } from '../bus.ts'
 import type { Haptics } from '../haptics.ts'
 import { AudioAgent } from './audio-agent.ts'
-import { Executor, type MicPort, type TicketPort } from './executor.ts'
+import { Executor, type ExecutorPorts, type MicPort, type TicketPort } from './executor.ts'
 import type { Llm } from './llm.ts'
 import { Monitor } from './monitor.ts'
 import { RoleState, ROLES, type UserRole } from './permissions.ts'
@@ -37,6 +37,8 @@ export interface AgentOptions {
   allowRoleSwitch?: boolean
   /** Where IT tickets go (simulated helpdesk). Without it, tickets are only logged. */
   tickets?: TicketPort
+  /** The IT log for end-of-call device reports (simulated). */
+  itLog?: ExecutorPorts['itLog']
 }
 
 export class Agent {
@@ -54,7 +56,9 @@ export class Agent {
     startVisionIntake(events, bus, report)
     const executor = new Executor(events, bus, ui, haptics, report, opts.mic ?? null, this.roles, {
       ...(opts.tickets ? { tickets: opts.tickets } : {}),
-      diagnostics: () => monitor.diagnostics()
+      ...(opts.itLog ? { itLog: opts.itLog } : {}),
+      diagnostics: () => monitor.diagnostics(),
+      resetCall: () => monitor.resetCall()
     })
     monitor.start({ llm, executor, haptics })
 

@@ -41,9 +41,26 @@ export interface TicketPort {
   send(ticket: ItTicket): Promise<{ ok: boolean; where: string }>
 }
 
+/**
+ * End of call: the call's device health report for the IT log. Device facts only, like a ticket.
+ * Priority: no problem → log only · problems → priority · problems for an executive/CEO → urgent.
+ */
+export interface CallReport {
+  id: string
+  endedAt: string
+  priority: 'log' | 'priority' | 'urgent'
+  requesterRole: string
+  diagnostics: Diagnostics | null
+  mic: ItTicket['mic']
+}
+
 export interface ExecutorPorts {
   tickets?: TicketPort
+  /** The IT log (simulated: index.ts appends JSON lines). */
+  itLog?: { add(report: CallReport): Promise<{ ok: boolean; where: string }> }
   diagnostics?: () => Diagnostics
+  /** Start a new call in the checkup after the report (problems, fixes, duration). */
+  resetCall?: () => void
 }
 
 type SummaryResult = PayloadOf<'summary'>
@@ -105,6 +122,7 @@ export class Executor {
   private roles: RoleState
   private ports: ExecutorPorts
   private ticketSeq = 0
+  private reportSeq = 0
 
   constructor(
     events: EventBus,
@@ -141,11 +159,11 @@ export class Executor {
     })
   }
 
-  /** D's "End call" button: logged for now (the end-of-call IT report hooks in here). */
+  /** D's "End call" button (the user's own click): the call's device health report goes to the IT log. */
   private onCallEnded(e: TapEvent): void {
     const raw = RawTapEvent.safeParse(e)
     if (!raw.success || raw.data.source !== 'ui') return this.report.invalid('CALL_ENDED with a bad shape or source')
-    this.report.log('decision', `Call ended (${this.roles.flags.label})`)
+    void this.run([{ action: 'send_call_report', why: 'you ended the call' }], 'user', now())
   }
 
   /** Intake for D's clicks: the user's own deliberate input. */
@@ -283,6 +301,8 @@ export class Executor {
         return true
       case 'open_it_ticket':
         return this.sendTicket()
+      case 'send_call_report':
+        return this.sendCallReport()
       case 'send_haptic': {
         if (this.hapticsDisabled) {
           this.ui({ type: 'FLASH', reason: a.waveform })
@@ -300,14 +320,13 @@ export class Executor {
   /** The user's click: their own device facts (no speech, no names) to IT, with priority by role (VIP support). */
   private async sendTicket(): Promise<boolean> {
     const flags = this.roles.flags
-    const m = this.state.mic
     const ticket: ItTicket = {
       id: `T-${String(++this.ticketSeq).padStart(4, '0')}`,
       createdAt: new Date(now() * 1000).toISOString(),
       priority: flags.ticketPriority,
       requesterRole: flags.label,
       diagnostics: this.ports.diagnostics?.() ?? null,
-      mic: m ? { kind: m.kind, muted: m.muted, volume: m.volume, ...(m.otherKind ? { otherKind: m.otherKind } : {}) } : null
+      mic: this.micFacts()
     }
     const sent = this.ports.tickets
       ? await this.ports.tickets.send(ticket).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
@@ -320,6 +339,43 @@ export class Executor {
     this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Ticket ${ticket.id} sent to IT (${queue}, simulated helpdesk)` })
     this.report.log('action', `You clicked "Send diagnostics to IT" → ticket ${ticket.id} sent (${queue}; device facts only, no speech; ${sent.where})`)
     return true
+  }
+
+  private async sendCallReport(): Promise<boolean> {
+    const flags = this.roles.flags
+    const diagnostics = this.ports.diagnostics?.() ?? null
+    const problems = diagnostics?.problems.length ?? 0
+    const priority = problems === 0 ? 'log' : flags.ticketPriority === 'priority' ? 'urgent' : 'priority'
+    const report: CallReport = {
+      id: `R-${String(++this.reportSeq).padStart(4, '0')}`,
+      endedAt: new Date(now() * 1000).toISOString(),
+      priority,
+      requesterRole: flags.label,
+      diagnostics,
+      mic: this.micFacts()
+    }
+    const saved = this.ports.itLog
+      ? await this.ports.itLog.add(report).catch((e: unknown) => ({ ok: false, where: e instanceof Error ? e.message : 'write failed' }))
+      : { ok: true, where: 'log only' }
+    this.ports.resetCall?.()
+    const fixes = diagnostics?.fixesApplied.length ?? 0
+    if (!saved.ok) {
+      this.report.log('error', `Call ended → device report ${report.id} could not be saved (${saved.where})`)
+      return false
+    }
+    const level = priority === 'urgent' ? 'urgent: executive support' : priority === 'priority' ? 'priority: device problems' : 'log only: no problem'
+    this.ui({ type: 'SHOW_NOTICE', id: this.cardId(), text: `Call report added to the IT log (${level})` })
+    this.report.log(
+      'action',
+      `Call ended → device report ${report.id} added to the IT log (${problems} problems, ${fixes} fixes; ${level}; device facts only, no speech; ${saved.where})`
+    )
+    return true
+  }
+
+  /** The Windows mic state without its name (a device name can hold a person's name). */
+  private micFacts(): ItTicket['mic'] {
+    const m = this.state.mic
+    return m ? { kind: m.kind, muted: m.muted, volume: m.volume, ...(m.otherKind ? { otherKind: m.otherKind } : {}) } : null
   }
 
   /**

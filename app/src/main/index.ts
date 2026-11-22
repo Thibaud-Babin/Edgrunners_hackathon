@@ -3,7 +3,7 @@
  * OWNER: D (windows), everyone reads it.
  */
 import 'dotenv/config'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session } from 'electron'
 import type { Source, TapEvent, UiCommand } from '../shared/events'
@@ -113,6 +113,16 @@ app.whenReady().then(() => {
         mkdirSync(dir, { recursive: true })
         const file = join(dir, `${t.id}.json`)
         writeFileSync(file, JSON.stringify(t, null, 2))
+        return { ok: true, where: file }
+      }
+    },
+    // Simulated IT log: one JSON line per ended call (device facts only).
+    itLog: {
+      add: async (r) => {
+        const dir = join(app.getPath('userData'), 'it-log')
+        mkdirSync(dir, { recursive: true })
+        const file = join(dir, 'calls.jsonl')
+        appendFileSync(file, `${JSON.stringify(r)}\n`)
         return { ok: true, where: file }
       }
     }

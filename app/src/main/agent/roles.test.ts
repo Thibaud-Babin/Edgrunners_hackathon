@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import type { EventType, UiCommand } from '../../shared/events.ts'
 import { AgentBus, EventBus } from '../bus.ts'
 import { AudioAgent } from './audio-agent.ts'
-import { Executor, gate, type ItTicket, STT_GRACE_MS } from './executor.ts'
+import { type CallReport, Executor, gate, type ItTicket, STT_GRACE_MS } from './executor.ts'
+import { Monitor } from './monitor.ts'
 import { Llm, type MessagesClient } from './llm.ts'
 import { RoleState, type UserRole } from './permissions.ts'
 import { startVisionIntake } from './vision-intake.ts'
@@ -13,6 +14,7 @@ const T0 = 1_000
 
 export function roleRig(role: UserRole) {
   const tickets: ItTicket[] = []
+  const reports: CallReport[] = []
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: T0 * 1000 })
   const ui: UiCommand[] = []
   const logs: string[] = []
@@ -29,11 +31,14 @@ export function roleRig(role: UserRole) {
     }
   }
   const report = { log: (_k: string, t: string) => logs.push(t), blocked: (t: string) => logs.push(t), invalid: (t: string) => logs.push(t) }
+  const monitor = new Monitor(events, bus, () => {})
   new AudioAgent(events, bus, new Llm({ client }), 'Thibaud', report, roles)
   startVisionIntake(events, bus, report)
   new Executor(events, bus, (c) => ui.push(c), { fire: async () => true }, report, null, roles, {
     tickets: { send: async (t) => (tickets.push(t), { ok: true, where: 'test outbox' }) },
-    diagnostics: () => ({ problems: [{ key: 'mic_muted', firstSeenS: 1, lastSeenS: 2, count: 1 }], feeds: { camera: 'ok', mic: 'ok', callAudio: 'ok' }, micQualityBad: false, aiBreakerOpen: false })
+    itLog: { add: async (r) => (reports.push(r), { ok: true, where: 'test log' }) },
+    diagnostics: () => monitor.diagnostics(),
+    resetCall: () => monitor.resetCall()
   })
   const flush = async () => {
     for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r))
@@ -52,7 +57,7 @@ export function roleRig(role: UserRole) {
     cam('USER_BACK')
     await wait(STT_GRACE_MS / 1000)
   }
-  return { ui, logs, roles, tickets, events, say, cam, wait, flush, awayRecap, ui_, aiCalls: () => aiCalls }
+  return { ui, logs, roles, tickets, reports, events, say, cam, wait, flush, awayRecap, ui_, aiCalls: () => aiCalls }
 }
 
 test('confidential (CEO): the recap is made on the laptop, zero cloud AI calls', async (t) => {
@@ -108,7 +113,7 @@ test('IT ticket: device facts only (no speech, no device name), priority by role
     const ticket = r.tickets[0]
     assert.equal(ticket.priority, priority)
     assert.deepEqual(ticket.mic, { kind: 'headset', muted: true, volume: 1 })
-    assert.equal(ticket.diagnostics?.problems[0]?.key, 'mic_muted')
+    assert.ok(ticket.diagnostics?.problems.some((p) => p.key === 'mic_silent'), JSON.stringify(ticket.diagnostics))
     const json = JSON.stringify(ticket)
     assert.doesNotMatch(json, /budget|AirPods|Thibaud/, 'no speech, no names in the ticket')
     const notice = r.ui.find((c) => c.type === 'SHOW_NOTICE')
@@ -124,13 +129,59 @@ test('IT ticket: only the user\'s click opens it, never a detector, speech or th
   for (const p of ['detector', 'vision', 'transcript', 'llm', 'system'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
 })
 
-test('End call is logged; it changes nothing (no wipe, no minutes)', async (t) => {
+test('End call, clean call: a device report is added to the IT log as "log only", for every role', async (t) => {
   t.after(() => mock.timers.reset())
-  const r = roleRig('ceo')
+  for (const role of ['intern', 'senior', 'executive', 'ceo'] as const) {
+    const r = roleRig(role)
+    r.say('Budget approved, Sara sends the numbers tonight.', Date.now() / 1000)
+    await r.wait(30)
+    r.ui_('CALL_ENDED')
+    await r.flush()
+    assert.equal(r.reports.length, 1, role)
+    const rep = r.reports[0]
+    assert.equal(rep.priority, 'log', role)
+    assert.equal(rep.diagnostics?.callDurationS, 30)
+    assert.doesNotMatch(JSON.stringify(rep), /Budget|Sara/, 'no speech in the report')
+    assert.ok(r.ui.some((c) => c.type === 'SHOW_NOTICE' && c.text === 'Call report added to the IT log (log only: no problem)'))
+    mock.timers.reset()
+  }
+})
+
+test('End call after device trouble: priority for the intern, urgent for the CEO; fixes listed; no speech or mic name', async (t) => {
+  t.after(() => mock.timers.reset())
+  for (const [role, priority] of [['intern', 'priority'], ['ceo', 'urgent']] as const) {
+    const r = roleRig(role)
+    await mutedMicTicket(r) // mic trouble + a ticket click
+    r.ui_('CALL_ENDED')
+    await r.flush()
+    const rep = r.reports[0]
+    assert.ok(rep, role)
+    assert.equal(rep.priority, priority)
+    assert.ok((rep.diagnostics?.problems.length ?? 0) > 0)
+    assert.deepEqual(rep.mic, { kind: 'headset', muted: true, volume: 1 })
+    assert.doesNotMatch(JSON.stringify(rep), /budget|AirPods|Thibaud/)
+    assert.ok(r.logs.some((l) => l.startsWith(`Call ended → device report R-0001 added to the IT log (`)), r.logs.join('\n'))
+    // The next call starts clean.
+    r.ui_('CALL_ENDED')
+    await r.flush()
+    assert.equal(r.reports[1]?.priority, 'log')
+    mock.timers.reset()
+  }
+})
+
+test('the call report lists the fixes the user clicked', async (t) => {
+  t.after(() => mock.timers.reset())
+  const r = roleRig('intern')
+  r.events.publish({ type: 'USER_CLICK', ts: Date.now() / 1000, source: 'ui', data: { action_id: 'switch_input_device' } })
+  await r.flush()
   r.ui_('CALL_ENDED')
   await r.flush()
-  assert.ok(r.logs.includes('Call ended (CEO)'))
-  assert.equal(r.ui.length, 0)
+  assert.deepEqual(r.reports[0]?.diagnostics?.fixesApplied, ['switch_input_device'])
+})
+
+test('a call report is never started by a detector, speech or the AI', () => {
+  const req = { action: 'send_call_report', why: 'x' }
+  for (const p of ['transcript', 'llm'] as const) assert.equal(gate(req, p, 'ceo').verdict, 'block', p)
 })
 
 test('sharing is gone: a share or send click is not on the allowlist, for every role', async (t) => {

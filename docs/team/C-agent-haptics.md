@@ -173,7 +173,7 @@ The checkup agent's job is to say, in plain log lines, whether every device work
 
 **Features:**
 - **Confidential mode (8):** executive/CEO recaps are made on the laptop (template, fallback `confidential`, not counted as an AI failure); `TAP_RECORD` does not record them.
-- **End call:** `CALL_ENDED` (D's button, source `ui` only) is logged. Next: an end-of-call device report to the IT log.
+- **End-of-call IT report:** `CALL_ENDED` (D's button, source `ui` only) → `send_call_report` for every role: problems seen, feed health, fixes clicked, call length, mic state without its name. Never speech. Appended to `<userData>/it-log/calls.jsonl` (simulated IT log). Priority: no problem → log only; problems → priority; problems for an executive/CEO → urgent.
 - Dropped after review: sharing recaps, minutes to attendees, wiping the transcript at call end.
 - **IT ticket (10) + VIP priority (11):** device fix cards carry `it_ticket: true`. Click → a ticket with device facts and the checkup's problem history (no speech, no device name) is written to `<userData>/it-tickets/T-NNNN.json` (simulated helpdesk).
 - **IT view by role (13):** `ROLE {role, sees_it_view, confidential}` is sent at start and on a dev switch.

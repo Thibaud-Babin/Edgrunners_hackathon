@@ -29,7 +29,10 @@ export const ACTION_TIER: Record<ActionRequest['action'], Tier> = {
   dismiss_card: 0,
   switch_input_device: 1, // your own mic
   fix_mic: 1, // your own mic, at the Windows level
-  open_it_ticket: 1 // your own device facts, to your own IT
+  open_it_ticket: 1, // your own device facts, to your own IT
+  // Device facts only (no meeting content) to the company's own IT, for every call. Started only by the user's
+  // End call click (the CALL_ENDED intake runs it with provenance user), never by a detector or the AI.
+  send_call_report: 0
 }
 
 export const MATRIX: Record<Tier, Record<UserRole, Permission>> = {

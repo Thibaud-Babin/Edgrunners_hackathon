@@ -140,6 +140,8 @@ export const ActionRequest = z.discriminatedUnion('action', [
       why: Why
     })
     .strict(),
+  // End call (the user's click): the call's device health report (never speech) to the IT log.
+  z.object({ action: z.literal('send_call_report'), why: Why }).strict(),
   // The user's own device facts (never speech) to IT (T1, on click).
   z.object({ action: z.literal('open_it_ticket'), cardId: z.string().max(LIMITS.id), why: Why }).strict(),
   // The exact mic fix the card named (Windows level, so Meet hears it too). Only the user's click runs it.
